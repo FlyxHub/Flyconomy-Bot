@@ -1,0 +1,136 @@
+"""Banking, income, and leaderboard commands."""
+
+from __future__ import annotations
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from flyconomy import economy, embeds
+from flyconomy.bot import FlyconomyBot
+from flyconomy.cogs.base import BaseCog
+
+
+class Economy(BaseCog, name="Economy"):
+    """Wallet and bank management, passive income, and rankings."""
+
+    @commands.hybrid_command(name="balance", aliases=["bal"])  # type: ignore[arg-type]
+    @app_commands.describe(member="Whose balance to show. Defaults to you.")
+    async def balance(
+        self, ctx: commands.Context[FlyconomyBot], member: discord.Member | None = None
+    ) -> None:
+        """Check your balance."""
+        target = member or ctx.author
+        account = await self.db.get_account(target.id)
+        await ctx.send(embed=embeds.balance_embed(target, account, self.timezone))
+
+    @commands.hybrid_command(name="deposit", aliases=["dep"])  # type: ignore[arg-type]
+    @app_commands.describe(amount="Dollars to deposit. Defaults to your whole wallet.")
+    async def deposit(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        amount: commands.Range[int, 1] | None = None,
+    ) -> None:
+        """Deposit money from your wallet into your bank account."""
+        account = await self.db.get_account(ctx.author.id)
+        amount = amount or account.wallet
+        if not amount:
+            await ctx.send("Your wallet is empty, so there is nothing to deposit.")
+            return
+
+        await self.db.transfer(ctx.author.id, source="wallet", destination="bank", amount=amount)
+        await ctx.send(f"Successfully deposited {embeds.money(amount)}")
+
+    @commands.hybrid_command(name="withdraw")  # type: ignore[arg-type]
+    @app_commands.describe(amount="Dollars to withdraw. Defaults to your whole bank balance.")
+    async def withdraw(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        amount: commands.Range[int, 1] | None = None,
+    ) -> None:
+        """Withdraw money from your bank account into your wallet."""
+        account = await self.db.get_account(ctx.author.id)
+        amount = amount or account.bank
+        if not amount:
+            await ctx.send("Your bank account is empty, so there is nothing to withdraw.")
+            return
+
+        await self.db.transfer(ctx.author.id, source="bank", destination="wallet", amount=amount)
+        await ctx.send(f"Successfully withdrawn {embeds.money(amount)}")
+
+    @commands.hybrid_command(name="beg")  # type: ignore[arg-type]
+    @commands.cooldown(1, economy.BEG_COOLDOWN_SECONDS, commands.BucketType.user)
+    async def beg(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Beg the economy gods for a small amount of money."""
+        if self.rng.randint(1, economy.BEG_SUCCESS_ODDS) == 1:
+            await ctx.send("You got nothing.")
+            return
+
+        amount = self.rng.randint(economy.BEG_MIN, economy.BEG_MAX)
+        await self.db.add_wallet(ctx.author.id, amount)
+        await ctx.send(f"You got {embeds.money(amount)}")
+
+    @commands.hybrid_command(name="daily")  # type: ignore[arg-type]
+    @commands.cooldown(1, economy.DAILY_COOLDOWN_SECONDS, commands.BucketType.user)
+    async def daily(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Collect a daily payout worth 10% of your bank balance."""
+        account = await self.db.get_account(ctx.author.id)
+        payout = economy.daily_payout(account.bank)
+        if payout:
+            await self.db.add_bank(ctx.author.id, payout)
+        await ctx.send(f"You received your daily payout of **{embeds.money(payout)}**")
+
+    @commands.hybrid_command(name="rob")  # type: ignore[arg-type]
+    @commands.cooldown(1, economy.ROB_COOLDOWN_SECONDS, commands.BucketType.user)
+    @app_commands.describe(member="Whose wallet to rob.")
+    async def rob(self, ctx: commands.Context[FlyconomyBot], member: discord.Member) -> None:
+        """Attempt to rob someone for the money in their wallet."""
+        if member.id == ctx.author.id:
+            await ctx.send("You cannot rob yourself.")
+            ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
+            return
+
+        victim = await self.db.get_account(member.id)
+        if victim.wallet <= 0:
+            await ctx.send("You can't rob someone with no money in their wallet.")
+            ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
+            return
+
+        if self.rng.randint(1, economy.ROB_SUCCESS_ODDS) == 1:
+            await ctx.send("Robbery attempt failed. Try again in an hour.")
+            return
+
+        amount = self.rng.randint(1, victim.wallet)
+        await self.db.steal(ctx.author.id, member.id, amount)
+        await ctx.send(f"You robbed {embeds.money(amount)} from {member.mention}")
+
+    @commands.hybrid_command(name="leaderboard", aliases=["lb"])  # type: ignore[arg-type]
+    async def leaderboard(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Show the richest members by total net worth."""
+        entries = await self.db.top_net_worth()
+        await ctx.send(
+            embed=embeds.leaderboard_embed(
+                title=f"Top {economy.LEADERBOARD_SIZE} Richest Users",
+                description="Based on total net worth",
+                entries=entries,
+                timezone=self.timezone,
+            )
+        )
+
+    @commands.hybrid_command(name="wallets")  # type: ignore[arg-type]
+    async def wallets(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Show the largest undeposited wallets, which are the best robbery targets."""
+        entries = await self.db.top_wallets()
+        await ctx.send(
+            embed=embeds.leaderboard_embed(
+                title="Top undeposited wallets",
+                description="Cash left in a wallet can be stolen.",
+                entries=entries,
+                timezone=self.timezone,
+            )
+        )
+
+
+async def setup(bot: FlyconomyBot) -> None:
+    """Register the cog with the bot."""
+    await bot.add_cog(Economy(bot))

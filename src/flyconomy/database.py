@@ -1,0 +1,616 @@
+"""Persistence layer.
+
+The bot stores every member's balances in a single SQLite table named ``bank``.
+That table, including its column names and order, is inherited from version 1 of
+the bot and is preserved exactly so an existing ``bot.db`` keeps working. Schema
+changes are applied as numbered migrations tracked in SQLite's built-in
+``user_version`` pragma.
+
+All balance changes are expressed as relative SQL updates (``SET wallet = wallet
++ ?``) rather than a read in Python followed by a write. This makes each change
+atomic, so two commands running concurrently for the same member cannot lose an
+update the way the original read-modify-write helpers could.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final, Self
+
+import aiosqlite
+
+from flyconomy import economy
+from flyconomy.errors import InsufficientFundsError
+
+log = logging.getLogger(__name__)
+
+#: Schema version this build expects. Bump it and add a migration below.
+SCHEMA_VERSION: Final = 2
+
+#: Balance columns that may be adjusted. Values are interpolated into SQL, so
+#: every caller is checked against this set first.
+_BALANCE_COLUMNS: Final[frozenset[str]] = frozenset({"wallet", "bank", "crypto"})
+
+#: Cash columns that money can be moved between.
+_CASH_COLUMNS: Final[frozenset[str]] = frozenset({"wallet", "bank"})
+
+
+@dataclass(frozen=True, slots=True)
+class Account:
+    """A member's balances.
+
+    Attributes:
+        user_id: The member's Discord snowflake.
+        wallet: Undeposited cash, which other members can steal with ``rob``.
+        bank: Deposited cash, which is safe from theft.
+        crypto: Flyxcoin held.
+        miner: Miner level, where ``0`` means the member owns no miner.
+    """
+
+    user_id: int
+    wallet: int
+    bank: int
+    crypto: int
+    miner: int
+
+    @property
+    def net_worth(self) -> int:
+        """Total value of the account in dollars."""
+        return economy.net_worth(self.wallet, self.bank, self.crypto)
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderboardEntry:
+    """One row of a ranked listing.
+
+    Attributes:
+        user_id: The member's Discord snowflake.
+        amount: The ranked value in dollars.
+    """
+
+    user_id: int
+    amount: int
+
+
+class Database:
+    """An async wrapper around the bot's SQLite database.
+
+    Instances are created with :meth:`connect` and closed with :meth:`close`, or
+    used as an async context manager.
+    """
+
+    def __init__(self, connection: aiosqlite.Connection) -> None:
+        """Wrap an open connection. Prefer :meth:`connect`."""
+        self._db = connection
+        # A single connection cannot interleave transactions, so multi-statement
+        # operations take this lock to serialize themselves.
+        self._lock = asyncio.Lock()
+
+    # ------------------------------------------------------------ lifecycle --
+
+    @classmethod
+    async def connect(cls, path: Path) -> Self:
+        """Open the database, applying any pending migrations.
+
+        Args:
+            path: Location of the SQLite file. Parent directories are created.
+
+        Returns:
+            A ready-to-use database.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # isolation_level=None puts the driver in autocommit mode, which lets
+        # _transaction() control transaction boundaries explicitly.
+        connection = await aiosqlite.connect(path, isolation_level=None)
+        connection.row_factory = aiosqlite.Row
+
+        # WAL lets reads proceed during a write, and NORMAL is the durability
+        # level WAL is designed for.
+        await connection.execute("PRAGMA journal_mode = WAL")
+        await connection.execute("PRAGMA synchronous = NORMAL")
+        await connection.execute("PRAGMA foreign_keys = ON")
+
+        self = cls(connection)
+        try:
+            await self.migrate()
+        except BaseException:
+            # A half-open connection would keep the file locked and leak a
+            # thread, so fail cleanly instead.
+            await connection.close()
+            raise
+        return self
+
+    async def close(self) -> None:
+        """Close the underlying connection."""
+        await self._db.close()
+
+    async def __aenter__(self) -> Self:
+        """Enter the context manager."""
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        """Close the database on exit."""
+        await self.close()
+
+    @asynccontextmanager
+    async def _transaction(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Run a block inside one immediate transaction, rolling back on error."""
+        async with self._lock:
+            await self._db.execute("BEGIN IMMEDIATE")
+            try:
+                yield self._db
+            except BaseException:
+                await self._db.execute("ROLLBACK")
+                raise
+            await self._db.execute("COMMIT")
+
+    # ------------------------------------------------------------ migration --
+
+    async def migrate(self) -> None:
+        """Bring the schema up to :data:`SCHEMA_VERSION`.
+
+        Migrations are idempotent and forward-only. A database created by
+        version 1 of the bot starts at ``user_version = 0`` and is upgraded in
+        place without losing rows.
+
+        Raises:
+            RuntimeError: If the database was written by a newer build.
+        """
+        async with self._db.execute("PRAGMA user_version") as cursor:
+            row = await cursor.fetchone()
+        current: int = row[0] if row else 0
+
+        if current > SCHEMA_VERSION:
+            msg = (
+                f"database schema version {current} is newer than this build "
+                f"supports ({SCHEMA_VERSION}); upgrade the bot"
+            )
+            raise RuntimeError(msg)
+        if current == SCHEMA_VERSION:
+            log.debug("Schema is up to date at version %d", current)
+            return
+
+        log.info("Migrating schema from version %d to %d", current, SCHEMA_VERSION)
+        for version in range(current + 1, SCHEMA_VERSION + 1):
+            await _MIGRATIONS[version](self._db)
+            await self._db.execute(f"PRAGMA user_version = {version}")
+            log.info("Applied migration %d", version)
+
+    # ---------------------------------------------------------------- reads --
+
+    async def get_account(self, user_id: int) -> Account:
+        """Return a member's account, creating it with starting funds if new.
+
+        Args:
+            user_id: The member's Discord snowflake.
+
+        Returns:
+            The member's current balances.
+
+        Raises:
+            RuntimeError: If the account disappears between creation and read.
+        """
+        account = await self.find_account(user_id)
+        if account is not None:
+            return account
+
+        await self.ensure_account(user_id)
+        created = await self.find_account(user_id)
+        if created is None:  # pragma: no cover - only on a concurrent DELETE
+            msg = f"account {user_id} vanished immediately after creation"
+            raise RuntimeError(msg)
+        return created
+
+    async def find_account(self, user_id: int) -> Account | None:
+        """Return a member's account, or ``None`` when they have never played."""
+        async with self._db.execute(
+            "SELECT wallet, bank, crypto, miner FROM bank WHERE user = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return Account(
+            user_id=user_id,
+            wallet=row["wallet"],
+            bank=row["bank"],
+            crypto=row["crypto"],
+            miner=row["miner"],
+        )
+
+    async def ensure_account(self, user_id: int) -> None:
+        """Create an account with starting funds if the member has none."""
+        await self._db.execute(
+            "INSERT INTO bank (wallet, bank, crypto, miner, user) "
+            "VALUES (?, ?, 0, 0, ?) ON CONFLICT(user) DO NOTHING",
+            (economy.STARTING_WALLET, economy.STARTING_BANK, user_id),
+        )
+
+    async def total_crypto(self) -> int:
+        """Return the number of Flyxcoin in circulation across all accounts."""
+        async with self._db.execute(
+            "SELECT COALESCE(SUM(crypto), 0) AS total FROM bank WHERE crypto > 0"
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row["total"]) if row else 0
+
+    async def top_net_worth(self, limit: int = economy.LEADERBOARD_SIZE) -> list[LeaderboardEntry]:
+        """Return the richest members by net worth, highest first."""
+        return await self._ranked(f"wallet + bank + (crypto * {economy.FLX_PRICE})", limit=limit)
+
+    async def top_wallets(self, limit: int = economy.LEADERBOARD_SIZE) -> list[LeaderboardEntry]:
+        """Return the largest undeposited wallets, highest first."""
+        return await self._ranked("wallet", limit=limit)
+
+    async def _ranked(self, expression: str, limit: int) -> list[LeaderboardEntry]:
+        """Return the top ``limit`` accounts by a SQL ``expression``.
+
+        Args:
+            expression: A SQL expression over the ``bank`` columns. It is
+                interpolated into the query, so it must never come from user
+                input. Both call sites pass a module-level constant.
+            limit: Maximum rows to return.
+
+        Returns:
+            Ranked entries with a positive amount, highest first. Ties break on
+            user ID so the ordering is stable between calls.
+        """
+        # `expression` is a trusted module-level constant, never user input.
+        query = (
+            f"SELECT user, {expression} AS amount FROM bank "  # noqa: S608
+            f"WHERE {expression} > 0 ORDER BY amount DESC, user ASC LIMIT ?"
+        )
+        async with self._db.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+        return [LeaderboardEntry(user_id=row["user"], amount=row["amount"]) for row in rows]
+
+    # --------------------------------------------------------------- writes --
+
+    async def add_wallet(self, user_id: int, amount: int) -> None:
+        """Add ``amount`` dollars to a wallet. A negative amount debits it.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Signed dollar change.
+
+        Raises:
+            InsufficientFundsError: If the change would overdraw the wallet.
+        """
+        await self._adjust(user_id, column="wallet", amount=amount, currency="funds")
+
+    async def add_bank(self, user_id: int, amount: int) -> None:
+        """Add ``amount`` dollars to a bank balance. A negative amount debits it.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Signed dollar change.
+
+        Raises:
+            InsufficientFundsError: If the change would overdraw the bank balance.
+        """
+        await self._adjust(user_id, column="bank", amount=amount, currency="funds")
+
+    async def add_crypto(self, user_id: int, amount: int) -> None:
+        """Add ``amount`` Flyxcoin. A negative amount debits them.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Signed coin change.
+
+        Raises:
+            InsufficientFundsError: If the change would leave a negative balance.
+        """
+        await self._adjust(user_id, column="crypto", amount=amount, currency="Flyxcoin")
+
+    async def _adjust(self, user_id: int, *, column: str, amount: int, currency: str) -> None:
+        """Apply a relative change to one balance column.
+
+        The non-negative guard is part of the UPDATE statement, so a concurrent
+        command cannot slip a debit past a balance check.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            column: One of ``wallet``, ``bank``, or ``crypto``.
+            amount: Signed change to apply.
+            currency: Name used in the error message when the change is refused.
+
+        Raises:
+            InsufficientFundsError: If the change would leave a negative balance.
+            ValueError: If ``column`` is not a balance column.
+        """
+        if column not in _BALANCE_COLUMNS:
+            msg = f"unsupported balance column: {column!r}"
+            raise ValueError(msg)
+
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            cursor = await db.execute(
+                # `column` is validated against _BALANCE_COLUMNS above.
+                f"UPDATE bank SET {column} = {column} + ? WHERE user = ? AND {column} + ? >= 0",  # noqa: S608
+                (amount, user_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(
+                    await self._read_column(db, user_id, column), abs(amount), currency
+                )
+
+    @staticmethod
+    async def _read_column(db: aiosqlite.Connection, user_id: int, column: str) -> int:
+        """Read one already-validated balance column, defaulting to zero.
+
+        Args:
+            db: Connection to read on, so the read joins the open transaction.
+            user_id: The member's Discord snowflake.
+            column: A column name that the caller has already validated.
+
+        Returns:
+            The current balance, or ``0`` when the account is missing.
+        """
+        async with db.execute(
+            # `column` is validated by the caller against _BALANCE_COLUMNS.
+            f"SELECT {column} AS balance FROM bank WHERE user = ?",  # noqa: S608
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row["balance"]) if row else 0
+
+    async def transfer(self, user_id: int, *, source: str, destination: str, amount: int) -> None:
+        """Move money between a member's own wallet and bank.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            source: Column to debit, ``"wallet"`` or ``"bank"``.
+            destination: Column to credit, ``"wallet"`` or ``"bank"``.
+            amount: Dollars to move. Must not be negative.
+
+        Raises:
+            InsufficientFundsError: If the source balance is too small.
+            ValueError: If ``amount`` is negative or a column is not cash.
+        """
+        if amount < 0:
+            msg = "transfer amount must not be negative"
+            raise ValueError(msg)
+        if not {source, destination} <= _CASH_COLUMNS:
+            msg = f"unsupported cash columns: {source!r} -> {destination!r}"
+            raise ValueError(msg)
+
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            cursor = await db.execute(
+                # Both columns are validated against _CASH_COLUMNS above.
+                f"UPDATE bank SET {source} = {source} - ?, {destination} = {destination} + ? "  # noqa: S608
+                f"WHERE user = ? AND {source} >= ?",
+                (amount, amount, user_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(await self._read_column(db, user_id, source), amount)
+
+    async def transfer_crypto(self, sender_id: int, recipient_id: int, amount: int) -> None:
+        """Move Flyxcoin from one member to another.
+
+        Args:
+            sender_id: Member sending the coins.
+            recipient_id: Member receiving them.
+            amount: Coins to send. Must be positive.
+
+        Raises:
+            InsufficientFundsError: If the sender holds too few coins.
+            ValueError: If ``amount`` is not positive.
+        """
+        if amount <= 0:
+            msg = "transfer amount must be positive"
+            raise ValueError(msg)
+
+        async with self._transaction() as db:
+            await self.ensure_account(sender_id)
+            await self.ensure_account(recipient_id)
+            cursor = await db.execute(
+                "UPDATE bank SET crypto = crypto - ? WHERE user = ? AND crypto >= ?",
+                (amount, sender_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(
+                    await self._read_column(db, sender_id, "crypto"), amount, "Flyxcoin"
+                )
+            await db.execute(
+                "UPDATE bank SET crypto = crypto + ? WHERE user = ?", (amount, recipient_id)
+            )
+
+    async def steal(self, thief_id: int, victim_id: int, amount: int) -> None:
+        """Move wallet cash from a victim to a thief in one transaction.
+
+        Args:
+            thief_id: Member receiving the cash.
+            victim_id: Member losing it.
+            amount: Dollars to move. Must be positive.
+
+        Raises:
+            InsufficientFundsError: If the victim's wallet is too small.
+            ValueError: If ``amount`` is not positive.
+        """
+        if amount <= 0:
+            msg = "stolen amount must be positive"
+            raise ValueError(msg)
+
+        async with self._transaction() as db:
+            await self.ensure_account(thief_id)
+            await self.ensure_account(victim_id)
+            cursor = await db.execute(
+                "UPDATE bank SET wallet = wallet - ? WHERE user = ? AND wallet >= ?",
+                (amount, victim_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(
+                    await self._read_column(db, victim_id, "wallet"), amount
+                )
+            await db.execute(
+                "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (amount, thief_id)
+            )
+
+    async def buy_miner_upgrade(self, user_id: int, cost: int) -> int:
+        """Charge a member's bank balance and raise their miner one level.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            cost: Dollars to charge against the bank balance.
+
+        Returns:
+            The new miner level.
+
+        Raises:
+            InsufficientFundsError: If the bank balance is too small.
+        """
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            cursor = await db.execute(
+                "UPDATE bank SET bank = bank - ?, miner = miner + 1 WHERE user = ? AND bank >= ?",
+                (cost, user_id, cost),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(await self._read_column(db, user_id, "bank"), cost)
+            return await self._read_column(db, user_id, "miner")
+
+    async def buy_crypto(self, user_id: int, amount: int) -> int:
+        """Exchange bank dollars for Flyxcoin at :data:`economy.FLX_PRICE`.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Coins to buy. Must be positive.
+
+        Returns:
+            The dollar cost that was charged.
+
+        Raises:
+            InsufficientFundsError: If the bank balance is too small.
+            ValueError: If ``amount`` is not positive.
+        """
+        if amount <= 0:
+            msg = "purchase amount must be positive"
+            raise ValueError(msg)
+        cost = economy.flx_cost(amount)
+
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            cursor = await db.execute(
+                "UPDATE bank SET bank = bank - ?, crypto = crypto + ? WHERE user = ? AND bank >= ?",
+                (cost, amount, user_id, cost),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(await self._read_column(db, user_id, "bank"), cost)
+        return cost
+
+    async def sell_crypto(self, user_id: int, amount: int) -> int:
+        """Exchange Flyxcoin for bank dollars at :data:`economy.FLX_PRICE`.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Coins to sell. Must be positive.
+
+        Returns:
+            The dollar amount credited to the bank.
+
+        Raises:
+            InsufficientFundsError: If the member holds too few coins.
+            ValueError: If ``amount`` is not positive.
+        """
+        if amount <= 0:
+            msg = "sale amount must be positive"
+            raise ValueError(msg)
+        proceeds = economy.flx_cost(amount)
+
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            cursor = await db.execute(
+                "UPDATE bank SET crypto = crypto - ?, bank = bank + ? "
+                "WHERE user = ? AND crypto >= ?",
+                (amount, proceeds, user_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(
+                    await self._read_column(db, user_id, "crypto"), amount, "Flyxcoin"
+                )
+        return proceeds
+
+    async def set_miner_level(self, user_id: int, level: int) -> None:
+        """Set a member's miner level outright. Used by owner-only commands."""
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            await db.execute("UPDATE bank SET miner = ? WHERE user = ?", (level, user_id))
+
+    async def delete_account(self, user_id: int) -> bool:
+        """Delete a member's account.
+
+        Args:
+            user_id: The member's Discord snowflake.
+
+        Returns:
+            ``True`` if a row was removed, ``False`` if there was nothing to delete.
+        """
+        async with self._transaction() as db:
+            cursor = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
+            return cursor.rowcount > 0
+
+
+# ------------------------------------------------------------- migrations ----
+
+
+async def _migration_1_base_schema(db: aiosqlite.Connection) -> None:
+    """Create the ``bank`` table.
+
+    The DDL matches version 1 of the bot exactly, so this is a no-op against a
+    database that the original single-file bot created.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS bank"
+        "(wallet INTEGER, bank INTEGER, crypto INTEGER, miner INTEGER, user INTEGER)"
+    )
+
+
+async def _migration_2_unique_user(db: aiosqlite.Connection) -> None:
+    """Give ``bank.user`` a unique index, merging any duplicate rows first.
+
+    Version 1 had no uniqueness constraint, and its account-creation path could
+    insert a second row for the same member. Duplicates are merged rather than
+    dropped: cash and coins are summed and the highest miner level is kept, so
+    nobody loses a balance. The index is what makes ``INSERT ... ON CONFLICT``
+    and the ranked queries correct.
+    """
+    async with db.execute("SELECT user FROM bank GROUP BY user HAVING COUNT(*) > 1") as cursor:
+        duplicates: Sequence[aiosqlite.Row] = list(await cursor.fetchall())
+
+    for row in duplicates:
+        user_id = row["user"]
+        log.warning("Merging duplicate rows for user %s", user_id)
+        async with db.execute(
+            "SELECT COALESCE(SUM(wallet), 0) AS wallet, COALESCE(SUM(bank), 0) AS bank, "
+            "COALESCE(SUM(crypto), 0) AS crypto, COALESCE(MAX(miner), 0) AS miner "
+            "FROM bank WHERE user = ?",
+            (user_id,),
+        ) as merged_cursor:
+            merged = await merged_cursor.fetchone()
+        if merged is None:  # pragma: no cover - an aggregate always returns a row
+            continue
+        await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
+        await db.execute(
+            "INSERT INTO bank (wallet, bank, crypto, miner, user) VALUES (?, ?, ?, ?, ?)",
+            (merged["wallet"], merged["bank"], merged["crypto"], merged["miner"], user_id),
+        )
+
+    # Rows written before this migration may hold NULL balances if the original
+    # bot was interrupted mid-insert. Normalize them so arithmetic is safe.
+    await db.execute(
+        "UPDATE bank SET wallet = COALESCE(wallet, 0), bank = COALESCE(bank, 0), "
+        "crypto = COALESCE(crypto, 0), miner = COALESCE(miner, 0)"
+    )
+    await db.execute("DELETE FROM bank WHERE user IS NULL")
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_user ON bank(user)")
+
+
+_MIGRATIONS: Final = {
+    1: _migration_1_base_schema,
+    2: _migration_2_unique_user,
+}

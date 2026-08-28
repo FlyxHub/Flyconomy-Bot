@@ -1,0 +1,40 @@
+# Production deployment for Linux hosts.
+#
+#   docker compose up -d          Start in the background
+#   docker compose logs -f        Follow the logs
+#   docker compose pull && docker compose up -d --build   Upgrade
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: flyconomy-bot:latest
+    container_name: flyconomy-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Overrides .env so the database always lands on the volume below.
+      FLYCONOMY_DATABASE_PATH: /data/bot.db
+    volumes:
+      - flyconomy-data:/data
+    # The bot only makes outbound connections, so it needs no published ports.
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  flyconomy-data:
+    driver: local
