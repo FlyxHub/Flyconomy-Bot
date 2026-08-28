@@ -39,9 +39,9 @@ VOLUME ["/data"]
 USER flyconomy
 WORKDIR /home/flyconomy
 
-# The bot holds a websocket to Discord; if that drops for good the client exits,
-# so "is the process alive" is a meaningful health signal.
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)"
+# No HEALTHCHECK: the bot exposes no endpoint to probe, and a check that only
+# proves the container can start a second Python process would report healthy
+# while the gateway connection was dead. The client exits when the connection is
+# lost for good, so Compose's restart policy is the honest signal.
 
 ENTRYPOINT ["python", "-m", "flyconomy"]

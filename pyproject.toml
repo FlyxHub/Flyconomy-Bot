@@ -82,6 +82,7 @@ ignore = [
 "tests/*" = [
     "S101",    # asserts are the point of a test
     "S105",    # placeholder tokens in fixtures are not secrets
+    "S106",    # ...including when passed as an argument
     "S311",    # seeded random sources make outcomes deterministic
     "D",       # the test name is the documentation
     "ANN",     # fixtures and parameters are typed by pytest
@@ -108,6 +109,14 @@ plugins = ["pydantic.mypy"]
 module = ["tests.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+# These modules drive the command callbacks with deliberate stand-ins for the
+# bot and the invocation context, and reach through discord.py's decorators to
+# call `.callback` directly, which mypy resolves as taking Never. Everything
+# else in the suite stays strictly checked.
+module = ["tests.test_cog_behavior", "tests.test_admin_and_startup"]
+disable_error_code = ["arg-type", "call-arg", "unreachable", "attr-defined"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

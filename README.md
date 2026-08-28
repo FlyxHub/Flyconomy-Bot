@@ -371,11 +371,21 @@ python -m pytest
 ### Run a single test
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_economy.py::test_roulette_wheel_has_38_pockets
+.\.venv\Scripts\python.exe -m pytest tests/test_economy.py::TestRoulette -q
+.\.venv\Scripts\python.exe -m pytest -k roulette -q
 ```
 
-Pass `-k` to select tests by name, such as
-`python -m pytest -k roulette`.
+The suite is organized by concern:
+
+| File | Covers |
+| --- | --- |
+| `test_economy.py` | The pure rules: payouts, mine odds, the roulette wheel. |
+| `test_database.py` | Balances, transfers, and concurrency guarantees. |
+| `test_migrations.py` | Upgrading a real version 1 database without losing data. |
+| `test_commands.py` | That every version 1 command and alias still registers. |
+| `test_cog_behavior.py` | The command bodies, against a real database. |
+| `test_admin_and_startup.py` | Owner commands, logging, and process exit codes. |
+| `test_config.py`, `test_bot.py` | Settings validation and error message translation. |
 
 ### Add a command
 
