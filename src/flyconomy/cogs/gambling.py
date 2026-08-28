@@ -11,9 +11,10 @@ from __future__ import annotations
 from discord import app_commands
 from discord.ext import commands
 
-from flyconomy import economy, embeds
+from flyconomy import blackjack, economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
+from flyconomy.views import BlackjackView
 
 _ROULETTE_HELP = (
     "Bet on `red`, `black`, or a single pocket (`0`, `00`, or `1`-`36`). "
@@ -135,6 +136,32 @@ class Gambling(BaseCog, name="Casino"):
 
         await self._settle(ctx, bet, multiplier)
         await ctx.send(f"[ {window} ]\n{headline} You win **{embeds.money(bet * multiplier)}**")
+
+    @commands.hybrid_command(name="blackjack", aliases=["bj"])  # type: ignore[arg-type]
+    @app_commands.describe(bet="Dollars to stake.")
+    async def blackjack_command(
+        self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
+    ) -> None:
+        """Play a hand of blackjack against the dealer. A natural pays 3:2."""
+        await self.db.add_wallet(ctx.author.id, -bet)
+        game = blackjack.Game.deal(bet, self.rng)
+
+        view = BlackjackView(
+            db=self.db,
+            game=game,
+            player=ctx.author,
+            base_bet=bet,
+            timezone=self.timezone,
+        )
+
+        # A natural for either side decides the hand on the deal, so there is
+        # nothing to press and the buttons never appear.
+        if game.finished:
+            await view.settle()
+            await ctx.send(embed=view.embed())
+            return
+
+        view.message = await ctx.send(embed=view.embed(), view=view)
 
     @commands.hybrid_command(name="war")  # type: ignore[arg-type]
     @app_commands.describe(bet="Dollars to stake.")

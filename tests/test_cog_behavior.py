@@ -51,19 +51,39 @@ class FakeCommand:
 
 
 @dataclass
+class FakeMessage:
+    """A stand-in for the message a command posted, which a view later edits."""
+
+    embed: Any = None
+    view: Any = None
+    edits: int = 0
+
+    async def edit(self, *, embed: Any = None, view: Any = None) -> None:
+        self.embed = embed
+        self.view = view
+        self.edits += 1
+
+
+@dataclass
 class FakeContext:
     """Captures what a command sent instead of talking to Discord."""
 
     author: FakeUser
     sent: list[str] = field(default_factory=list)
     embeds: list[Any] = field(default_factory=list)
+    views: list[Any] = field(default_factory=list)
     command: FakeCommand = field(default_factory=FakeCommand)
 
-    async def send(self, content: str | None = None, *, embed: Any = None, **_: Any) -> None:
+    async def send(
+        self, content: str | None = None, *, embed: Any = None, view: Any = None, **_: Any
+    ) -> FakeMessage:
         if content is not None:
             self.sent.append(content)
         if embed is not None:
             self.embeds.append(embed)
+        if view is not None:
+            self.views.append(view)
+        return FakeMessage(embed=embed, view=view)
 
     @property
     def last(self) -> str:

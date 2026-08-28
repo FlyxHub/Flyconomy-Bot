@@ -6,13 +6,15 @@ one place that decides what a balance or an error looks like.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import economy
+from flyconomy import blackjack, economy
 from flyconomy.database import Account, LeaderboardEntry
+from flyconomy.economy import Card
 
 #: The bot's brand color, carried over from version 1.
 BRAND_COLOR = discord.Color(0x13FF00)
@@ -119,3 +121,88 @@ def circulation_embed(total: int, timezone: str) -> discord.Embed:
 def error_embed(message: str) -> discord.Embed:
     """Build the embed used for refusals and unexpected failures."""
     return discord.Embed(description=message, color=ERROR_COLOR)
+
+
+def hand(cards: Sequence[Card]) -> str:
+    """Render a hand of cards as ``A♠ 10♥``."""
+    return " ".join(str(card) for card in cards)
+
+
+def blackjack_result_line(game: blackjack.Game) -> str:
+    """Describe how a finished hand ended, and what it paid.
+
+    Args:
+        game: A finished hand.
+
+    Returns:
+        One line for the embed footer field.
+
+    Raises:
+        ValueError: If the hand has not finished.
+    """
+    if game.outcome is None:
+        msg = "the hand is still in play"
+        raise ValueError(msg)
+
+    won = blackjack.payout(game.stake, game.outcome)
+    match game.outcome:
+        case blackjack.Outcome.PLAYER_BLACKJACK:
+            return f"**Blackjack!** You win {money(won)}"
+        case blackjack.Outcome.DEALER_BUST:
+            return f"Dealer busts. You win {money(won)}"
+        case blackjack.Outcome.PLAYER_WINS:
+            return f"You win {money(won)}"
+        case blackjack.Outcome.PUSH:
+            return f"Push. Your {money(game.stake)} is returned."
+        case blackjack.Outcome.PLAYER_BUST:
+            return f"Bust. You lose {money(game.stake)}"
+        case _:
+            return f"Dealer wins. You lose {money(game.stake)}"
+
+
+def blackjack_embed(game: blackjack.Game, user: discord.abc.User, timezone: str) -> discord.Embed:
+    """Build the embed for a hand of blackjack.
+
+    The dealer's second card stays face down until the hand is decided, so the
+    embed is safe to post while the player is still choosing.
+
+    Args:
+        game: The hand, finished or in play.
+        user: The player.
+        timezone: IANA timezone for the embed timestamp.
+
+    Returns:
+        A populated embed.
+    """
+    finished = game.finished
+    if finished:
+        colour = ERROR_COLOR if game.outcome is not None and game.outcome.is_loss else BRAND_COLOR
+    else:
+        colour = BRAND_COLOR
+
+    embed = discord.Embed(
+        title=f"Blackjack - {user.display_name}",
+        color=colour,
+        timestamp=now(timezone),
+    )
+
+    if finished:
+        dealer_line = f"{hand(game.dealer)}  (**{game.dealer_value}**)"
+    else:
+        # Only the upcard is public while the player is still deciding.
+        dealer_line = f"{game.dealer_upcard} ??"
+    embed.add_field(name="Dealer", value=dealer_line, inline=False)
+
+    player_line = f"{hand(game.player)}  (**{game.player_value}**)"
+    if not finished and blackjack.is_soft(game.player):
+        player_line += "  *soft*"
+    embed.add_field(name="You", value=player_line, inline=False)
+
+    stake_label = "Stake (doubled)" if game.doubled else "Stake"
+    embed.add_field(name=stake_label, value=money(game.stake), inline=True)
+
+    if finished:
+        embed.add_field(name="Result", value=blackjack_result_line(game), inline=False)
+    else:
+        embed.set_footer(text="Hit, stand, or double down.")
+    return embed

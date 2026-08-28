@@ -32,13 +32,15 @@ Run a single test with the venv interpreter directly:
 ## Architecture
 
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
-`database.py`, with `economy.py` holding the rules and `config.py` the settings.
+`database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
+buttons, and `config.py` the settings.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
 
-1. **`economy.py` imports nothing from `discord`.** Every tunable number and every pure rule
-   (mine odds, roulette payouts, RPS outcomes) lives there and is unit tested without a gateway.
-   New game logic goes here, not in a cog.
+1. **The rules modules import nothing from `discord`.** Every tunable number and every pure rule
+   lives in `economy.py`, or in `blackjack.py` for that one ruleset, and is unit tested without a
+   gateway. New game logic goes there, not in a cog. A ruleset big enough to carry its own types
+   earns its own module beside them; anything smaller belongs in `economy.py`.
 
 2. **Money moves in SQL, never read-modify-write in Python.** Every balance change is a relative
    update with the guard in its own `WHERE` clause:
@@ -78,6 +80,11 @@ is lost. Keep that passing.
 - **Owner commands stay prefix-only** (`@commands.command` in `cogs/admin.py`). A slash command is
   published to every member, including those who can't run it. `$sync` republishes the tree.
 - **`self.rng`** on `BaseCog` is the random source for game outcomes, so tests can seed it.
+- **Interactive components** live in `views.py`. Keep the button callbacks trivial: each one calls an
+  `apply_*` coroutine that takes no `Interaction`, then redraws. That split is what lets
+  `tests/test_views.py` drive a whole hand against a real database with no gateway. A view that
+  moves money must be idempotent — a click and a timeout can both reach it, so `BlackjackView.settle`
+  guards with a `_settled` flag.
 - Each cog decorator carries `# type: ignore[arg-type]`: discord.py's hybrid decorators are typed for
   pyright and mypy infers `Never` parameters. The ignores are narrow on purpose — mypy runs strict.
 
@@ -92,10 +99,12 @@ These look like bugs but are deliberate, carried over so the economy doesn't shi
 - **`always_mine_user_ids`** exists because version 1 hardcoded one Discord user ID for guaranteed
   mining. It's now a config setting rather than a literal in the source.
 
-Games added since the rewrite (`slots`, `war`) instead carry a **deliberate, documented house
-edge**, verified by enumerating every outcome rather than by sampling: `test_economy.py` walks
-all 216 slot spins and all 2,652 war hands and asserts the exact return. Retuning a payout
-fails those tests until the expected value is updated in both the test and the README.
+Games added since the rewrite carry a **deliberate, documented house edge**. Where the outcome
+space is small enough, the tests enumerate it rather than sampling: `test_economy.py` walks all 216
+slot spins and all 2,652 war hands and asserts the exact return. Blackjack's edge depends on player
+strategy, so `test_blackjack.py` bounds it by simulation across several strategies instead of
+asserting one figure. Retuning a payout fails those tests until the expected value is updated in
+both the test and the README.
 
 What was *not* preserved is listed in the README's "What changed in version 2" table — off-by-one
 mine odds, the missing `00` pocket, negative bets, and robbing yourself were all fixed.

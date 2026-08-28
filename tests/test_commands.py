@@ -39,6 +39,7 @@ V1_OWNER_COMMANDS = ("adminme", "adminmine", "reset")
 #: Games added after version 1. Kept separate so the assertions above stay a
 #: statement about what the rewrite preserved.
 ADDED_COMMANDS = {
+    "blackjack": ("bj",),
     "slots": ("slot",),
     "war": (),
 }

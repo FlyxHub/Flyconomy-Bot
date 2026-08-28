@@ -18,6 +18,7 @@ classic prefix command, such as `$balance`.
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
 - [Economy reference](#economy-reference)
+  - [Blackjack](#blackjack)
   - [Slot machine paytable](#slot-machine-paytable)
 - [Develop and test](#develop-and-test)
 - [Architecture](#architecture)
@@ -32,8 +33,9 @@ classic prefix command, such as `$balance`.
   their bank balance, or rob another member's wallet.
 - **Flyxcoin.** Members buy a miner, upgrade it to improve their odds, mine
   hourly, and buy, sell, or send coins.
-- **Casino.** Slot machine, card war, coin flip, rock paper scissors, dice,
-  and American roulette.
+- **Casino.** Blackjack with hit, stand, and double-down buttons, plus a slot
+  machine, card war, coin flip, rock paper scissors, dice, and American
+  roulette.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
 
 ## Before you begin
@@ -296,6 +298,7 @@ Every game stakes money from your wallet.
 | `rps <rock\|paper\|scissors> <bet>` | Returns 3x your stake on a win, and refunds your stake on a tie. |
 | `dice <1-6> <bet>` | Returns 6x your stake on a correct call. |
 | `roulette <red\|black\|0-36\|00> <bet>` | Returns 2x on a color and 35x on a single pocket. |
+| `blackjack <bet>` | Deals a hand against the dealer, with buttons to hit, stand, or double down. Alias: `bj`. |
 | `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 
@@ -351,6 +354,7 @@ below if you win. The profit column is what you gain overall.
 | Roulette, color | 18 in 38 | 2x stake | 1x stake | 5.26% |
 | Roulette, single pocket | 1 in 38 | 35x stake | 34x stake | 7.89% |
 | Rock paper scissors | 1 in 3, plus a 1 in 3 refunded tie | 3x stake | 2x stake | **-33.33%** |
+| Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.4% to 15.8% |
 
 House edge is the share of each staked dollar the bot keeps on average. A
 negative figure means the game pays players more than its odds justify.
@@ -359,6 +363,40 @@ Rock paper scissors is the outlier: it returns 3x on a one-in-three win, so
 players gain a third of everything they stake on it. That carries over from
 version 1 unchanged rather than being rebalanced without asking. To change it,
 edit `RPS_RETURN` in `src/flyconomy/economy.py`; nothing else needs to change.
+
+### Blackjack
+
+`blackjack <bet>` deals two cards to you and two to the dealer, one of them face
+down, then posts **Hit**, **Stand**, and **Double Down** buttons. Only the member
+who was dealt the hand can press them. If nobody acts within 90 seconds, the hand
+stands automatically and still pays out, so a stake is never stranded.
+
+House rules, all of which are the player-friendly variants:
+
+| Rule | This table |
+| --- | --- |
+| Dealer on 17 | Stands on every 17, soft ones included |
+| Natural blackjack | Pays 3:2 |
+| Double down | Allowed on the opening two cards only, for one more card |
+| Tie | Pushes, and your stake is returned |
+| Splitting | Not offered |
+
+Doubling down debits a second stake equal to your first. If your wallet cannot
+cover it, the hand is left untouched rather than dealt a free card.
+
+Blackjack is the only game here whose house edge depends on how you play, so
+there is no single figure to quote. Measured over 300,000 hands against this
+ruleset:
+
+| How you play | House edge |
+| --- | --- |
+| Stand on everything | 15.8% |
+| Copy the dealer, hitting below 17 | 6.1% |
+| Simple basic strategy | 3.1% |
+| Simple basic strategy, doubling on 9 to 11 | 1.4% |
+
+Played well, blackjack is the best bet in the casino. Played badly, it is the
+worst. That is the point of it.
 
 ### Slot machine paytable
 
@@ -416,6 +454,8 @@ The suite is organized by concern:
 | `test_database.py` | Balances, transfers, and concurrency guarantees. |
 | `test_migrations.py` | Upgrading a real version 1 database without losing data. |
 | `test_commands.py` | That every version 1 command and alias still registers. |
+| `test_blackjack.py` | The blackjack ruleset: hand values, soft aces, dealer policy, payouts. |
+| `test_views.py` | The blackjack buttons, ownership, timeout, and settlement. |
 | `test_cog_behavior.py` | The command bodies, against a real database. |
 | `test_admin_and_startup.py` | Owner commands, logging, and process exit codes. |
 | `test_config.py`, `test_bot.py` | Settings validation and error message translation. |
@@ -447,10 +487,12 @@ src/flyconomy/
 ├── bot.py            The client: extension loading, slash command sync, error handling
 ├── config.py         Settings, validated from the environment
 ├── database.py       SQLite access and schema migrations
+├── blackjack.py      The blackjack ruleset, also free of any discord import
 ├── economy.py        Every tunable number and the pure rules that use them
 ├── embeds.py         Message and embed builders
 ├── errors.py         Exceptions the bot raises deliberately
 ├── logging_config.py Logging setup
+├── views.py          Interactive buttons, currently the blackjack table
 └── cogs/             One module per command group
 ```
 
@@ -513,7 +555,7 @@ changed on purpose.
 | Change | Reason |
 | --- | --- |
 | Commands work as slash commands as well as `$` prefix commands. | Discord's preferred interface, and it gives members argument hints. |
-| Two games were added: `slots` and `war`. | The casino had no jackpot game and no game with a push. Both are documented in the payout table above. |
+| Three games were added: `blackjack`, `slots`, and `war`. | The casino had no game of skill, no jackpot game, and no game with a push. All three are documented in the payout tables above. |
 | Mining odds at levels 2 through 5 are now 5%, 10%, 15%, and 20%. | Version 1 tested `randint(1, 100) in range(1, 5)`, which is 4%, not the 5% it announced. Every level was short by one point. The odds now match what the bot has always claimed. |
 | Roulette has a real `00` pocket. | Python reads the literal `00` as `0`, so version 1's wheel held two `0` pockets and no `00`. Betting on `0` paid at double the correct rate. |
 | Negative bets are rejected. | Version 1 compared `bet > wallet` and then subtracted the bet, so a negative bet added money to the wallet. |

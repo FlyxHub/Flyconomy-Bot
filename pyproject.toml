@@ -115,8 +115,16 @@ disallow_incomplete_defs = false
 # bot and the invocation context, and reach through discord.py's decorators to
 # call `.callback` directly, which mypy resolves as taking Never. Everything
 # else in the suite stays strictly checked.
-module = ["tests.test_cog_behavior", "tests.test_admin_and_startup"]
-disable_error_code = ["arg-type", "call-arg", "unreachable", "attr-defined"]
+module = ["tests.test_cog_behavior", "tests.test_admin_and_startup", "tests.test_views"]
+disable_error_code = [
+    "arg-type",
+    "call-arg",
+    "unreachable",
+    "attr-defined",
+    "operator",     # reaching through discord.ui decorators to a callback
+    "assignment",   # assigning stand-ins where a discord type is declared
+    "union-attr",   # ...and then reading the stand-in back
+]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
