@@ -62,6 +62,16 @@ ROULETTE_COLOR_RETURN: Final = 2
 #: Fraction of the bank balance paid out by the ``daily`` command.
 DAILY_PAYOUT_RATE: Final = 0.10
 
+#: Ceiling on a single ``daily`` claim, in dollars.
+#:
+#: This is what keeps a season from hyperinflating. A percentage of the bank
+#: compounds, and 10% a day is a factor of 1.28e15 over a year, which is more
+#: money than the rest of the economy can produce by fifteen orders of
+#: magnitude. Capping the claim leaves the rate intact while the bank is small,
+#: so early play feels the same, then flattens growth to a straight line. Every
+#: other source is already linear, and linear cannot run away inside a season.
+DAILY_PAYOUT_CAP: Final = 10_000
+
 #: Inclusive bounds on a successful ``beg``.
 BEG_MIN: Final = 1
 BEG_MAX: Final = 100
@@ -213,9 +223,18 @@ def affordable_flx(bank: int) -> int:
     return bank // FLX_PRICE
 
 
-def daily_payout(bank: int) -> int:
-    """Return the ``daily`` command's payout for a given bank balance."""
-    return int(bank * DAILY_PAYOUT_RATE)
+def daily_payout(bank: int, cap: int | None = None) -> int:
+    """Return the ``daily`` command's payout for a given bank balance.
+
+    Args:
+        bank: The member's current bank balance.
+        cap: Ceiling on the claim. Defaults to :data:`DAILY_PAYOUT_CAP`.
+
+    Returns:
+        A tenth of the bank, never more than the cap.
+    """
+    ceiling = DAILY_PAYOUT_CAP if cap is None else cap
+    return min(int(bank * DAILY_PAYOUT_RATE), ceiling)
 
 
 def upgrade_cost(miner_level: int) -> int | None:

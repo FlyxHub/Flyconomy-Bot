@@ -58,7 +58,11 @@ class Gambling(BaseCog, name="Casino"):
         await self.db.add_wallet(ctx.author.id, -bet)
 
     async def _settle(self, ctx: commands.Context[FlyconomyBot], bet: int, multiplier: int) -> None:
-        """Credit a win, if there is one.
+        """Credit a win if there is one, and rake the house's take into the pot.
+
+        Every game calls this exactly once per wager, including on a loss with a
+        multiplier of zero, so the rake sees the full picture rather than only
+        the losses.
 
         Args:
             ctx: Invocation context, used to identify the player.
@@ -67,6 +71,7 @@ class Gambling(BaseCog, name="Casino"):
         """
         if multiplier:
             await self.db.add_wallet(ctx.author.id, bet * multiplier)
+        await self.rake(bet - bet * multiplier)
 
     @commands.hybrid_command(name="coinflip", aliases=["cf"])  # type: ignore[arg-type]
     @app_commands.describe(guess="Which side you are betting on.", bet="Dollars to stake.")
@@ -92,6 +97,7 @@ class Gambling(BaseCog, name="Casino"):
             await self._settle(ctx, bet, economy.COINFLIP_RETURN)
             await ctx.send(f"It's **{flip}**. You win **{embeds.money(bet * 2)}**")
         else:
+            await self._settle(ctx, bet, 0)
             await ctx.send(f"It's **{flip}**, you lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="rps")  # type: ignore[arg-type]
@@ -130,6 +136,7 @@ class Gambling(BaseCog, name="Casino"):
                     f"You win **{embeds.money(bet * economy.RPS_RETURN)}!**"
                 )
             case _:
+                await self._settle(ctx, bet, 0)
                 await ctx.send(f"The bot chose **{bot_move}**. You lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="dice")  # type: ignore[arg-type]
@@ -148,6 +155,7 @@ class Gambling(BaseCog, name="Casino"):
             await self._settle(ctx, bet, economy.DICE_RETURN)
             await ctx.send(f"You rolled a **{roll}**. You win **{embeds.money(bet * 6)}**")
         else:
+            await self._settle(ctx, bet, 0)
             await ctx.send(f"You rolled a **{roll}**. You lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="slots", aliases=["slot"])  # type: ignore[arg-type]
@@ -160,6 +168,7 @@ class Gambling(BaseCog, name="Casino"):
 
         window = " ".join(symbol.emoji for symbol in reels)
         if not multiplier:
+            await self._settle(ctx, bet, 0)
             await ctx.send(f"[ {window} ]\nNo match. You lose **{embeds.money(bet)}**")
             return
 
@@ -188,6 +197,7 @@ class Gambling(BaseCog, name="Casino"):
             player=ctx.author,
             base_bet=bet,
             timezone=self.timezone,
+            rake=self.settings.lottery_rake,
         )
 
         # A natural for either side decides the hand on the deal, so there is
@@ -216,6 +226,7 @@ class Gambling(BaseCog, name="Casino"):
                 await self._settle(ctx, bet, multiplier)
                 await ctx.send(f"{draw} It's a tie, so your {embeds.money(bet)} is returned.")
             case _:
+                await self._settle(ctx, bet, 0)
                 await ctx.send(f"{draw} You lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="roulette")  # type: ignore[arg-type]
@@ -244,6 +255,7 @@ class Gambling(BaseCog, name="Casino"):
                 f"you won **{embeds.money(amount * multiplier)}**"
             )
         else:
+            await self._settle(ctx, amount, 0)
             await ctx.send("Sorry, you lost your bet.")
 
 

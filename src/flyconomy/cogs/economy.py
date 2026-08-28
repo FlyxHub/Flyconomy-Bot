@@ -75,7 +75,7 @@ class Economy(BaseCog, name="Economy"):
     async def daily(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """Collect a daily payout worth 10% of your bank balance."""
         account = await self.db.get_account(ctx.author.id)
-        payout = economy.daily_payout(account.bank)
+        payout = economy.daily_payout(account.bank, self.settings.max_daily_payout)
         if payout:
             await self.db.add_bank(ctx.author.id, payout)
         await ctx.send(f"You received your daily payout of **{embeds.money(payout)}**")

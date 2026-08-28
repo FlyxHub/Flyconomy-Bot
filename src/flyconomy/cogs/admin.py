@@ -10,7 +10,7 @@ from __future__ import annotations
 import discord
 from discord.ext import commands
 
-from flyconomy import economy
+from flyconomy import economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 
@@ -80,6 +80,20 @@ class Admin(BaseCog, name="Admin"):
             else "globally"
         )
         await ctx.send(f"Synced {count} slash commands {scope}.")
+
+    @commands.command(name="draw")
+    async def draw(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Run a lottery draw now, instead of waiting for the schedule."""
+        cog = self.bot.get_cog("Lottery")
+        if cog is None:  # pragma: no cover - the extension is always loaded
+            await ctx.send("The lottery is not loaded.")
+            return
+
+        winner, amount = await cog.run_draw()  # type: ignore[attr-defined]
+        if winner is None:
+            await ctx.send(f"Nobody entered, so the pot rolls over at {embeds.money(amount)}.")
+            return
+        await ctx.send(f"<@{winner}> won {embeds.money(amount)}!")
 
 
 async def setup(bot: FlyconomyBot) -> None:

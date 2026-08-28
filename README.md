@@ -19,6 +19,8 @@ classic prefix command, such as `$balance`.
 - [Command reference](#command-reference)
 - [Economy reference](#economy-reference)
   - [Keeping the economy honest](#keeping-the-economy-honest)
+  - [Surviving a season](#surviving-a-season)
+  - [The lottery](#the-lottery)
   - [Blackjack](#blackjack)
   - [Slot machine paytable](#slot-machine-paytable)
 - [Develop and test](#develop-and-test)
@@ -37,6 +39,8 @@ classic prefix command, such as `$balance`.
 - **Casino.** Blackjack with hit, stand, and double-down buttons, plus a slot
   machine, card war, coin flip, rock paper scissors, dice, and American
   roulette.
+- **Lottery.** A pot fed by entry fees and a share of the casino's winnings,
+  drawn on a schedule. One entry each, so everyone has the same chance.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
 
 ## Before you begin
@@ -252,6 +256,10 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_COMMAND_PREFIX` | No | `$` | Prefix for classic text commands. Slash commands ignore it. |
 | `FLYCONOMY_TIMEZONE` | No | `America/Chicago` | IANA timezone for embed timestamps. |
 | `FLYCONOMY_LOG_LEVEL` | No | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `FLYCONOMY_MAX_DAILY_PAYOUT` | No | `10000` | Ceiling on one `daily` claim. This is what bounds a season. |
+| `FLYCONOMY_LOTTERY_TICKET_PRICE` | No | `10000` | Cost of one lottery entry. |
+| `FLYCONOMY_LOTTERY_RAKE` | No | `0.25` | Share of the casino's net winnings added to the pot. |
+| `FLYCONOMY_LOTTERY_DRAW_HOURS` | No | `24` | Hours between lottery draws. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
 | `FLYCONOMY_RATE_LIMIT_ACTIONS` | No | `6` | Game commands a member may run per window. |
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
@@ -306,6 +314,14 @@ Every game stakes money from your wallet.
 | `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 
+### Lottery
+
+| Command | Description |
+| --- | --- |
+| `lottery` | Shows the pot, the entrants, and whether you are in. |
+| `lottery enter` | Enters the current draw. One entry per member, paid from your bank. |
+| `lottery entrants` | Lists who is in the current draw. |
+
 ### Owner commands
 
 These are prefix-only. A slash command appears in every member's command picker,
@@ -317,6 +333,7 @@ which is the wrong place to advertise a command nobody else can run.
 | `$adminmine <amount>` | Adds Flyxcoin to your own account. A negative amount removes coins. |
 | `$reset <member>` | Deletes a member's account, resetting them to a new player. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
+| `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
 
 ## Economy reference
 
@@ -399,6 +416,70 @@ deliberate and matches how a real table works.
 A doubling strategy will still end most short sessions slightly ahead. That is
 true of any fair game and cannot be designed away without making the games
 unfair. What matters is the average, which is now zero or negative everywhere.
+
+### Surviving a season
+
+The economy is meant to run from one January 1 to the next and then be reset, so
+the question is not whether it inflates but whether it stays readable for 365
+days. It does, because **only one source ever compounded**.
+
+`daily` pays a tenth of your bank. A percentage of a growing number is
+exponential: at 10% a day that is a factor of 1.28e15 over a year, which is more
+money than everything else in the bot produces by fifteen orders of magnitude.
+Every other source is linear, and linear cannot run away inside a fixed season.
+
+So `daily` is capped by `FLYCONOMY_MAX_DAILY_PAYOUT`. Below ten times the cap
+nothing changes, which is most of the early game; above it, growth becomes a
+straight line.
+
+| | Total supply after 365 days | Richest member |
+| --- | --- | --- |
+| Uncapped | 72,576,191,108,407,800,168 | 50,200,674,449,656,928,049 |
+| Capped at $10,000 | 90,953,611 | 22,221,190 |
+
+Measured over a simulated year with forty members, a third of them grinding.
+`tests/test_season.py` runs a season on every commit and fails if the supply or
+the richest member leaves sane bounds, or if growth stops looking linear.
+
+To make a season shorter or longer, move the cap: it is very close to the only
+number that decides how big the endgame gets.
+
+### The lottery
+
+A pot that redistributes money rather than creating it. It is fed from two
+places, and both matter:
+
+- **Entry fees.** One entry per member per draw, at
+  `FLYCONOMY_LOTTERY_TICKET_PRICE`. The money sits in the pot until it is won.
+- **A rake on the casino's net winnings**, `FLYCONOMY_LOTTERY_RAKE`, defaulting
+  to a quarter. The other three quarters are still destroyed, so the casino
+  stays a money sink.
+
+A draw runs every `FLYCONOMY_LOTTERY_DRAW_HOURS` and pays one entrant, picked
+uniformly. With nobody entered the pot rolls over untouched, so a jackpot builds
+on a quiet server. `$draw` runs one immediately.
+
+Two rules keep it from being farmed, and they are the whole design:
+
+**Odds cannot be bought.** Everyone entered has exactly one entry, enforced by a
+primary key on `(draw, user)` rather than by application code.
+
+**The pot is fed by the house's net take, not by gross losses.** This is the
+subtle one. Gross losses on a fair game are unbounded and nearly free: churning
+coinflip at the table limit generates hundreds of millions in losses that cost
+nothing, because the money comes straight back. Anything paid out in proportion
+to gross losses can be farmed that way. The house's *net* take from a fair game
+is zero, so the rake is signed, and a hand the player wins pulls the pot back
+down. Churning coinflip contributes nothing.
+
+| Game | Turnover | Into the pot |
+| --- | --- | --- |
+| Coinflip, 0% edge | $20.0B | ~$0 |
+| War, 0% edge | $20.0B | ~$0 |
+| Slots, 4.17% edge | $200M | $2.04M |
+| Roulette colour, 5.26% edge | $200M | $2.75M |
+
+The pot is floored at zero, so a run of player wins cannot take it negative.
 
 ### Blackjack
 
@@ -492,6 +573,8 @@ The suite is organized by concern:
 | `test_commands.py` | That every version 1 command and alias still registers. |
 | `test_antiabuse.py` | That no game is profitable, faucets stay throttled, and the limits hold. |
 | `test_ratelimit.py` | The sliding window limiter, on an injected clock. |
+| `test_season.py` | That a 365-day season stays bounded and grows linearly. |
+| `test_lottery.py` | The pot, entries, draws, and the rake. |
 | `test_blackjack.py` | The blackjack ruleset: hand values, soft aces, dealer policy, payouts. |
 | `test_views.py` | The blackjack buttons, ownership, timeout, and settlement. |
 | `test_cog_behavior.py` | The command bodies, against a real database. |
@@ -597,6 +680,8 @@ changed on purpose.
 | Rock paper scissors no longer refunds ties. | Refunding the tie paid players +33% of everything staked on the game, which no rate limit could close. It is now 0%, like coinflip, dice, and war. |
 | `beg` moved from a 3-second to a 60-second cooldown. | At 3 seconds it created about $30,000 an hour from nothing, more than a maximum-level miner produced. |
 | Wagers are capped, and game commands share a rate limit. | See [Keeping the economy honest](#keeping-the-economy-honest). |
+| `daily` is capped at $10,000 a claim. | It paid 10% of the bank, compounding, which is a factor of 1.28e15 over a year. It was the only source that compounded, and the only thing standing between the bot and hyperinflation. |
+| A lottery was added. | Gives the casino's winnings somewhere to go besides deletion, without creating money. See [The lottery](#the-lottery). |
 | Three games were added: `blackjack`, `slots`, and `war`. | The casino had no game of skill, no jackpot game, and no game with a push. All three are documented in the payout tables above. |
 | Mining odds at levels 2 through 5 are now 5%, 10%, 15%, and 20%. | Version 1 tested `randint(1, 100) in range(1, 5)`, which is 4%, not the 5% it announced. Every level was short by one point. The odds now match what the bot has always claimed. |
 | Roulette has a real `00` pocket. | Python reads the literal `00` as `0`, so version 1's wheel held two `0` pockets and no `00`. Betting on `0` paid at double the correct rate. |

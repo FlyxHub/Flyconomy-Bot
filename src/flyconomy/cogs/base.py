@@ -50,6 +50,20 @@ class BaseCog(commands.Cog):
         """The shared per-member action budget."""
         return self.bot.limiter
 
+    async def rake(self, house_take: int) -> None:
+        """Send the configured share of the house's take to the lottery pot.
+
+        Args:
+            house_take: What the house won on a wager, negative when the player
+                won. Passing the signed figure rather than the gross loss is
+                what stops a fair game from being churned to inflate the pot:
+                over time a fair game nets the house nothing, so it contributes
+                nothing.
+        """
+        share = int(house_take * self.settings.lottery_rake)
+        if share:
+            await self.db.add_to_pot(share)
+
     async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]
         """Spend one action from the member's budget.
 

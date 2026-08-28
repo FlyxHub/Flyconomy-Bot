@@ -30,7 +30,7 @@ from flyconomy.errors import InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 2
+SCHEMA_VERSION: Final = 3
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -62,6 +62,21 @@ class Account:
     def net_worth(self) -> int:
         """Total value of the account in dollars."""
         return economy.net_worth(self.wallet, self.bank, self.crypto)
+
+
+@dataclass(frozen=True, slots=True)
+class LotteryState:
+    """The lottery as it currently stands.
+
+    Attributes:
+        pot: Dollars waiting to be won.
+        draw: The draw now open for entries, counting from one.
+        entrants: How many members have entered the open draw.
+    """
+
+    pot: int
+    draw: int
+    entrants: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -541,6 +556,141 @@ class Database:
             await self.ensure_account(user_id)
             await db.execute("UPDATE bank SET miner = ? WHERE user = ?", (level, user_id))
 
+    # ------------------------------------------------------------- lottery --
+
+    async def lottery_state(self) -> LotteryState:
+        """Return the pot, the open draw number, and how many have entered."""
+        async with self._db.execute("SELECT pot, draw FROM lottery WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+        if row is None:  # pragma: no cover - migration 3 guarantees the row
+            return LotteryState(pot=0, draw=1, entrants=0)
+
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM lottery_entries WHERE draw = ?", (row["draw"],)
+        ) as cursor:
+            count = await cursor.fetchone()
+        return LotteryState(
+            pot=int(row["pot"]),
+            draw=int(row["draw"]),
+            entrants=int(count["n"]) if count else 0,
+        )
+
+    async def add_to_pot(self, amount: int) -> int:
+        """Add the house's take to the pot, or give it back on a player win.
+
+        The amount is signed: a wager the player won contributes negatively,
+        which is why churning a fair game cannot inflate the pot. The pot is
+        floored at zero so a run of player wins cannot take it negative.
+
+        Args:
+            amount: Dollars to add, which may be negative.
+
+        Returns:
+            The pot after the change.
+        """
+        async with self._transaction() as db:
+            await db.execute("UPDATE lottery SET pot = MAX(0, pot + ?) WHERE id = 1", (amount,))
+            async with db.execute("SELECT pot FROM lottery WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+            return int(row["pot"]) if row else 0
+
+    async def enter_lottery(self, user_id: int, price: int) -> bool:
+        """Buy this member's single entry into the open draw.
+
+        The charge, the entry, and the pot all move in one transaction, so a
+        member cannot be charged without being entered.
+
+        Args:
+            user_id: The member entering.
+            price: Cost of the entry, charged to the bank balance.
+
+        Returns:
+            ``True`` if the entry was recorded, ``False`` if the member had
+            already entered this draw.
+
+        Raises:
+            InsufficientFundsError: If the bank balance cannot cover the price.
+        """
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            async with db.execute("SELECT draw FROM lottery WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+            draw = int(row["draw"]) if row else 1
+
+            async with db.execute(
+                "SELECT 1 FROM lottery_entries WHERE draw = ? AND user = ?", (draw, user_id)
+            ) as cursor:
+                if await cursor.fetchone() is not None:
+                    return False
+
+            cursor = await db.execute(
+                "UPDATE bank SET bank = bank - ? WHERE user = ? AND bank >= ?",
+                (price, user_id, price),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(await self._read_column(db, user_id, "bank"), price)
+
+            await db.execute(
+                "INSERT INTO lottery_entries (draw, user) VALUES (?, ?)", (draw, user_id)
+            )
+            # Ticket money is redistributed, never destroyed.
+            await db.execute("UPDATE lottery SET pot = pot + ? WHERE id = 1", (price,))
+            return True
+
+    async def lottery_entrants(self) -> list[int]:
+        """Return everyone entered in the open draw."""
+        state = await self.lottery_state()
+        async with self._db.execute(
+            "SELECT user FROM lottery_entries WHERE draw = ? ORDER BY user", (state.draw,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [int(row["user"]) for row in rows]
+
+    async def has_entered(self, user_id: int) -> bool:
+        """Return whether a member is already in the open draw."""
+        state = await self.lottery_state()
+        async with self._db.execute(
+            "SELECT 1 FROM lottery_entries WHERE draw = ? AND user = ?",
+            (state.draw, user_id),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def award_lottery(self, winner_id: int) -> int:
+        """Pay the pot to a winner and open the next draw.
+
+        Args:
+            winner_id: The member who won.
+
+        Returns:
+            The dollars paid, credited to the winner's bank balance.
+        """
+        async with self._transaction() as db:
+            async with db.execute("SELECT pot, draw FROM lottery WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+            pot = int(row["pot"]) if row else 0
+            draw = int(row["draw"]) if row else 1
+
+            await self.ensure_account(winner_id)
+            if pot:
+                await db.execute("UPDATE bank SET bank = bank + ? WHERE user = ?", (pot, winner_id))
+            await db.execute("DELETE FROM lottery_entries WHERE draw = ?", (draw,))
+            await db.execute("UPDATE lottery SET pot = 0, draw = draw + 1 WHERE id = 1")
+            return pot
+
+    async def roll_over_lottery(self) -> int:
+        """Open the next draw without paying out, keeping the pot.
+
+        Returns:
+            The pot carried forward.
+        """
+        async with self._transaction() as db:
+            async with db.execute("SELECT pot, draw FROM lottery WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+            draw = int(row["draw"]) if row else 1
+            await db.execute("DELETE FROM lottery_entries WHERE draw = ?", (draw,))
+            await db.execute("UPDATE lottery SET draw = draw + 1 WHERE id = 1")
+            return int(row["pot"]) if row else 0
+
     async def delete_account(self, user_id: int) -> bool:
         """Delete a member's account.
 
@@ -610,7 +760,35 @@ async def _migration_2_unique_user(db: aiosqlite.Connection) -> None:
     await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_user ON bank(user)")
 
 
+async def _migration_3_lottery(db: aiosqlite.Connection) -> None:
+    """Add the lottery pot and its per-draw entries.
+
+    The ``bank`` table is untouched. A season reset can empty these two tables
+    without disturbing anything else.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS lottery ("
+        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+        "  pot INTEGER NOT NULL DEFAULT 0,"
+        "  draw INTEGER NOT NULL DEFAULT 1"
+        ")"
+    )
+    # One row, always. The CHECK above makes a second row impossible.
+    await db.execute("INSERT OR IGNORE INTO lottery (id, pot, draw) VALUES (1, 0, 1)")
+
+    # This primary key is what enforces one entry per member per draw, so equal
+    # odds cannot be bought by entering twice.
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS lottery_entries ("
+        "  draw INTEGER NOT NULL,"
+        "  user INTEGER NOT NULL,"
+        "  PRIMARY KEY (draw, user)"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
+    3: _migration_3_lottery,
 }

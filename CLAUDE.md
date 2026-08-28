@@ -33,7 +33,8 @@ Run a single test with the venv interpreter directly:
 
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
-buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings.
+buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings. The lottery adds two
+tables in migration 3; the `bank` table is still untouched.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
 
@@ -88,6 +89,22 @@ is lost. Keep that passing.
 - Each cog decorator carries `# type: ignore[arg-type]`: discord.py's hybrid decorators are typed for
   pyright and mypy infers `Never` parameters. The ignores are narrow on purpose — mypy runs strict.
 
+## The season
+
+The economy runs a calendar year and is reset each January, so every balance
+question is really "does this stay readable for 365 days".
+
+**Only one thing ever compounded, and it is capped.** `daily` pays a percentage of the bank; at 10%
+a day that is 1.28e15 over a year. `DAILY_PAYOUT_CAP` (and `settings.max_daily_payout`) bounds the
+claim, which leaves the rate untouched while the bank is small and turns growth into a straight line
+above that. Every other source — begging, mining, starting funds — is linear and cannot run away
+inside a fixed season.
+
+**Before adding any income, ask whether it is a percentage of something that grows.** If it is, it
+compounds, and it needs a cap. That single question is what `tests/test_season.py` exists to enforce:
+it plays a full 365-day season on every commit and fails if the supply or the richest member leaves
+sane bounds, or if growth stops looking linear.
+
 ## Anti-abuse
 
 **The load-bearing invariant: no game may have a positive expected value.** A game that profits per
@@ -108,6 +125,12 @@ Three further layers, all in place because they cover different failure modes:
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
   commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on
   an empty wallet), which would otherwise loop for free.
+- **The lottery rake is signed.** `BaseCog.rake` is handed `stake - returned`, not the gross loss.
+  Gross losses on a fair game are unbounded and nearly free, so anything paid out in proportion to
+  them is farmable by churning coinflip; the house's net take from a fair game is zero. Every game
+  calls `Gambling._settle` exactly once per wager, *including on a loss with a multiplier of zero*,
+  so the rake sees wins and losses both. Blackjack settles in `BlackjackView.settle` instead and
+  rakes there. One entry per member per draw is enforced by a primary key, not by application code.
 - **A table limit,** `settings.max_bet`, enforced in `Gambling._stake`. Every wager debits through
   that one method, so a new game cannot forget the cap. Check the limit *before* debiting, so a
   refused bet costs nothing.

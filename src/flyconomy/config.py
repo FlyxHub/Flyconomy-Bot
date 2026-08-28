@@ -44,6 +44,29 @@ class Settings(BaseSettings):
         description="IANA timezone used for embed timestamps.",
     )
     log_level: LogLevel = Field(default="INFO", description="Root logging level.")
+    max_daily_payout: Annotated[int, Field(gt=0)] = Field(
+        default=10_000,
+        description=(
+            "Ceiling on one `daily` claim. The claim is a percentage of the bank, "
+            "which compounds, so this ceiling is what keeps a season from "
+            "hyperinflating."
+        ),
+    )
+    lottery_ticket_price: Annotated[int, Field(gt=0)] = Field(
+        default=10_000,
+        description="Cost of one lottery entry. Every member may hold one per draw.",
+    )
+    lottery_rake: Annotated[float, Field(ge=0, le=1)] = Field(
+        default=0.25,
+        description=(
+            "Share of the casino's net winnings added to the lottery pot. The "
+            "remainder is destroyed, which is what keeps the casino a money sink."
+        ),
+    )
+    lottery_draw_hours: Annotated[float, Field(gt=0)] = Field(
+        default=24.0,
+        description="Hours between lottery draws.",
+    )
     max_bet: Annotated[int, Field(gt=0)] = Field(
         default=100_000,
         description=(

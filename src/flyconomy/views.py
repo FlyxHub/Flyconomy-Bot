@@ -39,6 +39,7 @@ class BlackjackView(discord.ui.View):
         player: discord.abc.User,
         base_bet: int,
         timezone: str,
+        rake: float = 0.0,
     ) -> None:
         """Build a view for a freshly dealt hand.
 
@@ -48,6 +49,8 @@ class BlackjackView(discord.ui.View):
             player: The member who owns the hand. Nobody else may press.
             base_bet: The opening stake, which is also what a double down costs.
             timezone: IANA timezone for the embed timestamp.
+            rake: Share of the house's take on this hand to send to the lottery
+                pot. Signed, so a hand the player wins pulls the pot back down.
         """
         super().__init__(timeout=blackjack.DECISION_TIMEOUT_SECONDS)
         self.db = db
@@ -55,6 +58,7 @@ class BlackjackView(discord.ui.View):
         self.player = player
         self.base_bet = base_bet
         self.timezone = timezone
+        self.rake = rake
         self.message: discord.Message | None = None
         self._settled = False
         self._refresh_buttons()
@@ -91,6 +95,10 @@ class BlackjackView(discord.ui.View):
         amount = blackjack.payout(self.game.stake, self.game.outcome)
         if amount:
             await self.db.add_wallet(self.player.id, amount)
+
+        share = int((self.game.stake - amount) * self.rake)
+        if share:
+            await self.db.add_to_pot(share)
         self.stop()
 
     async def apply_hit(self) -> None:

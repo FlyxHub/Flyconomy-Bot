@@ -42,6 +42,7 @@ ADDED_COMMANDS = {
     "blackjack": ("bj",),
     "slots": ("slot",),
     "war": (),
+    "lottery": (),
 }
 
 ALL_MEMBER_COMMANDS = V1_MEMBER_COMMANDS | ADDED_COMMANDS
@@ -106,6 +107,15 @@ class TestAddedGames:
         assert command is not None
         for alias in aliases:
             assert bot.get_command(alias) is command
+
+    @pytest.mark.parametrize("action", ["enter", "entrants"])
+    async def test_the_lottery_actions_are_subcommands(self, bot: FlyconomyBot, action: str):
+        assert bot.get_command(f"lottery {action}") is not None
+
+    async def test_the_draw_is_owner_only(self, bot: FlyconomyBot):
+        published = {c.qualified_name for c in bot.tree.walk_commands()}
+        assert bot.get_command("draw") is not None
+        assert "draw" not in published
 
     @pytest.mark.parametrize("name", sorted(ADDED_COMMANDS))
     async def test_the_new_games_have_no_cooldown(self, bot: FlyconomyBot, name: str):
