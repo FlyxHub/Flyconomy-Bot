@@ -107,16 +107,45 @@ class ScriptedRandom(random.Random):
     Anything not scripted falls through to real randomness.
     """
 
-    def __init__(self, *, choice: Any = None, randint: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        choice: Any = None,
+        randint: int | None = None,
+        sample: list[Any] | None = None,
+    ) -> None:
         super().__init__()
         self._choice = choice
         self._randint = randint
+        self._sample = sample
 
     def choice(self, seq: Any) -> Any:
         return super().choice(seq) if self._choice is None else self._choice
 
     def randint(self, a: int, b: int) -> int:
         return super().randint(a, b) if self._randint is None else self._randint
+
+    def sample(self, population: Any, k: int, *, counts: Any = None) -> list[Any]:
+        if self._sample is None:
+            return super().sample(population, k, counts=counts)
+        return self._sample[:k]
+
+
+class CyclingRandom(random.Random):
+    """A random source that returns scripted choices in order, then repeats.
+
+    Slots call choice() once per reel, so this scripts a whole spin.
+    """
+
+    def __init__(self, *, choices: list[Any]) -> None:
+        super().__init__()
+        self._choices = choices
+        self._index = 0
+
+    def choice(self, seq: Any) -> Any:
+        value = self._choices[self._index % len(self._choices)]
+        self._index += 1
+        return value
 
 
 def _seeded(cog: Any, seed: int) -> Any:
@@ -524,3 +553,120 @@ class TestLeaderboards:
         values = [field.value for field in ctx.embeds[0].fields]
         assert "$250" in values
         assert "2" in values
+
+
+class TestSlots:
+    async def test_a_losing_spin_keeps_the_stake(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        cherries = next(s for s in economy.SLOT_REEL if s.name == "cherries")
+        lemons = next(s for s in economy.SLOT_REEL if s.name == "lemons")
+        grapes = next(s for s in economy.SLOT_REEL if s.name == "grapes")
+        cog.rng = CyclingRandom(choices=[cherries, lemons, grapes])
+        await db.add_wallet(ALICE, 100)
+
+        await cog.slots.callback(cog, ctx, 100)
+
+        assert (await db.get_account(ALICE)).wallet == 0
+        assert "no match" in ctx.text.lower()
+
+    async def test_a_jackpot_pays_the_symbol_rate(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        gems = next(s for s in economy.SLOT_REEL if s.name == "gems")
+        cog.rng = ScriptedRandom(choice=gems)
+        await db.add_wallet(ALICE, 100)
+
+        await cog.slots.callback(cog, ctx, 100)
+
+        assert (await db.get_account(ALICE)).wallet == 100 * gems.triple_return
+        assert "three gems" in ctx.text.lower()
+
+    async def test_a_paying_pair_returns_twice_the_stake(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        stars = next(s for s in economy.SLOT_REEL if s.name == "stars")
+        cherries = next(s for s in economy.SLOT_REEL if s.name == "cherries")
+        cog.rng = CyclingRandom(choices=[stars, stars, cherries])
+        await db.add_wallet(ALICE, 100)
+
+        await cog.slots.callback(cog, ctx, 100)
+
+        assert (await db.get_account(ALICE)).wallet == 100 * economy.SLOT_PAIR_RETURN
+        assert "a pair of stars" in ctx.text.lower()
+
+    async def test_the_reels_are_shown(self, db, settings, ctx):
+        cog = _seeded(Gambling(FakeBot(db, settings)), 4)
+        await db.add_wallet(ALICE, 100)
+
+        await cog.slots.callback(cog, ctx, 100)
+
+        assert any(symbol.emoji in ctx.text for symbol in economy.SLOT_REEL)
+
+    async def test_a_bet_beyond_the_wallet_is_refused(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 10)
+
+        with pytest.raises(InsufficientFundsError):
+            await cog.slots.callback(cog, ctx, 11)
+
+        assert (await db.get_account(ALICE)).wallet == 10
+
+    async def test_the_wallet_never_goes_negative_over_many_spins(self, db, settings, ctx):
+        cog = _seeded(Gambling(FakeBot(db, settings)), 11)
+        await db.add_wallet(ALICE, 1_000)
+
+        for _ in range(100):
+            balance = (await db.get_account(ALICE)).wallet
+            if balance < 10:
+                break
+            await cog.slots.callback(cog, ctx, 10)
+            assert (await db.get_account(ALICE)).wallet >= 0
+
+
+class TestWar:
+    async def test_a_higher_card_wins_double(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        cog.rng = ScriptedRandom(sample=[economy.Card(14, "♠"), economy.Card(5, "♥")])
+        await db.add_wallet(ALICE, 100)
+
+        await cog.war.callback(cog, ctx, 100)
+
+        assert (await db.get_account(ALICE)).wallet == 200
+        assert "you win" in ctx.text.lower()
+
+    async def test_a_lower_card_loses_the_stake(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        cog.rng = ScriptedRandom(sample=[economy.Card(3, "♠"), economy.Card(12, "♥")])
+        await db.add_wallet(ALICE, 100)
+
+        await cog.war.callback(cog, ctx, 100)
+
+        assert (await db.get_account(ALICE)).wallet == 0
+        assert "you lose" in ctx.text.lower()
+
+    async def test_a_tie_returns_the_stake(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        cog.rng = ScriptedRandom(sample=[economy.Card(9, "♠"), economy.Card(9, "♦")])
+        await db.add_wallet(ALICE, 100)
+
+        await cog.war.callback(cog, ctx, 100)
+
+        assert (await db.get_account(ALICE)).wallet == 100
+        assert "tie" in ctx.text.lower()
+
+    async def test_both_cards_are_shown(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        cog.rng = ScriptedRandom(sample=[economy.Card(14, "♠"), economy.Card(2, "♥")])
+        await db.add_wallet(ALICE, 100)
+
+        await cog.war.callback(cog, ctx, 100)
+
+        assert "A♠" in ctx.text
+        assert "2♥" in ctx.text
+
+    async def test_a_bet_beyond_the_wallet_is_refused(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 10)
+
+        with pytest.raises(InsufficientFundsError):
+            await cog.war.callback(cog, ctx, 11)
+
+        assert (await db.get_account(ALICE)).wallet == 10

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import itertools
 import random
 from collections import Counter
+from fractions import Fraction
+from typing import ClassVar
 
 import pytest
 
@@ -194,3 +197,154 @@ class TestRoulette:
             if economy.roulette_payout_multiplier("red", pocket)
         )
         assert winners == 18
+
+
+class TestSlots:
+    """The reel is uniform, so all 6**3 spins are equally likely and the return
+    is exact rather than sampled."""
+
+    ALL_SPINS: ClassVar = list(itertools.product(economy.SLOT_REEL, repeat=economy.SLOT_REEL_COUNT))
+
+    def test_every_spin_is_enumerated(self):
+        assert len(self.ALL_SPINS) == len(economy.SLOT_REEL) ** economy.SLOT_REEL_COUNT
+        assert len(self.ALL_SPINS) == 216
+
+    def test_the_house_edge_matches_the_documented_rate(self):
+        returned = sum(economy.slots_payout_multiplier(spin) for spin in self.ALL_SPINS)
+        rtp = Fraction(returned, len(self.ALL_SPINS))
+        # 207/216. If a payout in the table changes, retune it and update the
+        # README, rather than loosening this assertion.
+        assert rtp == Fraction(207, 216)
+        assert float(1 - rtp) == pytest.approx(0.0417, abs=0.0001)
+
+    def test_the_house_keeps_an_edge_but_not_a_punishing_one(self):
+        returned = sum(economy.slots_payout_multiplier(spin) for spin in self.ALL_SPINS)
+        rtp = returned / len(self.ALL_SPINS)
+        assert 0.93 < rtp < 1.0, "slots must favor the house, but stay playable"
+
+    def test_roughly_one_spin_in_six_pays(self):
+        wins = sum(1 for spin in self.ALL_SPINS if economy.slots_payout_multiplier(spin))
+        assert wins == 36
+        assert wins / len(self.ALL_SPINS) == pytest.approx(1 / 6)
+
+    @pytest.mark.parametrize("symbol", economy.SLOT_REEL)
+    def test_three_of_a_kind_pays_that_symbol_rate(self, symbol):
+        spin = (symbol, symbol, symbol)
+        assert economy.slots_payout_multiplier(spin) == symbol.triple_return
+
+    @pytest.mark.parametrize("symbol", [s for s in economy.SLOT_REEL if s.pays_on_pair])
+    def test_a_paying_pair_returns_the_pair_rate(self, symbol):
+        other = next(s for s in economy.SLOT_REEL if s != symbol)
+        assert economy.slots_payout_multiplier((symbol, symbol, other)) == (
+            economy.SLOT_PAIR_RETURN
+        )
+
+    @pytest.mark.parametrize("symbol", [s for s in economy.SLOT_REEL if not s.pays_on_pair])
+    def test_a_non_paying_pair_wins_nothing(self, symbol):
+        other = next(s for s in economy.SLOT_REEL if s != symbol)
+        assert economy.slots_payout_multiplier((symbol, symbol, other)) == 0
+
+    def test_a_pair_pays_in_any_reel_position(self):
+        gem = next(s for s in economy.SLOT_REEL if s.pays_on_pair)
+        other = next(s for s in economy.SLOT_REEL if not s.pays_on_pair)
+        for spin in ((gem, gem, other), (gem, other, gem), (other, gem, gem)):
+            assert economy.slots_payout_multiplier(spin) == economy.SLOT_PAIR_RETURN
+
+    def test_three_reels_can_never_hold_two_paying_pairs(self):
+        # The payout function returns on the first pair it finds, which is only
+        # correct because two pairs cannot fit in three reels.
+        for spin in self.ALL_SPINS:
+            pairs = [s for s in set(spin) if s.pays_on_pair and spin.count(s) == 2]
+            assert len(pairs) <= 1
+
+    def test_rarer_symbols_pay_more(self):
+        returns = [symbol.triple_return for symbol in economy.SLOT_REEL]
+        assert returns == sorted(returns)
+        assert len(set(returns)) == len(returns)
+
+    def test_a_spin_fills_every_reel_from_the_reel_strip(self):
+        spin = economy.spin_slots(random.Random(0))
+        assert len(spin) == economy.SLOT_REEL_COUNT
+        assert all(symbol in economy.SLOT_REEL for symbol in spin)
+
+    def test_spins_vary(self):
+        rng = random.Random(1)
+        spins = {economy.spin_slots(rng) for _ in range(200)}
+        assert len(spins) > 1
+
+
+class TestCards:
+    def test_a_deck_holds_52_distinct_cards(self):
+        assert len(economy.DECK) == 52
+        assert len(set(economy.DECK)) == 52
+
+    def test_every_suit_holds_every_rank(self):
+        for suit in economy.CARD_SUITS:
+            ranks = {card.rank for card in economy.DECK if card.suit == suit}
+            assert ranks == set(economy.CARD_RANKS)
+
+    @pytest.mark.parametrize(
+        ("rank", "expected"),
+        [(2, "2"), (10, "10"), (11, "J"), (12, "Q"), (13, "K"), (14, "A")],
+    )
+    def test_ranks_render_the_way_players_read_them(self, rank, expected):
+        assert str(economy.Card(rank, "♠")).startswith(expected)
+
+    def test_dealing_takes_cards_without_replacement(self):
+        hand = economy.draw_cards(52, random.Random(0))
+        assert len(set(hand)) == 52
+
+    def test_dealing_more_than_a_deck_is_rejected(self):
+        with pytest.raises(ValueError, match="52-card deck"):
+            economy.draw_cards(53)
+
+    def test_dealing_nothing_is_allowed(self):
+        assert economy.draw_cards(0) == []
+
+
+class TestWar:
+    ALL_HANDS: ClassVar = list(itertools.permutations(economy.DECK, 2))
+
+    def test_a_higher_card_wins(self):
+        assert (
+            economy.war_payout_multiplier(economy.Card(14, "♠"), economy.Card(13, "♥"))
+            == economy.WAR_WIN_RETURN
+        )
+
+    def test_a_lower_card_loses(self):
+        assert economy.war_payout_multiplier(economy.Card(2, "♠"), economy.Card(3, "♥")) == 0
+
+    def test_an_equal_rank_returns_the_stake(self):
+        assert (
+            economy.war_payout_multiplier(economy.Card(9, "♠"), economy.Card(9, "♥"))
+            == economy.WAR_TIE_RETURN
+        )
+
+    def test_suits_never_break_a_tie(self):
+        for suit in economy.CARD_SUITS:
+            assert (
+                economy.war_payout_multiplier(economy.Card(7, "♠"), economy.Card(7, suit))
+                == economy.WAR_TIE_RETURN
+            )
+
+    def test_the_game_is_exactly_fair(self):
+        # Every ordered pair of distinct cards, so this is exact, not sampled.
+        net = sum(
+            economy.war_payout_multiplier(player, dealer) - 1 for player, dealer in self.ALL_HANDS
+        )
+        assert net == 0
+
+    def test_wins_and_losses_are_symmetric(self):
+        wins = sum(1 for p, d in self.ALL_HANDS if p.rank > d.rank)
+        losses = sum(1 for p, d in self.ALL_HANDS if p.rank < d.rank)
+        assert wins == losses
+
+    def test_ties_happen_about_one_hand_in_seventeen(self):
+        ties = sum(1 for p, d in self.ALL_HANDS if p.rank == d.rank)
+        assert ties / len(self.ALL_HANDS) == pytest.approx(3 / 51)
+
+    def test_a_dealt_hand_never_repeats_a_card(self):
+        rng = random.Random(3)
+        for _ in range(200):
+            player, dealer = economy.draw_cards(2, rng)
+            assert player != dealer

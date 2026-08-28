@@ -9,6 +9,8 @@ touching command-handling code.
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Final, Literal
 
 # --------------------------------------------------------------- currency ---
@@ -96,6 +98,86 @@ ROULETTE_RED: Final[frozenset[int]] = frozenset(
 ROULETTE_BLACK: Final[frozenset[int]] = frozenset(
     {2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35}
 )
+
+
+# ----------------------------------------------------------------- slots ----
+
+
+@dataclass(frozen=True, slots=True)
+class SlotSymbol:
+    """One symbol on a slot reel.
+
+    Attributes:
+        emoji: How the symbol is drawn in Discord.
+        name: Plural plain-text name, so a win reads as "Three cherries!".
+        triple_return: Stake multiplier returned for three of this symbol.
+        pays_on_pair: Whether exactly two of this symbol pays
+            :data:`SLOT_PAIR_RETURN`.
+    """
+
+    emoji: str
+    name: str
+    triple_return: int
+    pays_on_pair: bool = False
+
+
+#: The reel. Every symbol is equally likely, and all three reels are identical,
+#: so the 216 possible spins are uniform and the return is exactly computable.
+#: `tests/test_economy.py` enumerates every one of them and asserts the house
+#: edge, so changing a payout here fails the test until the table is retuned.
+SLOT_REEL: Final[tuple[SlotSymbol, ...]] = (
+    SlotSymbol("\N{CHERRIES}", "cherries", triple_return=9),
+    SlotSymbol("\N{LEMON}", "lemons", triple_return=11),
+    SlotSymbol("\N{GRAPES}", "grapes", triple_return=15),
+    SlotSymbol("\N{BELL}", "bells", triple_return=22),
+    SlotSymbol("\N{WHITE MEDIUM STAR}", "stars", triple_return=35, pays_on_pair=True),
+    SlotSymbol("\N{GEM STONE}", "gems", triple_return=55, pays_on_pair=True),
+)
+
+#: Reels in one spin.
+SLOT_REEL_COUNT: Final = 3
+
+#: Stake multiplier returned for exactly two of a symbol whose
+#: :attr:`SlotSymbol.pays_on_pair` is set. Two of anything else pays nothing.
+SLOT_PAIR_RETURN: Final = 2
+
+# ------------------------------------------------------------------ cards ---
+
+#: Rank values, where 11 through 14 are jack, queen, king, and ace.
+CARD_RANKS: Final[tuple[int, ...]] = tuple(range(2, 15))
+
+CARD_SUITS: Final[tuple[str, ...]] = ("♠", "♥", "♦", "♣")
+
+#: Display names for the ranks that are not written as a number.
+_RANK_NAMES: Final[dict[int, str]] = {11: "J", 12: "Q", 13: "K", 14: "A"}
+
+
+@dataclass(frozen=True, slots=True)
+class Card:
+    """A playing card.
+
+    Attributes:
+        rank: 2 through 14, where 14 is an ace.
+        suit: One of :data:`CARD_SUITS`.
+    """
+
+    rank: int
+    suit: str
+
+    def __str__(self) -> str:
+        """Render the card the way it is shown in Discord, such as ``A♠``."""
+        return f"{_RANK_NAMES.get(self.rank, str(self.rank))}{self.suit}"
+
+
+#: A standard 52-card deck.
+DECK: Final[tuple[Card, ...]] = tuple(
+    Card(rank, suit) for rank in CARD_RANKS for suit in CARD_SUITS
+)
+
+#: Stake multiplier returned when the player's card beats the dealer's. A tie
+#: returns the stake, so war is an exactly fair game like coinflip and dice.
+WAR_WIN_RETURN: Final = 2
+WAR_TIE_RETURN: Final = 1
 
 
 def net_worth(wallet: int, bank: int, crypto: int) -> int:
@@ -203,6 +285,83 @@ def parse_roulette_bet(raw: str) -> int | str | None:
     except ValueError:
         return None
     return pocket if pocket in ROULETTE_WHEEL else None
+
+
+def spin_slots(rng: random.Random | None = None) -> tuple[SlotSymbol, ...]:
+    """Spin the reels.
+
+    Args:
+        rng: Random source, injectable for deterministic tests.
+
+    Returns:
+        One symbol per reel, in display order.
+    """
+    source = rng if rng is not None else _DEFAULT_RNG
+    return tuple(source.choice(SLOT_REEL) for _ in range(SLOT_REEL_COUNT))
+
+
+def slots_payout_multiplier(reels: Sequence[SlotSymbol]) -> int:
+    """Return the stake multiplier won by a spin.
+
+    Three of a kind pays that symbol's :attr:`SlotSymbol.triple_return`.
+    Otherwise, exactly two of a symbol that pays on pairs returns
+    :data:`SLOT_PAIR_RETURN`. Anything else loses.
+
+    Args:
+        reels: The spun symbols.
+
+    Returns:
+        The multiplier to credit, or ``0`` for a losing spin.
+    """
+    first = reels[0]
+    if all(symbol == first for symbol in reels):
+        return first.triple_return
+
+    for symbol in reels:
+        # Three reels cannot hold two pairs, so the first match is the only one.
+        if symbol.pays_on_pair and reels.count(symbol) == 2:
+            return SLOT_PAIR_RETURN
+    return 0
+
+
+def draw_cards(count: int, rng: random.Random | None = None) -> list[Card]:
+    """Deal cards off the top of a freshly shuffled deck.
+
+    Cards are dealt without replacement, so two cards can never be identical.
+
+    Args:
+        count: How many cards to deal.
+        rng: Random source, injectable for deterministic tests.
+
+    Returns:
+        The dealt cards.
+
+    Raises:
+        ValueError: If more cards are requested than a deck holds.
+    """
+    if not 0 <= count <= len(DECK):
+        msg = f"cannot deal {count} cards from a {len(DECK)}-card deck"
+        raise ValueError(msg)
+    source = rng if rng is not None else _DEFAULT_RNG
+    return source.sample(list(DECK), count)
+
+
+def war_payout_multiplier(player: Card, dealer: Card) -> int:
+    """Return the stake multiplier won by a hand of war.
+
+    Args:
+        player: The player's card.
+        dealer: The dealer's card.
+
+    Returns:
+        :data:`WAR_WIN_RETURN` for a higher card, :data:`WAR_TIE_RETURN` to push
+        an equal rank, or ``0`` for a lower card. Suits never break a tie.
+    """
+    if player.rank > dealer.rank:
+        return WAR_WIN_RETURN
+    if player.rank == dealer.rank:
+        return WAR_TIE_RETURN
+    return 0
 
 
 def roulette_payout_multiplier(bet: int | str, pocket: int | str) -> int:

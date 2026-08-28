@@ -36,6 +36,15 @@ V1_MEMBER_COMMANDS = {
 #: Commands version 1 restricted to the bot owner.
 V1_OWNER_COMMANDS = ("adminme", "adminmine", "reset")
 
+#: Games added after version 1. Kept separate so the assertions above stay a
+#: statement about what the rewrite preserved.
+ADDED_COMMANDS = {
+    "slots": ("slot",),
+    "war": (),
+}
+
+ALL_MEMBER_COMMANDS = V1_MEMBER_COMMANDS | ADDED_COMMANDS
+
 
 @pytest.fixture
 async def bot() -> AsyncIterator[FlyconomyBot]:
@@ -76,6 +85,33 @@ class TestMemberCommands:
             command = bot.get_command(name)
             assert command is not None
             assert command.help, f"{name} has no docstring"
+
+
+class TestAddedGames:
+    @pytest.mark.parametrize("name", sorted(ADDED_COMMANDS))
+    async def test_the_new_games_are_registered(self, bot: FlyconomyBot, name: str):
+        assert bot.get_command(name) is not None
+
+    @pytest.mark.parametrize("name", sorted(ADDED_COMMANDS))
+    async def test_the_new_games_work_as_slash_commands(self, bot: FlyconomyBot, name: str):
+        command = bot.get_command(name)
+        assert isinstance(command, commands.HybridCommand | commands.HybridGroup)
+
+    @pytest.mark.parametrize(("name", "aliases"), sorted(ADDED_COMMANDS.items()))
+    async def test_the_new_games_expose_their_aliases(
+        self, bot: FlyconomyBot, name: str, aliases: tuple[str, ...]
+    ):
+        command = bot.get_command(name)
+        assert command is not None
+        for alias in aliases:
+            assert bot.get_command(alias) is command
+
+    @pytest.mark.parametrize("name", sorted(ADDED_COMMANDS))
+    async def test_the_new_games_have_no_cooldown(self, bot: FlyconomyBot, name: str):
+        # Casino games are limited by the wallet, not by a timer.
+        command = bot.get_command(name)
+        assert command is not None
+        assert command._buckets._cooldown is None
 
 
 class TestFlxSubcommands:
@@ -137,7 +173,7 @@ class TestCooldowns:
 class TestTree:
     async def test_the_slash_tree_covers_every_member_command(self, bot: FlyconomyBot):
         published = {command.qualified_name for command in bot.tree.walk_commands()}
-        for name in V1_MEMBER_COMMANDS:
+        for name in ALL_MEMBER_COMMANDS:
             assert any(entry == name or entry.startswith(f"{name} ") for entry in published), (
                 f"{name} is not published as a slash command"
             )

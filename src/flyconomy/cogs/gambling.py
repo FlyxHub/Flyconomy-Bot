@@ -113,6 +113,48 @@ class Gambling(BaseCog, name="Casino"):
         else:
             await ctx.send(f"You rolled a **{roll}**. You lose **{embeds.money(bet)}**")
 
+    @commands.hybrid_command(name="slots", aliases=["slot"])  # type: ignore[arg-type]
+    @app_commands.describe(bet="Dollars to stake.")
+    async def slots(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
+        """Spin the slot machine. Three of a kind returns up to 55x your stake."""
+        await self.db.add_wallet(ctx.author.id, -bet)
+        reels = economy.spin_slots(self.rng)
+        multiplier = economy.slots_payout_multiplier(reels)
+
+        window = " ".join(symbol.emoji for symbol in reels)
+        if not multiplier:
+            await ctx.send(f"[ {window} ]\nNo match. You lose **{embeds.money(bet)}**")
+            return
+
+        if all(symbol == reels[0] for symbol in reels):
+            headline = f"Three {reels[0].name}!"
+        else:
+            # A pair, since the all-equal case is handled above.
+            paired = next(s for s in reels if s.pays_on_pair and reels.count(s) == 2)
+            headline = f"A pair of {paired.name}!"
+
+        await self._settle(ctx, bet, multiplier)
+        await ctx.send(f"[ {window} ]\n{headline} You win **{embeds.money(bet * multiplier)}**")
+
+    @commands.hybrid_command(name="war")  # type: ignore[arg-type]
+    @app_commands.describe(bet="Dollars to stake.")
+    async def war(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
+        """Draw a card against the dealer. The higher card wins, and a tie is returned."""
+        await self.db.add_wallet(ctx.author.id, -bet)
+        player, dealer = economy.draw_cards(2, self.rng)
+        multiplier = economy.war_payout_multiplier(player, dealer)
+
+        draw = f"You drew **{player}**, the dealer drew **{dealer}**."
+        match multiplier:
+            case economy.WAR_WIN_RETURN:
+                await self._settle(ctx, bet, multiplier)
+                await ctx.send(f"{draw} You win **{embeds.money(bet * multiplier)}**")
+            case economy.WAR_TIE_RETURN:
+                await self._settle(ctx, bet, multiplier)
+                await ctx.send(f"{draw} It's a tie, so your {embeds.money(bet)} is returned.")
+            case _:
+                await ctx.send(f"{draw} You lose **{embeds.money(bet)}**")
+
     @commands.hybrid_command(name="roulette")  # type: ignore[arg-type]
     @app_commands.describe(bet=_ROULETTE_HELP, amount="Dollars to stake.")
     async def roulette(

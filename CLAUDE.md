@@ -85,11 +85,17 @@ is lost. Keep that passing.
 
 These look like bugs but are deliberate, carried over so the economy doesn't shift under players:
 
-- **RPS and dice overpay.** RPS returns 3x the stake on a 1-in-3 win, dice returns 6x on a 1-in-6 win,
-  and the RPS win message says `bet * 2` while the credit is `bet * 3`. Both games are player-positive
-  over time. Version 1 did exactly this. Change it only if asked to rebalance.
+- **RPS overpays.** It returns 3x the stake on a 1-in-3 win, so players gain a third of everything
+  they stake on it, and its win message says `bet * 2` while the credit is `bet * 3`. Version 1 did
+  exactly this. Change `RPS_RETURN` only if asked to rebalance. (Coinflip and dice look generous but
+  are exactly fair: dice returns 6x on 1-in-6 odds, which is an edge of zero.)
 - **`always_mine_user_ids`** exists because version 1 hardcoded one Discord user ID for guaranteed
   mining. It's now a config setting rather than a literal in the source.
+
+Games added since the rewrite (`slots`, `war`) instead carry a **deliberate, documented house
+edge**, verified by enumerating every outcome rather than by sampling: `test_economy.py` walks
+all 216 slot spins and all 2,652 war hands and asserts the exact return. Retuning a payout
+fails those tests until the expected value is updated in both the test and the README.
 
 What was *not* preserved is listed in the README's "What changed in version 2" table — off-by-one
 mine odds, the missing `00` pocket, negative bets, and robbing yourself were all fixed.

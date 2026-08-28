@@ -18,6 +18,7 @@ classic prefix command, such as `$balance`.
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
 - [Economy reference](#economy-reference)
+  - [Slot machine paytable](#slot-machine-paytable)
 - [Develop and test](#develop-and-test)
 - [Architecture](#architecture)
 - [Troubleshoot](#troubleshoot)
@@ -31,7 +32,8 @@ classic prefix command, such as `$balance`.
   their bank balance, or rob another member's wallet.
 - **Flyxcoin.** Members buy a miner, upgrade it to improve their odds, mine
   hourly, and buy, sell, or send coins.
-- **Casino.** Coin flip, rock paper scissors, dice, and American roulette.
+- **Casino.** Slot machine, card war, coin flip, rock paper scissors, dice,
+  and American roulette.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
 
 ## Before you begin
@@ -294,6 +296,8 @@ Every game stakes money from your wallet.
 | `rps <rock\|paper\|scissors> <bet>` | Returns 3x your stake on a win, and refunds your stake on a tie. |
 | `dice <1-6> <bet>` | Returns 6x your stake on a correct call. |
 | `roulette <red\|black\|0-36\|00> <bet>` | Returns 2x on a color and 35x on a single pocket. |
+| `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
+| `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 
 ### Owner commands
 
@@ -338,18 +342,47 @@ runs once per hour.
 Each game debits your stake when you place the bet, then credits the return
 below if you win. The profit column is what you gain overall.
 
-| Game | Win chance | Returned | Net profit |
-| --- | --- | --- | --- |
-| Coin flip | 1 in 2 | 2x stake | 1x stake |
-| Rock paper scissors | 1 in 3, plus a 1 in 3 refunded tie | 3x stake | 2x stake |
-| Dice | 1 in 6 | 6x stake | 5x stake |
-| Roulette, color | 18 in 38 | 2x stake | 1x stake |
-| Roulette, single pocket | 1 in 38 | 35x stake | 34x stake |
+| Game | Win chance | Returned | Net profit | House edge |
+| --- | --- | --- | --- | --- |
+| Coin flip | 1 in 2 | 2x stake | 1x stake | 0% |
+| Dice | 1 in 6 | 6x stake | 5x stake | 0% |
+| War | 47.06%, plus a 5.88% tie | 2x stake | 1x stake | 0% |
+| Slots | 1 in 6 | 2x to 55x stake | 1x to 54x stake | 4.17% |
+| Roulette, color | 18 in 38 | 2x stake | 1x stake | 5.26% |
+| Roulette, single pocket | 1 in 38 | 35x stake | 34x stake | 7.89% |
+| Rock paper scissors | 1 in 3, plus a 1 in 3 refunded tie | 3x stake | 2x stake | **-33.33%** |
 
-Rock paper scissors and dice pay more than their odds justify, so both are
-profitable for players over time. This carries over from version 1 unchanged. If
-you want to rebalance the economy, edit the return constants in
-`src/flyconomy/economy.py`; nothing else needs to change.
+House edge is the share of each staked dollar the bot keeps on average. A
+negative figure means the game pays players more than its odds justify.
+
+Rock paper scissors is the outlier: it returns 3x on a one-in-three win, so
+players gain a third of everything they stake on it. That carries over from
+version 1 unchanged rather than being rebalanced without asking. To change it,
+edit `RPS_RETURN` in `src/flyconomy/economy.py`; nothing else needs to change.
+
+### Slot machine paytable
+
+Three identical reels, each carrying six equally likely symbols, for 216
+possible spins. One spin in six pays.
+
+| Result | Returns |
+| --- | --- |
+| 💎 💎 💎 | 55x stake |
+| ⭐ ⭐ ⭐ | 35x stake |
+| 🔔 🔔 🔔 | 22x stake |
+| 🍇 🍇 🍇 | 15x stake |
+| 🍋 🍋 🍋 | 11x stake |
+| 🍒 🍒 🍒 | 9x stake |
+| Exactly two 💎 or two ⭐ | 2x stake |
+| Anything else | Nothing |
+
+Slots is the swingiest game in the casino. A single spin varies by about 4.85
+times the stake, so a few hundred spins can land far from the 4.17% average in
+either direction. The other games are much steadier.
+
+If you retune a payout, `tests/test_economy.py` enumerates all 216 spins and
+asserts the house edge, so it fails until you update the expected value here and
+in the test.
 
 ## Develop and test
 
@@ -480,6 +513,7 @@ changed on purpose.
 | Change | Reason |
 | --- | --- |
 | Commands work as slash commands as well as `$` prefix commands. | Discord's preferred interface, and it gives members argument hints. |
+| Two games were added: `slots` and `war`. | The casino had no jackpot game and no game with a push. Both are documented in the payout table above. |
 | Mining odds at levels 2 through 5 are now 5%, 10%, 15%, and 20%. | Version 1 tested `randint(1, 100) in range(1, 5)`, which is 4%, not the 5% it announced. Every level was short by one point. The odds now match what the bot has always claimed. |
 | Roulette has a real `00` pocket. | Python reads the literal `00` as `0`, so version 1's wheel held two `0` pockets and no `00`. Betting on `0` paid at double the correct rate. |
 | Negative bets are rejected. | Version 1 compared `bet > wallet` and then subtracted the bet, so a negative bet added money to the wallet. |
