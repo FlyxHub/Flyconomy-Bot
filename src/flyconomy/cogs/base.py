@@ -7,10 +7,13 @@ from typing import TYPE_CHECKING
 
 from discord.ext import commands
 
+from flyconomy.errors import RateLimitedError
+
 if TYPE_CHECKING:
     from flyconomy.bot import FlyconomyBot
     from flyconomy.config import Settings
     from flyconomy.database import Database
+    from flyconomy.ratelimit import SlidingWindowLimiter
 
 
 class BaseCog(commands.Cog):
@@ -41,3 +44,30 @@ class BaseCog(commands.Cog):
     def timezone(self) -> str:
         """IANA timezone used for embed timestamps."""
         return self.bot.settings.timezone
+
+    @property
+    def limiter(self) -> SlidingWindowLimiter:
+        """The shared per-member action budget."""
+        return self.bot.limiter
+
+    async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]
+        """Spend one action from the member's budget.
+
+        Applied to every command in every cog that inherits this, so a member
+        cannot escape it by rotating between commands. It also covers the
+        commands that refund their own cooldown when they decline to act, such
+        as mining without a miner, which would otherwise loop for free.
+
+        Args:
+            ctx: Invocation context.
+
+        Returns:
+            ``True`` when the member has budget left.
+
+        Raises:
+            RateLimitedError: If the member is acting too quickly.
+        """
+        wait = self.limiter.acquire(ctx.author.id)
+        if wait:
+            raise RateLimitedError(wait)
+        return True

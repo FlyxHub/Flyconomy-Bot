@@ -115,7 +115,12 @@ disallow_incomplete_defs = false
 # bot and the invocation context, and reach through discord.py's decorators to
 # call `.callback` directly, which mypy resolves as taking Never. Everything
 # else in the suite stays strictly checked.
-module = ["tests.test_cog_behavior", "tests.test_admin_and_startup", "tests.test_views"]
+module = [
+    "tests.test_cog_behavior",
+    "tests.test_admin_and_startup",
+    "tests.test_views",
+    "tests.test_antiabuse",
+]
 disable_error_code = [
     "arg-type",
     "call-arg",

@@ -33,7 +33,7 @@ Run a single test with the venv interpreter directly:
 
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
-buttons, and `config.py` the settings.
+buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
 
@@ -88,16 +88,40 @@ is lost. Keep that passing.
 - Each cog decorator carries `# type: ignore[arg-type]`: discord.py's hybrid decorators are typed for
   pyright and mypy infers `Never` parameters. The ignores are narrow on purpose — mypy runs strict.
 
+## Anti-abuse
+
+**The load-bearing invariant: no game may have a positive expected value.** A game that profits per
+play is a money printer, and a rate limit only changes how fast it prints. `tests/test_antiabuse.py`
+asserts this for every game and fails if a payout is retuned into positive territory — treat that
+test as a spec, not as something to adjust until it passes.
+
+Version 1's RPS refunded ties, which paid +33%; ties now go to the house, leaving it at exactly 0%.
+That was the actual exploit behind "people spam games for guaranteed profit", not the missing rate
+limits.
+
+Three further layers, all in place because they cover different failure modes:
+
+- **Faucet cooldowns.** `beg` creates money from nothing; its cooldown is the only thing bounding it.
+  It sits at 60s so it earns less per hour than a maximum-level miner. Check that ratio before
+  touching either number.
+- **A shared rate limit,** in `BaseCog.cog_check` over `ratelimit.SlidingWindowLimiter`. Deliberately
+  *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
+  commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on
+  an empty wallet), which would otherwise loop for free.
+- **A table limit,** `settings.max_bet`, enforced in `Gambling._stake`. Every wager debits through
+  that one method, so a new game cannot forget the cap. Check the limit *before* debiting, so a
+  refused bet costs nothing.
+
+`RateLimitedError` subclasses `commands.CheckFailure` on purpose. discord.py's `Bot.invoke` only
+dispatches `CommandError` subclasses to an error handler, so a plain exception raised from a cog
+check reaches the member as silence plus a logged traceback.
+
 ## Preserved quirks
 
-These look like bugs but are deliberate, carried over so the economy doesn't shift under players:
-
-- **RPS overpays.** It returns 3x the stake on a 1-in-3 win, so players gain a third of everything
-  they stake on it, and its win message says `bet * 2` while the credit is `bet * 3`. Version 1 did
-  exactly this. Change `RPS_RETURN` only if asked to rebalance. (Coinflip and dice look generous but
-  are exactly fair: dice returns 6x on 1-in-6 odds, which is an edge of zero.)
 - **`always_mine_user_ids`** exists because version 1 hardcoded one Discord user ID for guaranteed
   mining. It's now a config setting rather than a literal in the source.
+- **Coinflip and dice look generous but are exactly fair.** Dice returns 6x on 1-in-6 odds, which is
+  an edge of zero. Don't "fix" them.
 
 Games added since the rewrite carry a **deliberate, documented house edge**. Where the outcome
 space is small enough, the tests enumerate it rather than sampling: `test_economy.py` walks all 216

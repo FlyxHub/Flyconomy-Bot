@@ -11,7 +11,13 @@ from discord.ext import commands
 from flyconomy import __version__, embeds
 from flyconomy.config import Settings
 from flyconomy.database import Database
-from flyconomy.errors import FlyconomyError, InsufficientFundsError
+from flyconomy.errors import (
+    BetTooLargeError,
+    FlyconomyError,
+    InsufficientFundsError,
+    RateLimitedError,
+)
+from flyconomy.ratelimit import SlidingWindowLimiter
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +65,11 @@ class FlyconomyBot(commands.Bot):
         )
         self.settings = settings
         self.db: Database
+        # One budget per member across every game command. A per-command
+        # cooldown would be sidestepped by rotating between commands.
+        self.limiter = SlidingWindowLimiter(
+            rate=settings.rate_limit_actions, per=settings.rate_limit_seconds
+        )
         # Pure slash commands bypass on_command_error, so the tree needs the
         # same handler. Hybrid commands route through on_command_error.
         self.tree.on_error = self.on_app_command_error  # type: ignore[method-assign]
@@ -200,6 +211,12 @@ def describe_command_error(error: BaseException) -> str | None:
         case commands.CommandNotFound():
             # Chat noise that starts with the prefix is not worth a reply.
             return ""
+        case RateLimitedError():
+            return (
+                f"You are using commands too quickly. Try again in {_humanize(error.retry_after)}."
+            )
+        case BetTooLargeError():
+            return f"The table limit is {error.limit:,}. You cannot stake {error.bet:,} on one bet."
         case InsufficientFundsError():
             return (
                 f"You have insufficient {error.currency}. "

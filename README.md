@@ -18,6 +18,7 @@ classic prefix command, such as `$balance`.
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
 - [Economy reference](#economy-reference)
+  - [Keeping the economy honest](#keeping-the-economy-honest)
   - [Blackjack](#blackjack)
   - [Slot machine paytable](#slot-machine-paytable)
 - [Develop and test](#develop-and-test)
@@ -251,6 +252,9 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_COMMAND_PREFIX` | No | `$` | Prefix for classic text commands. Slash commands ignore it. |
 | `FLYCONOMY_TIMEZONE` | No | `America/Chicago` | IANA timezone for embed timestamps. |
 | `FLYCONOMY_LOG_LEVEL` | No | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
+| `FLYCONOMY_RATE_LIMIT_ACTIONS` | No | `6` | Game commands a member may run per window. |
+| `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
 | `FLYCONOMY_DEV_GUILD_ID` | No | None | Server to sync slash commands to. Set it while developing; leave it empty in production. |
 | `FLYCONOMY_ALWAYS_MINE_USER_IDS` | No | Empty | Comma-separated user IDs whose mine attempts always succeed. |
 
@@ -269,7 +273,7 @@ mentioning the bot works as a prefix too.
 | `balance [member]` | Shows wallet, bank, Flyxcoin, miner level, and net worth. Defaults to you. Alias: `bal`. |
 | `deposit [amount]` | Moves money from your wallet to your bank. Defaults to your whole wallet. Alias: `dep`. |
 | `withdraw [amount]` | Moves money from your bank to your wallet. Defaults to your whole bank balance. |
-| `beg` | Pays $1 to $100 half the time. Cooldown: 3 seconds. |
+| `beg` | Pays $1 to $100 half the time. Cooldown: 60 seconds. |
 | `daily` | Pays 10% of your bank balance. Cooldown: 24 hours. |
 | `rob <member>` | Takes a random share of a member's wallet, half the time. Cooldown: 1 hour. |
 | `leaderboard` | Ranks the top 10 members by net worth. Alias: `lb`. |
@@ -295,7 +299,7 @@ Every game stakes money from your wallet.
 | Command | Description |
 | --- | --- |
 | `coinflip <heads\|tails> <bet>` | Returns 2x your stake on a correct call. Alias: `cf`. |
-| `rps <rock\|paper\|scissors> <bet>` | Returns 3x your stake on a win, and refunds your stake on a tie. |
+| `rps <rock\|paper\|scissors> <bet>` | Returns 3x your stake on a win. The house takes ties. |
 | `dice <1-6> <bet>` | Returns 6x your stake on a correct call. |
 | `roulette <red\|black\|0-36\|00> <bet>` | Returns 2x on a color and 35x on a single pocket. |
 | `blackjack <bet>` | Deals a hand against the dealer, with buttons to hit, stand, or double down. Alias: `bj`. |
@@ -353,16 +357,48 @@ below if you win. The profit column is what you gain overall.
 | Slots | 1 in 6 | 2x to 55x stake | 1x to 54x stake | 4.17% |
 | Roulette, color | 18 in 38 | 2x stake | 1x stake | 5.26% |
 | Roulette, single pocket | 1 in 38 | 35x stake | 34x stake | 7.89% |
-| Rock paper scissors | 1 in 3, plus a 1 in 3 refunded tie | 3x stake | 2x stake | **-33.33%** |
+| Rock paper scissors | 1 in 3 | 3x stake | 2x stake | 0% |
 | Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.4% to 15.8% |
 
-House edge is the share of each staked dollar the bot keeps on average. A
-negative figure means the game pays players more than its odds justify.
+House edge is the share of each staked dollar the bot keeps on average. **No
+game pays players more than its odds justify**, which is enforced by a test: if
+you retune a payout into positive territory, the suite fails.
 
-Rock paper scissors is the outlier: it returns 3x on a one-in-three win, so
-players gain a third of everything they stake on it. That carries over from
-version 1 unchanged rather than being rebalanced without asking. To change it,
-edit `RPS_RETURN` in `src/flyconomy/economy.py`; nothing else needs to change.
+Rock paper scissors keeps its 3x win but no longer refunds a tie. Refunding the
+tie is what made it pay +33%, and a game that profits per play cannot be fixed
+by any rate limit.
+
+### Keeping the economy honest
+
+Three separate things stop members from farming the bot. They cover different
+failure modes, so none of them substitutes for the others.
+
+**No game has a positive expected value.** This is the one that matters. A game
+that profits per play is a money printer, and slowing it down with a cooldown
+only changes how long the printing takes. Every payout in the table above is
+either fair or favours the house, and `tests/test_antiabuse.py` fails if that
+stops being true.
+
+**Faucets are slower than mining.** `beg` is the only command that creates money
+with no stake and no real limit, so its cooldown is what bounds it. At 60 seconds
+it produces about $1,500 an hour, just under a maximum-level miner.
+
+**A shared rate limit, not a per-command cooldown.** Every game command spends
+from one budget of `FLYCONOMY_RATE_LIMIT_ACTIONS` per
+`FLYCONOMY_RATE_LIMIT_SECONDS`, per member. A per-command cooldown would be
+sidestepped by rotating between games, and it cannot cover a command that
+refunds its own cooldown when it declines to act, such as mining without a miner.
+
+**A table limit.** `FLYCONOMY_MAX_BET` caps a single wager. It stops a doubling
+strategy from escalating without bound, and it bounds how much damage a
+mispriced game could do before anyone notices. Bets above it are refused with a
+message naming the limit; nothing is silently clamped, and a refused bet costs
+nothing. Doubling down in blackjack can take a hand to twice the limit, which is
+deliberate and matches how a real table works.
+
+A doubling strategy will still end most short sessions slightly ahead. That is
+true of any fair game and cannot be designed away without making the games
+unfair. What matters is the average, which is now zero or negative everywhere.
 
 ### Blackjack
 
@@ -454,6 +490,8 @@ The suite is organized by concern:
 | `test_database.py` | Balances, transfers, and concurrency guarantees. |
 | `test_migrations.py` | Upgrading a real version 1 database without losing data. |
 | `test_commands.py` | That every version 1 command and alias still registers. |
+| `test_antiabuse.py` | That no game is profitable, faucets stay throttled, and the limits hold. |
+| `test_ratelimit.py` | The sliding window limiter, on an injected clock. |
 | `test_blackjack.py` | The blackjack ruleset: hand values, soft aces, dealer policy, payouts. |
 | `test_views.py` | The blackjack buttons, ownership, timeout, and settlement. |
 | `test_cog_behavior.py` | The command bodies, against a real database. |
@@ -492,6 +530,7 @@ src/flyconomy/
 ├── embeds.py         Message and embed builders
 ├── errors.py         Exceptions the bot raises deliberately
 ├── logging_config.py Logging setup
+├── ratelimit.py      A sliding window limiter, with an injectable clock
 ├── views.py          Interactive buttons, currently the blackjack table
 └── cogs/             One module per command group
 ```
@@ -555,6 +594,9 @@ changed on purpose.
 | Change | Reason |
 | --- | --- |
 | Commands work as slash commands as well as `$` prefix commands. | Discord's preferred interface, and it gives members argument hints. |
+| Rock paper scissors no longer refunds ties. | Refunding the tie paid players +33% of everything staked on the game, which no rate limit could close. It is now 0%, like coinflip, dice, and war. |
+| `beg` moved from a 3-second to a 60-second cooldown. | At 3 seconds it created about $30,000 an hour from nothing, more than a maximum-level miner produced. |
+| Wagers are capped, and game commands share a rate limit. | See [Keeping the economy honest](#keeping-the-economy-honest). |
 | Three games were added: `blackjack`, `slots`, and `war`. | The casino had no game of skill, no jackpot game, and no game with a push. All three are documented in the payout tables above. |
 | Mining odds at levels 2 through 5 are now 5%, 10%, 15%, and 20%. | Version 1 tested `randint(1, 100) in range(1, 5)`, which is 4%, not the 5% it announced. Every level was short by one point. The odds now match what the bot has always claimed. |
 | Roulette has a real `00` pocket. | Python reads the literal `00` as `0`, so version 1's wheel held two `0` pockets and no `00`. Betting on `0` paid at double the correct rate. |

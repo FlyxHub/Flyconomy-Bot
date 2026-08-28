@@ -14,6 +14,7 @@ from discord.ext import commands
 from flyconomy import blackjack, economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
+from flyconomy.errors import BetTooLargeError
 from flyconomy.views import BlackjackView
 
 _ROULETTE_HELP = (
@@ -24,6 +25,37 @@ _ROULETTE_HELP = (
 
 class Gambling(BaseCog, name="Casino"):
     """Wager wallet money on games of chance."""
+
+    def _check_limit(self, bet: int) -> None:
+        """Refuse a wager above the table limit.
+
+        Called before the stake is debited, so a refused bet costs nothing.
+
+        Args:
+            bet: The proposed stake.
+
+        Raises:
+            BetTooLargeError: If the stake exceeds the configured table limit.
+        """
+        if bet > self.settings.max_bet:
+            raise BetTooLargeError(bet, self.settings.max_bet)
+
+    async def _stake(self, ctx: commands.Context[FlyconomyBot], bet: int) -> None:
+        """Check the table limit, then debit the stake.
+
+        Every game places its bet through here, so a new game cannot forget the
+        limit.
+
+        Args:
+            ctx: Invocation context, used to identify the player.
+            bet: Dollars to stake.
+
+        Raises:
+            BetTooLargeError: If the stake exceeds the table limit.
+            InsufficientFundsError: If the wallet cannot cover the stake.
+        """
+        self._check_limit(bet)
+        await self.db.add_wallet(ctx.author.id, -bet)
 
     async def _settle(self, ctx: commands.Context[FlyconomyBot], bet: int, multiplier: int) -> None:
         """Credit a win, if there is one.
@@ -53,7 +85,7 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send("Invalid guess. Try `heads` or `tails`.")
             return
 
-        await self.db.add_wallet(ctx.author.id, -bet)
+        await self._stake(ctx, bet)
         flip = self.rng.choice(economy.COIN_SIDES)
 
         if choice == flip:
@@ -80,18 +112,22 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send("Invalid guess. You must play `rock`, `paper`, or `scissors`.")
             return
 
-        await self.db.add_wallet(ctx.author.id, -bet)
+        await self._stake(ctx, bet)
         bot_move = self.rng.choice(economy.RPS_MOVES)
         result = economy.rps_outcome(move, bot_move)
 
         match result:
             case "tie":
-                await self._settle(ctx, bet, 1)
-                await ctx.send(f"The bot chose **{bot_move}**. It's a tie!")
+                await self._settle(ctx, bet, economy.RPS_TIE_RETURN)
+                await ctx.send(
+                    f"The bot chose **{bot_move}**. It's a tie, and the house takes ties. "
+                    f"You lose **{embeds.money(bet)}**"
+                )
             case "win":
                 await self._settle(ctx, bet, economy.RPS_RETURN)
                 await ctx.send(
-                    f"The bot chose **{bot_move}**. You win **{embeds.money(bet * 2)}!**"
+                    f"The bot chose **{bot_move}**. "
+                    f"You win **{embeds.money(bet * economy.RPS_RETURN)}!**"
                 )
             case _:
                 await ctx.send(f"The bot chose **{bot_move}**. You lose **{embeds.money(bet)}**")
@@ -105,7 +141,7 @@ class Gambling(BaseCog, name="Casino"):
         bet: commands.Range[int, 1],
     ) -> None:
         """Bet on a six-sided dice roll. A correct call returns 6x your stake."""
-        await self.db.add_wallet(ctx.author.id, -bet)
+        await self._stake(ctx, bet)
         roll = self.rng.randint(1, economy.DICE_SIDES)
 
         if guess == roll:
@@ -118,7 +154,7 @@ class Gambling(BaseCog, name="Casino"):
     @app_commands.describe(bet="Dollars to stake.")
     async def slots(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
         """Spin the slot machine. Three of a kind returns up to 55x your stake."""
-        await self.db.add_wallet(ctx.author.id, -bet)
+        await self._stake(ctx, bet)
         reels = economy.spin_slots(self.rng)
         multiplier = economy.slots_payout_multiplier(reels)
 
@@ -143,7 +179,7 @@ class Gambling(BaseCog, name="Casino"):
         self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
     ) -> None:
         """Play a hand of blackjack against the dealer. A natural pays 3:2."""
-        await self.db.add_wallet(ctx.author.id, -bet)
+        await self._stake(ctx, bet)
         game = blackjack.Game.deal(bet, self.rng)
 
         view = BlackjackView(
@@ -167,7 +203,7 @@ class Gambling(BaseCog, name="Casino"):
     @app_commands.describe(bet="Dollars to stake.")
     async def war(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
         """Draw a card against the dealer. The higher card wins, and a tie is returned."""
-        await self.db.add_wallet(ctx.author.id, -bet)
+        await self._stake(ctx, bet)
         player, dealer = economy.draw_cards(2, self.rng)
         multiplier = economy.war_payout_multiplier(player, dealer)
 
@@ -196,7 +232,7 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send(f"That is not a valid bet. {_ROULETTE_HELP}")
             return
 
-        await self.db.add_wallet(ctx.author.id, -amount)
+        await self._stake(ctx, amount)
         pocket = self.rng.choice(economy.ROULETTE_WHEEL)
         multiplier = economy.roulette_payout_multiplier(wager, pocket)
 

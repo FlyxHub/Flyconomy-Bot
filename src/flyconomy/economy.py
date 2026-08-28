@@ -50,6 +50,12 @@ UPGRADE_COST: Final[dict[int, int]] = {0: 100, 1: 5_000, 2: 20_000, 3: 100_000, 
 COINFLIP_RETURN: Final = 2
 RPS_RETURN: Final = 3
 DICE_RETURN: Final = 6
+
+#: Rock paper scissors returns nothing on a tie. Refunding the tie is what made
+#: the game pay +33% and turned it into a money printer that no rate limit could
+#: close, because the profit was per play rather than per second. Losing the tie
+#: leaves the game at exactly 0%, in line with coinflip, dice, and war.
+RPS_TIE_RETURN: Final = 0
 ROULETTE_STRAIGHT_RETURN: Final = 35
 ROULETTE_COLOR_RETURN: Final = 2
 
@@ -66,7 +72,10 @@ ROB_SUCCESS_ODDS: Final = 2
 
 # ------------------------------------------------------------- cooldowns ----
 
-BEG_COOLDOWN_SECONDS: Final = 3
+#: Begging creates money from nothing, so its cooldown is what bounds the
+#: faucet: at 3 seconds it produced about $30,000 an hour, more than a maximum
+#: level miner. At 60 it produces about $1,500.
+BEG_COOLDOWN_SECONDS: Final = 60
 MINE_COOLDOWN_SECONDS: Final = 60 * 60
 ROB_COOLDOWN_SECONDS: Final = 60 * 60
 DAILY_COOLDOWN_SECONDS: Final = 60 * 60 * 24

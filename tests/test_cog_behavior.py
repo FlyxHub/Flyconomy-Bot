@@ -21,6 +21,7 @@ from flyconomy.cogs.mining import Mining
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import InsufficientFundsError
+from flyconomy.ratelimit import SlidingWindowLimiter
 from tests.conftest import ALICE, BOB
 
 
@@ -95,11 +96,16 @@ class FakeContext:
 
 
 class FakeBot:
-    """The bot surface the cogs read: a database and settings."""
+    """The bot surface the cogs read: a database, settings, and a rate limiter."""
 
-    def __init__(self, db: Database, settings: Settings) -> None:
+    def __init__(
+        self, db: Database, settings: Settings, limiter: SlidingWindowLimiter | None = None
+    ) -> None:
         self.db = db
         self.settings = settings
+        self.limiter = limiter or SlidingWindowLimiter(
+            rate=settings.rate_limit_actions, per=settings.rate_limit_seconds
+        )
 
 
 @pytest.fixture
@@ -438,14 +444,16 @@ class TestCasino:
 
         assert (await db.get_account(ALICE)).wallet in {0, 200}
 
-    async def test_an_rps_tie_refunds_the_stake(self, db, settings, ctx):
+    async def test_an_rps_tie_goes_to_the_house(self, db, settings, ctx):
+        # Refunding the tie is what made RPS pay +33%. The house takes it now,
+        # which leaves the game at exactly 0%.
         cog = Gambling(FakeBot(db, settings))
         cog.rng = ScriptedRandom(choice="rock")
         await db.add_wallet(ALICE, 100)
 
         await cog.rps.callback(cog, ctx, "rock", 100)
 
-        assert (await db.get_account(ALICE)).wallet == 100
+        assert (await db.get_account(ALICE)).wallet == 0
         assert "tie" in ctx.last.lower()
 
     async def test_an_rps_win_returns_three_times_the_stake(self, db, settings, ctx):
@@ -456,6 +464,8 @@ class TestCasino:
         await cog.rps.callback(cog, ctx, "rock", 100)
 
         assert (await db.get_account(ALICE)).wallet == 300
+        # The message quotes what lands in the wallet, as every other game does.
+        assert "$300" in ctx.last
 
     async def test_an_rps_loss_keeps_the_stake(self, db, settings, ctx):
         cog = Gambling(FakeBot(db, settings))

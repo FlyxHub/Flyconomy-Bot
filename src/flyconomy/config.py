@@ -44,6 +44,22 @@ class Settings(BaseSettings):
         description="IANA timezone used for embed timestamps.",
     )
     log_level: LogLevel = Field(default="INFO", description="Root logging level.")
+    max_bet: Annotated[int, Field(gt=0)] = Field(
+        default=100_000,
+        description=(
+            "Table limit: the most a member may stake on a single wager. Caps how "
+            "far a doubling strategy can escalate, and bounds the damage any "
+            "mispriced game can do before it is noticed."
+        ),
+    )
+    rate_limit_actions: Annotated[int, Field(gt=0)] = Field(
+        default=6,
+        description="Game commands a member may run per rate_limit_seconds.",
+    )
+    rate_limit_seconds: Annotated[float, Field(gt=0)] = Field(
+        default=10.0,
+        description="Length of the rate limiting window, in seconds.",
+    )
     dev_guild_id: Annotated[int, Field(gt=0)] | None = Field(
         default=None,
         description=(

@@ -152,9 +152,17 @@ class TestOwnerCommands:
 
 
 class TestCooldowns:
+    async def test_the_beg_faucet_stays_throttled(self, bot: FlyconomyBot):
+        # Deliberately longer than version 1's 3 seconds. At 3s, begging created
+        # about $30,000 an hour from nothing; this holds it near $1,500.
+        command = bot.get_command("beg")
+        assert command is not None
+        assert command._buckets._cooldown is not None
+        assert command._buckets._cooldown.per >= 60
+
     @pytest.mark.parametrize(
         ("name", "seconds"),
-        [("beg", 3), ("mine", 3600), ("rob", 3600), ("daily", 86400)],
+        [("mine", 3600), ("rob", 3600), ("daily", 86400)],
     )
     async def test_version_1_cooldowns_are_unchanged(
         self, bot: FlyconomyBot, name: str, seconds: int
