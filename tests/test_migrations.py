@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from flyconomy import database as database_module
+from flyconomy import economy
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB, make_v1_database
 
@@ -162,3 +163,28 @@ async def test_a_fresh_database_is_created_at_the_current_version(db_path):
 
     assert version == database_module.SCHEMA_VERSION
     assert "idx_bank_user" in indexes
+
+
+async def test_a_version_1_database_gets_the_market_seeded_at_the_base_price(db_path):
+    make_v1_database(db_path, [(0, 1_000, 0, 0, ALICE)])
+
+    database = await Database.connect(db_path)
+    try:
+        price = await database.get_flx_price()
+    finally:
+        await database.close()
+
+    assert price == economy.FLX_PRICE
+
+
+async def test_the_market_migration_is_idempotent(db_path):
+    make_v1_database(db_path, [])
+
+    for _ in range(3):
+        database = await Database.connect(db_path)
+        try:
+            await database.migrate()
+            price = await database.get_flx_price()
+        finally:
+            await database.close()
+        assert price == economy.FLX_PRICE

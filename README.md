@@ -35,7 +35,9 @@ classic prefix command, such as `$balance`.
 - **Income.** Members beg for small amounts, collect a daily payout worth 10% of
   their bank balance, or rob another member's wallet.
 - **Flyxcoin.** Members buy a miner, upgrade it to improve their odds, mine
-  hourly, and buy, sell, or send coins.
+  hourly, and buy, sell, or send coins. The price moves on its own every 15
+  minutes on a bounded random walk, and the bot's status shows it live as a
+  stock ticker.
 - **Casino.** Blackjack with hit, stand, and double-down buttons, plus a slot
   machine, card war, coin flip, rock paper scissors, dice, and American
   roulette.
@@ -293,7 +295,7 @@ mentioning the bot works as a prefix too.
 | --- | --- |
 | `mine` | Mines Flyxcoin with your miner. Requires a miner. Cooldown: 1 hour. |
 | `upgrade` | Raises your miner one level, paid from your bank balance. |
-| `flx` | Shows how much Flyxcoin is in circulation and what it is worth. |
+| `flx` | Shows the current Flyxcoin price, how much is in circulation, and what it is worth. |
 | `flx buy [amount]` | Buys Flyxcoin with bank money. Defaults to as many as you can afford. |
 | `flx sell [amount]` | Sells Flyxcoin into your bank. Defaults to everything you hold. |
 | `flx send <member> <amount>` | Sends Flyxcoin to another member. |
@@ -343,8 +345,10 @@ which is the wrong place to advertise a command nobody else can run.
 | --- | --- |
 | Starting wallet | $0 |
 | Starting bank | $1,000 |
-| Flyxcoin price | $10,000, for both buying and selling |
-| Net worth | wallet + bank + (Flyxcoin x $10,000) |
+| Flyxcoin price | Starts at $10,000, both buying and selling always trade at the current live price |
+| Flyxcoin price range | $5,000 to $20,000 (50% to 200% of the starting price) |
+| Flyxcoin price tick | Every 15 minutes: a random move of up to 3%, pulled 5% of the way back toward $10,000 first |
+| Net worth | wallet + bank + (Flyxcoin x the live Flyxcoin price) |
 
 ### Miner levels
 

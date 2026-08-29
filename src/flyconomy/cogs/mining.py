@@ -62,27 +62,24 @@ class Mining(BaseCog, name="Flyxcoin"):
 
     @commands.hybrid_group(name="flx", fallback="info", invoke_without_command=True)  # type: ignore[arg-type]
     async def flx(self, ctx: commands.Context[FlyconomyBot]) -> None:
-        """Show how much Flyxcoin is in circulation."""
+        """Show how much Flyxcoin is in circulation and its current price."""
         total = await self.db.total_crypto()
-        await ctx.send(embed=embeds.circulation_embed(total, self.timezone))
+        price = await self.db.get_flx_price()
+        await ctx.send(embed=embeds.circulation_embed(total, price, self.timezone))
 
     @flx.command(name="buy")  # type: ignore[arg-type]
-    @app_commands.describe(
-        amount=(
-            f"Coins to buy at ${economy.FLX_PRICE:,} each. Defaults to as many as you can afford."
-        )
-    )
+    @app_commands.describe(amount="Coins to buy. Defaults to as many as you can afford.")
     async def flx_buy(
         self,
         ctx: commands.Context[FlyconomyBot],
         amount: commands.Range[int, 1] | None = None,
     ) -> None:
-        """Buy Flyxcoin with money from your bank account."""
+        """Buy Flyxcoin with money from your bank account, at the live price."""
         account = await self.db.get_account(ctx.author.id)
-        amount = amount or economy.affordable_flx(account.bank)
+        amount = amount or economy.affordable_flx(account.bank, account.flx_price)
         if not amount:
             await ctx.send(
-                f"One Flyxcoin costs {embeds.money(economy.FLX_PRICE)} and you have "
+                f"One Flyxcoin costs {embeds.money(account.flx_price)} and you have "
                 f"{embeds.money(account.bank)} in the bank."
             )
             return

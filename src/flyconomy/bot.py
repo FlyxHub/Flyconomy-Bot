@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 EXTENSIONS: Final[tuple[str, ...]] = (
     "flyconomy.cogs.economy",
     "flyconomy.cogs.mining",
+    "flyconomy.cogs.market",
     "flyconomy.cogs.gambling",
     "flyconomy.cogs.lottery",
     "flyconomy.cogs.admin",

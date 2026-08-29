@@ -16,8 +16,29 @@ from typing import Final, Literal
 # --------------------------------------------------------------- currency ---
 
 #: Price of one Flyxcoin, in dollars. Used for both buying and selling, and as
-#: the multiplier that converts a Flyxcoin holding into net worth.
+#: the multiplier that converts a Flyxcoin holding into net worth. Also the
+#: anchor the random walk in :func:`next_flx_price` reverts toward.
 FLX_PRICE: Final = 10_000
+
+#: Bounds the live price random walk to, so a bad run of ticks can neither
+#: collapse the price to nothing nor let it run away. The same kind of guard
+#: as :data:`DAILY_PAYOUT_CAP` on the same kind of risk: something that could
+#: otherwise compound.
+FLX_PRICE_FLOOR: Final = FLX_PRICE // 2
+FLX_PRICE_CEILING: Final = FLX_PRICE * 2
+
+#: Largest single-tick move, as a percent of the price after mean reversion is
+#: applied, in either direction.
+FLX_VOLATILITY_PERCENT: Final = 3
+
+#: Percent of the gap back to FLX_PRICE that each tick closes, before the
+#: random shock is applied. Keeps the walk oscillating around the anchor
+#: instead of drifting out to a bound and sitting there.
+FLX_MEAN_REVERSION_PERCENT: Final = 5
+
+#: Minutes between price ticks, driven by the background task in
+#: ``cogs/market.py``.
+FLX_TICK_MINUTES: Final = 15
 
 #: Wallet balance granted to a brand new account.
 STARTING_WALLET: Final = 0
@@ -199,28 +220,30 @@ WAR_WIN_RETURN: Final = 2
 WAR_TIE_RETURN: Final = 1
 
 
-def net_worth(wallet: int, bank: int, crypto: int) -> int:
+def net_worth(wallet: int, bank: int, crypto: int, price: int = FLX_PRICE) -> int:
     """Return a member's total net worth in dollars.
 
     Args:
         wallet: Undeposited cash.
         bank: Deposited cash.
         crypto: Flyxcoin held.
+        price: Dollar value of one Flyxcoin. Defaults to the base
+            :data:`FLX_PRICE`; a caller holding a live quote should pass it.
 
     Returns:
         Wallet plus bank plus the dollar value of the Flyxcoin.
     """
-    return wallet + bank + (crypto * FLX_PRICE)
+    return wallet + bank + (crypto * price)
 
 
-def flx_cost(amount: int) -> int:
-    """Return the dollar cost of ``amount`` Flyxcoin."""
-    return amount * FLX_PRICE
+def flx_cost(amount: int, price: int = FLX_PRICE) -> int:
+    """Return the dollar cost of ``amount`` Flyxcoin at ``price``."""
+    return amount * price
 
 
-def affordable_flx(bank: int) -> int:
-    """Return the most Flyxcoin that ``bank`` dollars can buy."""
-    return bank // FLX_PRICE
+def affordable_flx(bank: int, price: int = FLX_PRICE) -> int:
+    """Return the most Flyxcoin that ``bank`` dollars can buy at ``price``."""
+    return bank // price
 
 
 def daily_payout(bank: int, cap: int | None = None) -> int:
@@ -274,6 +297,32 @@ def roll_mine(miner_level: int, rng: random.Random | None = None) -> int:
         return ADMIN_MINE_YIELD
     chance = mine_chance_percent(miner_level)
     return 1 if chance and source.randint(1, 100) <= chance else 0
+
+
+def next_flx_price(current: int, rng: random.Random | None = None) -> int:
+    """Advance the live Flyxcoin price by one random-walk tick.
+
+    Every tick pulls the price back toward :data:`FLX_PRICE` by
+    :data:`FLX_MEAN_REVERSION_PERCENT` percent of the gap, applies a random
+    shock of up to :data:`FLX_VOLATILITY_PERCENT` percent, and clamps the
+    result to ``[FLX_PRICE_FLOOR, FLX_PRICE_CEILING]``. The pull and the bounds
+    share the same anchor, so buying and immediately selling stays roughly
+    value-neutral instead of drifting for free, and the walk cannot run away
+    the way an uncapped percentage would.
+
+    Args:
+        current: The price before this tick.
+        rng: Random source, injectable for deterministic tests.
+
+    Returns:
+        The next price, always at least $1.
+    """
+    source = rng if rng is not None else _DEFAULT_RNG
+    reverted = current + (FLX_PRICE - current) * FLX_MEAN_REVERSION_PERCENT / 100
+    shock = source.uniform(-FLX_VOLATILITY_PERCENT, FLX_VOLATILITY_PERCENT) / 100
+    moved = reverted * (1 + shock)
+    clamped = min(FLX_PRICE_CEILING, max(FLX_PRICE_FLOOR, moved))
+    return max(1, round(clamped))
 
 
 def rps_outcome(player: str, bot_move: str) -> Literal["win", "lose", "tie"]:

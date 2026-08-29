@@ -20,10 +20,19 @@ class TestNetWorth:
     def test_is_zero_for_a_new_account(self):
         assert economy.net_worth(0, 0, 0) == 0
 
+    def test_defaults_to_the_base_price(self):
+        assert economy.net_worth(0, 0, 1) == economy.FLX_PRICE
+
+    def test_uses_a_live_price_when_given_one(self):
+        assert economy.net_worth(0, 0, 1, price=5_000) == 5_000
+
 
 class TestFlyxcoin:
     def test_cost_scales_with_the_price(self):
         assert economy.flx_cost(3) == 3 * economy.FLX_PRICE
+
+    def test_cost_uses_a_live_price_when_given_one(self):
+        assert economy.flx_cost(3, price=5_000) == 15_000
 
     @pytest.mark.parametrize(
         ("bank", "expected"),
@@ -32,9 +41,60 @@ class TestFlyxcoin:
     def test_affordable_coins_round_down(self, bank, expected):
         assert economy.affordable_flx(bank) == expected
 
+    def test_affordable_coins_use_a_live_price_when_given_one(self):
+        assert economy.affordable_flx(15_000, price=5_000) == 3
+
     def test_buying_then_selling_is_value_neutral(self):
         coins = economy.affordable_flx(50_000)
         assert economy.flx_cost(coins) == 50_000
+
+
+class TestFlxPriceWalk:
+    def test_stays_within_bounds_over_many_ticks(self):
+        rng = random.Random(1)
+        price = economy.FLX_PRICE
+        for _ in range(10_000):
+            price = economy.next_flx_price(price, rng)
+            assert economy.FLX_PRICE_FLOOR <= price <= economy.FLX_PRICE_CEILING
+
+    def test_stays_within_bounds_starting_from_the_floor(self):
+        rng = random.Random(2)
+        price = economy.FLX_PRICE_FLOOR
+        for _ in range(1_000):
+            price = economy.next_flx_price(price, rng)
+            assert economy.FLX_PRICE_FLOOR <= price <= economy.FLX_PRICE_CEILING
+
+    def test_stays_within_bounds_starting_from_the_ceiling(self):
+        rng = random.Random(3)
+        price = economy.FLX_PRICE_CEILING
+        for _ in range(1_000):
+            price = economy.next_flx_price(price, rng)
+            assert economy.FLX_PRICE_FLOOR <= price <= economy.FLX_PRICE_CEILING
+
+    def test_is_deterministic_given_a_seeded_source(self):
+        first = economy.next_flx_price(economy.FLX_PRICE, random.Random(42))
+        second = economy.next_flx_price(economy.FLX_PRICE, random.Random(42))
+        assert first == second
+
+    def test_reverts_toward_the_anchor_on_average(self):
+        # Starting pinned at the ceiling, the mean-reverting pull should drag
+        # the average of many ticks back down toward FLX_PRICE rather than
+        # leaving it parked at the bound.
+        rng = random.Random(4)
+        price = economy.FLX_PRICE_CEILING
+        samples = []
+        for _ in range(5_000):
+            price = economy.next_flx_price(price, rng)
+            samples.append(price)
+        average = sum(samples) / len(samples)
+        assert average < economy.FLX_PRICE_CEILING * 0.9
+
+    def test_never_reaches_zero_or_negative(self):
+        rng = random.Random(5)
+        price = economy.FLX_PRICE_FLOOR
+        for _ in range(10_000):
+            price = economy.next_flx_price(price, rng)
+            assert price >= 1
 
 
 class TestDailyPayout:

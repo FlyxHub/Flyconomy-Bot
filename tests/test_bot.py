@@ -138,9 +138,32 @@ class TestEmbeds:
         assert embeds.now("UTC").tzinfo is not None
 
     def test_the_circulation_embed_values_the_supply(self):
-        embed = embeds.circulation_embed(3, "UTC")
-        assert embed.fields[0].value == "3"
-        assert embed.fields[1].value == "$30,000"
+        embed = embeds.circulation_embed(3, 10_000, "UTC")
+        assert embed.fields[0].value == "$10,000"
+        assert embed.fields[1].value == "3"
+        assert embed.fields[2].value == "$30,000"
+
+    def test_the_circulation_embed_uses_the_price_it_is_given(self):
+        embed = embeds.circulation_embed(3, 5_000, "UTC")
+        assert embed.fields[0].value == "$5,000"
+        assert embed.fields[2].value == "$15,000"
+
+    def test_the_ticker_reads_flat_with_no_prior_price(self):
+        assert embeds.flx_ticker(10_000, 0) == "$10,000"
+
+    def test_the_ticker_shows_a_rise(self):
+        text = embeds.flx_ticker(10_500, 10_000)
+        assert text.startswith("$10,500")
+        assert "+5.0%" in text
+
+    def test_the_ticker_shows_a_fall(self):
+        text = embeds.flx_ticker(9_000, 10_000)
+        assert text.startswith("$9,000")
+        assert "-10.0%" in text
+
+    def test_the_ticker_shows_no_change(self):
+        text = embeds.flx_ticker(10_000, 10_000)
+        assert "+0.0%" in text
 
     def test_the_brand_color_is_unchanged_from_version_1(self):
         assert discord.Color(0x13FF00) == embeds.BRAND_COLOR

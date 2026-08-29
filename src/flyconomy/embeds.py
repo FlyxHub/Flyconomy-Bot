@@ -95,11 +95,35 @@ def leaderboard_embed(
     )
 
 
-def circulation_embed(total: int, timezone: str) -> discord.Embed:
+def flx_ticker(price: int, previous: int) -> str:
+    """Render a short price-and-trend string, such as ``$10,340 ▲2.1%``.
+
+    Shared by the bot's status and the ``flx`` info embed, so the two always
+    agree on how a move reads.
+
+    Args:
+        price: The current price.
+        previous: The price before the move. Zero reads as no prior price,
+            which is shown flat rather than dividing by zero.
+
+    Returns:
+        The formatted ticker string.
+    """
+    if not previous:
+        return money(price)
+    change = (price - previous) / previous * 100
+    arrow = "\N{BLACK UP-POINTING TRIANGLE}" if change > 0 else "\N{BLACK DOWN-POINTING TRIANGLE}"
+    if change == 0:
+        arrow = "\N{BLACK RIGHT-POINTING TRIANGLE}"
+    return f"{money(price)} {arrow}{change:+.1f}%"
+
+
+def circulation_embed(total: int, price: int, timezone: str) -> discord.Embed:
     """Build the embed shown by ``flx`` with no action.
 
     Args:
         total: Flyxcoin in circulation.
+        price: The live Flyxcoin price.
         timezone: IANA timezone for the embed timestamp.
 
     Returns:
@@ -110,10 +134,11 @@ def circulation_embed(total: int, timezone: str) -> discord.Embed:
         color=BRAND_COLOR,
         timestamp=now(timezone),
     )
+    embed.add_field(name="Current FLX price:", value=money(price), inline=False)
     embed.add_field(name="Total FLX in circulation:", value=coins(total), inline=False)
     embed.add_field(
         name="Total value of all circulating FLX:",
-        value=money(economy.flx_cost(total)),
+        value=money(economy.flx_cost(total, price)),
     )
     return embed
 

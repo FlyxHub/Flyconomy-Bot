@@ -188,6 +188,42 @@ class TestCryptoMarket:
         assert await db.total_crypto() == 0
 
 
+class TestLiveFlxPrice:
+    async def test_a_new_database_starts_at_the_base_price(self, db: Database):
+        assert await db.get_flx_price() == economy.FLX_PRICE
+
+    async def test_set_flx_price_updates_the_live_price(self, db: Database):
+        await db.set_flx_price(7_500)
+        assert await db.get_flx_price() == 7_500
+
+    async def test_a_non_positive_price_is_rejected(self, db: Database):
+        with pytest.raises(ValueError, match="must be positive"):
+            await db.set_flx_price(0)
+
+    async def test_buying_charges_the_live_price(self, db: Database):
+        await db.set_flx_price(5_000)
+        await db.add_bank(ALICE, 15_000)
+        cost = await db.buy_crypto(ALICE, 3)
+        assert cost == 15_000
+        assert (await db.get_account(ALICE)).crypto == 3
+
+    async def test_selling_credits_the_live_price(self, db: Database):
+        await db.set_flx_price(20_000)
+        await db.add_crypto(ALICE, 2)
+        proceeds = await db.sell_crypto(ALICE, 2)
+        assert proceeds == 40_000
+
+    async def test_get_account_reports_the_price_it_was_read_at(self, db: Database):
+        await db.set_flx_price(6_000)
+        assert (await db.get_account(ALICE)).flx_price == 6_000
+
+    async def test_net_worth_reflects_the_live_price(self, db: Database):
+        await db.add_crypto(ALICE, 2)
+        await db.set_flx_price(6_000)
+        account = await db.get_account(ALICE)
+        assert account.net_worth == economy.STARTING_BANK + 12_000
+
+
 class TestPeerTransfers:
     async def test_sending_coins_moves_them(self, db: Database):
         await db.add_crypto(ALICE, 5)
@@ -261,6 +297,12 @@ class TestLeaderboards:
         await db.add_crypto(ALICE, 2)
         entries = await db.top_net_worth()
         assert entries[0].amount == economy.STARTING_BANK + 2 * economy.FLX_PRICE
+
+    async def test_net_worth_ranking_uses_the_live_price(self, db: Database):
+        await db.add_crypto(ALICE, 2)
+        await db.set_flx_price(6_000)
+        entries = await db.top_net_worth()
+        assert entries[0].amount == economy.STARTING_BANK + 12_000
 
     async def test_wallet_ranking_ignores_banked_cash(self, db: Database):
         await db.add_bank(ALICE, 1_000_000)

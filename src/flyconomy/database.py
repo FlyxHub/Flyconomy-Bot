@@ -30,7 +30,7 @@ from flyconomy.errors import InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 3
+SCHEMA_VERSION: Final = 4
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -50,6 +50,7 @@ class Account:
         bank: Deposited cash, which is safe from theft.
         crypto: Flyxcoin held.
         miner: Miner level, where ``0`` means the member owns no miner.
+        flx_price: The live Flyxcoin price at the moment this account was read.
     """
 
     user_id: int
@@ -57,11 +58,12 @@ class Account:
     bank: int
     crypto: int
     miner: int
+    flx_price: int
 
     @property
     def net_worth(self) -> int:
-        """Total value of the account in dollars."""
-        return economy.net_worth(self.wallet, self.bank, self.crypto)
+        """Total value of the account in dollars, at the price it was read."""
+        return economy.net_worth(self.wallet, self.bank, self.crypto, self.flx_price)
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,7 +226,9 @@ class Database:
     async def find_account(self, user_id: int) -> Account | None:
         """Return a member's account, or ``None`` when they have never played."""
         async with self._db.execute(
-            "SELECT wallet, bank, crypto, miner FROM bank WHERE user = ?", (user_id,)
+            "SELECT b.wallet, b.bank, b.crypto, b.miner, m.price AS flx_price "
+            "FROM bank b, market m WHERE b.user = ? AND m.id = 1",
+            (user_id,),
         ) as cursor:
             row = await cursor.fetchone()
         if row is None:
@@ -235,6 +239,7 @@ class Database:
             bank=row["bank"],
             crypto=row["crypto"],
             miner=row["miner"],
+            flx_price=row["flx_price"],
         )
 
     async def ensure_account(self, user_id: int) -> None:
@@ -255,7 +260,48 @@ class Database:
 
     async def top_net_worth(self, limit: int = economy.LEADERBOARD_SIZE) -> list[LeaderboardEntry]:
         """Return the richest members by net worth, highest first."""
-        return await self._ranked(f"wallet + bank + (crypto * {economy.FLX_PRICE})", limit=limit)
+        price = await self.get_flx_price()
+        return await self._ranked(f"wallet + bank + (crypto * {price})", limit=limit)
+
+    async def get_flx_price(self) -> int:
+        """Return the live Flyxcoin price."""
+        async with self._db.execute("SELECT price FROM market WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+        if row is None:  # pragma: no cover - migration 4 guarantees the row
+            return economy.FLX_PRICE
+        return int(row["price"])
+
+    async def set_flx_price(self, price: int) -> None:
+        """Set the live Flyxcoin price. Used by the scheduled market tick.
+
+        Args:
+            price: The new price. Must be positive.
+
+        Raises:
+            ValueError: If ``price`` is not positive.
+        """
+        if price <= 0:
+            msg = "price must be positive"
+            raise ValueError(msg)
+        async with self._transaction() as db:
+            await db.execute("UPDATE market SET price = ? WHERE id = 1", (price,))
+
+    @staticmethod
+    async def _read_flx_price(db: aiosqlite.Connection) -> int:
+        """Read the live Flyxcoin price for use inside an already-open transaction.
+
+        Args:
+            db: Connection to read on, so the read joins the open transaction
+                and a trade always charges whatever price it actually reads.
+
+        Returns:
+            The current price.
+        """
+        async with db.execute("SELECT price FROM market WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+        if row is None:  # pragma: no cover - migration 4 guarantees the row
+            return economy.FLX_PRICE
+        return int(row["price"])
 
     async def top_wallets(self, limit: int = economy.LEADERBOARD_SIZE) -> list[LeaderboardEntry]:
         """Return the largest undeposited wallets, highest first."""
@@ -266,8 +312,9 @@ class Database:
 
         Args:
             expression: A SQL expression over the ``bank`` columns. It is
-                interpolated into the query, so it must never come from user
-                input. Both call sites pass a module-level constant.
+                interpolated into the query, so it must never be built from
+                user input. Call sites pass a module-level constant or a
+                previously-read integer, never raw text.
             limit: Maximum rows to return.
 
         Returns:
@@ -490,7 +537,7 @@ class Database:
             return await self._read_column(db, user_id, "miner")
 
     async def buy_crypto(self, user_id: int, amount: int) -> int:
-        """Exchange bank dollars for Flyxcoin at :data:`economy.FLX_PRICE`.
+        """Exchange bank dollars for Flyxcoin at the live market price.
 
         Args:
             user_id: The member's Discord snowflake.
@@ -506,10 +553,10 @@ class Database:
         if amount <= 0:
             msg = "purchase amount must be positive"
             raise ValueError(msg)
-        cost = economy.flx_cost(amount)
 
         async with self._transaction() as db:
             await self.ensure_account(user_id)
+            cost = economy.flx_cost(amount, await self._read_flx_price(db))
             cursor = await db.execute(
                 "UPDATE bank SET bank = bank - ?, crypto = crypto + ? WHERE user = ? AND bank >= ?",
                 (cost, amount, user_id, cost),
@@ -519,7 +566,7 @@ class Database:
         return cost
 
     async def sell_crypto(self, user_id: int, amount: int) -> int:
-        """Exchange Flyxcoin for bank dollars at :data:`economy.FLX_PRICE`.
+        """Exchange Flyxcoin for bank dollars at the live market price.
 
         Args:
             user_id: The member's Discord snowflake.
@@ -535,10 +582,10 @@ class Database:
         if amount <= 0:
             msg = "sale amount must be positive"
             raise ValueError(msg)
-        proceeds = economy.flx_cost(amount)
 
         async with self._transaction() as db:
             await self.ensure_account(user_id)
+            proceeds = economy.flx_cost(amount, await self._read_flx_price(db))
             cursor = await db.execute(
                 "UPDATE bank SET crypto = crypto - ?, bank = bank + ? "
                 "WHERE user = ? AND crypto >= ?",
@@ -787,8 +834,25 @@ async def _migration_3_lottery(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_4_market(db: aiosqlite.Connection) -> None:
+    """Add the live Flyxcoin price, seeded at :data:`economy.FLX_PRICE`.
+
+    One row, the same shape as ``lottery``. The ``bank`` table is untouched, so
+    a season reset can empty this table without disturbing any balance.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS market ("
+        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+        "  price INTEGER NOT NULL"
+        ")"
+    )
+    # One row, always. The CHECK above makes a second row impossible.
+    await db.execute("INSERT OR IGNORE INTO market (id, price) VALUES (1, ?)", (economy.FLX_PRICE,))
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
     3: _migration_3_lottery,
+    4: _migration_4_market,
 }
