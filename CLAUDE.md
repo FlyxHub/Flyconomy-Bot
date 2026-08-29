@@ -125,12 +125,17 @@ Three further layers, all in place because they cover different failure modes:
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
   commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on
   an empty wallet), which would otherwise loop for free.
-- **The lottery rake is signed.** `BaseCog.rake` is handed `stake - returned`, not the gross loss.
-  Gross losses on a fair game are unbounded and nearly free, so anything paid out in proportion to
-  them is farmable by churning coinflip; the house's net take from a fair game is zero. Every game
-  calls `Gambling._settle` exactly once per wager, *including on a loss with a multiplier of zero*,
-  so the rake sees wins and losses both. Blackjack settles in `BlackjackView.settle` instead and
-  rakes there. One entry per member per draw is enforced by a primary key, not by application code.
+- **The lottery pot only ever grows from house wins.** `BaseCog.rake` is handed the signed
+  `stake - returned` on every wager, but `Database.add_to_pot` ignores non-positive amounts, so a
+  player win contributes nothing and is never clawed back out of the pot — a lost hand can no longer
+  cancel out an earlier win elsewhere. This is a deliberate, accepted departure from the stricter
+  "net take" design: gross losses on a fair game are in principle farmable by churning it, since the
+  house's *net* take from a fair game is zero but its *gross* rake from losses alone is not. It's kept
+  this way anyway because member-facing pot integrity (a win should never shrink the jackpot) outweighs
+  that narrow farming risk. Every game calls `Gambling._settle` exactly once per wager, *including on
+  a loss with a multiplier of zero*, so the rake sees wins and losses both. Blackjack settles in
+  `BlackjackView.settle` instead and rakes there. One entry per member per draw is enforced by a
+  primary key, not by application code.
 - **A table limit,** `settings.max_bet`, enforced in `Gambling._stake`. Every wager debits through
   that one method, so a new game cannot forget the cap. Check the limit *before* debiting, so a
   refused bet costs nothing.

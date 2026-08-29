@@ -94,12 +94,11 @@ class TestPot:
         assert await db.add_to_pot(2_500) == 2_500
         assert await db.add_to_pot(1_500) == 4_000
 
-    async def test_a_player_win_takes_back_from_the_pot(self, db):
+    async def test_a_player_win_does_not_take_back_from_the_pot(self, db):
         await db.add_to_pot(5_000)
-        assert await db.add_to_pot(-2_000) == 3_000
+        assert await db.add_to_pot(-2_000) == 5_000
 
-    async def test_the_pot_never_goes_negative(self, db):
-        await db.add_to_pot(1_000)
+    async def test_a_negative_amount_alone_leaves_the_pot_at_zero(self, db):
         assert await db.add_to_pot(-10_000_000) == 0
 
     async def test_the_pot_is_not_a_member_balance(self, db):
@@ -237,8 +236,8 @@ class TestDraw:
 
 
 class TestRake:
-    """The pot is fed by the house's net take. A fair game nets the house
-    nothing, so churning one cannot inflate the pot."""
+    """The pot is fed by the house's take, but a player win never removes
+    money from it. A loss always adds its rake share; a win adds nothing."""
 
     async def test_a_loss_feeds_the_pot(self, db, settings, ctx):
         cog = Gambling(FakeBot(db, settings))
@@ -248,17 +247,21 @@ class TestRake:
 
         assert (await db.lottery_state()).pot == int(1_000 * settings.lottery_rake)
 
-    async def test_a_win_takes_back_from_the_pot(self, db, settings, ctx):
+    async def test_a_win_leaves_the_pot_alone(self, db, settings, ctx):
         cog = Gambling(FakeBot(db, settings))
         await db.add_to_pot(100_000)
         before = (await db.lottery_state()).pot
 
         await cog._settle(ctx, 1_000, 2)
 
-        assert (await db.lottery_state()).pot < before
+        assert (await db.lottery_state()).pot == before
 
-    async def test_churning_a_fair_game_nets_the_pot_nothing(self, db, settings, ctx):
+    async def test_churning_a_fair_game_still_feeds_the_pot_from_its_losses(
+        self, db, settings, ctx
+    ):
         # One win and one loss at the same stake is a whole coinflip cycle.
+        # Only the loss half contributes now, so the pot grows by that share
+        # every cycle instead of netting to zero.
         cog = Gambling(FakeBot(db, settings))
         await db.add_wallet(ALICE, 10_000_000)
         await db.add_to_pot(1_000_000)
@@ -268,7 +271,8 @@ class TestRake:
             await cog._settle(ctx, 1_000, 0)
             await cog._settle(ctx, 1_000, 2)
 
-        assert (await db.lottery_state()).pot == before
+        expected_gain = 500 * int(1_000 * settings.lottery_rake)
+        assert (await db.lottery_state()).pot == before + expected_gain
 
     async def test_an_edge_game_feeds_the_pot_over_time(self, db, settings, ctx):
         # Slots returns 207 stakes per 216 spins, so the house keeps 9.

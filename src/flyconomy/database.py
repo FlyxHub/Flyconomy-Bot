@@ -623,20 +623,21 @@ class Database:
         )
 
     async def add_to_pot(self, amount: int) -> int:
-        """Add the house's take to the pot, or give it back on a player win.
+        """Add the house's take to the pot. A player win never removes from it.
 
-        The amount is signed: a wager the player won contributes negatively,
-        which is why churning a fair game cannot inflate the pot. The pot is
-        floored at zero so a run of player wins cannot take it negative.
+        The caller passes a signed figure (negative when the player won), but
+        only a positive contribution is ever applied — a player win is not
+        clawed back out of the pot.
 
         Args:
-            amount: Dollars to add, which may be negative.
+            amount: Dollars to add. Zero or negative amounts are ignored.
 
         Returns:
             The pot after the change.
         """
         async with self._transaction() as db:
-            await db.execute("UPDATE lottery SET pot = MAX(0, pot + ?) WHERE id = 1", (amount,))
+            if amount > 0:
+                await db.execute("UPDATE lottery SET pot = pot + ? WHERE id = 1", (amount,))
             async with db.execute("SELECT pot FROM lottery WHERE id = 1") as cursor:
                 row = await cursor.fetchone()
             return int(row["pot"]) if row else 0

@@ -55,13 +55,12 @@ class BaseCog(commands.Cog):
 
         Args:
             house_take: What the house won on a wager, negative when the player
-                won. Passing the signed figure rather than the gross loss is
-                what stops a fair game from being churned to inflate the pot:
-                over time a fair game nets the house nothing, so it contributes
-                nothing.
+                won. A player win contributes nothing, but is never clawed back
+                out of the pot either — ``add_to_pot`` ignores non-positive
+                amounts.
         """
         share = int(house_take * self.settings.lottery_rake)
-        if share:
+        if share > 0:
             await self.db.add_to_pot(share)
 
     async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]

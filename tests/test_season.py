@@ -71,7 +71,9 @@ def run_season(
                 wallet[user] -= bet
                 multiplier = economy.slots_payout_multiplier(economy.spin_slots(rng))
                 wallet[user] += bet * multiplier
-                pot = max(0, pot + int((bet - bet * multiplier) * rake))
+                contribution = int((bet - bet * multiplier) * rake)
+                if contribution > 0:
+                    pot += contribution
 
             if bank[user] >= settings.lottery_ticket_price:
                 bank[user] -= settings.lottery_ticket_price

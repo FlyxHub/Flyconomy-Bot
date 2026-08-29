@@ -50,7 +50,8 @@ class BlackjackView(discord.ui.View):
             base_bet: The opening stake, which is also what a double down costs.
             timezone: IANA timezone for the embed timestamp.
             rake: Share of the house's take on this hand to send to the lottery
-                pot. Signed, so a hand the player wins pulls the pot back down.
+                pot. Signed, but a hand the player wins contributes nothing and
+                never pulls the pot back down.
         """
         super().__init__(timeout=blackjack.DECISION_TIMEOUT_SECONDS)
         self.db = db
@@ -97,7 +98,7 @@ class BlackjackView(discord.ui.View):
             await self.db.add_wallet(self.player.id, amount)
 
         share = int((self.game.stake - amount) * self.rake)
-        if share:
+        if share > 0:
             await self.db.add_to_pot(share)
         self.stop()
 
