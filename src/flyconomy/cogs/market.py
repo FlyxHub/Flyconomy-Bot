@@ -40,6 +40,7 @@ class Market(BaseCog, name="Market"):
             previous = await self.db.get_flx_price()
             price = economy.next_flx_price(previous, self.rng)
             await self.db.set_flx_price(price)
+            log.info("Flyxcoin price moved from %d to %d", previous, price)
             await self.bot.change_presence(
                 activity=discord.Activity(
                     type=discord.ActivityType.watching,
