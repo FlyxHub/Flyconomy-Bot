@@ -37,7 +37,7 @@ classic prefix command, such as `$balance`.
 - **Flyxcoin.** Members buy a miner, upgrade it to improve their odds, mine
   hourly, and buy, sell, or send coins. The price moves on its own every 15
   minutes on a bounded random walk, and the bot's status shows it live as a
-  stock ticker.
+  `FLX: $10,340 ▲2.1%` stock ticker.
 - **Casino.** Blackjack with hit, stand, and double-down buttons, plus a slot
   machine, card war, coin flip, rock paper scissors, dice, and American
   roulette.
@@ -323,6 +323,8 @@ Every game stakes money from your wallet.
 | `lottery` | Shows the pot, the entrants, and whether you are in. |
 | `lottery enter` | Enters the current draw. One entry per member, paid from your bank. |
 | `lottery entrants` | Lists who is in the current draw. |
+
+As a slash command, the bare `lottery` form is `/lottery info`.
 
 ### Owner commands
 

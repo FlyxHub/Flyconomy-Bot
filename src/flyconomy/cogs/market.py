@@ -43,7 +43,7 @@ class Market(BaseCog, name="Market"):
             await self.bot.change_presence(
                 activity=discord.Activity(
                     type=discord.ActivityType.watching,
-                    name=embeds.flx_ticker(price, previous),
+                    name=f"FLX: {embeds.flx_ticker(price, previous)}",
                 )
             )
         except Exception:
