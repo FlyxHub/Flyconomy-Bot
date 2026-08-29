@@ -194,7 +194,16 @@ def describe_command_error(error: BaseException) -> str | None:
         A message to show the member, or ``None`` when the error is unexpected
         and the caller should log it and show a generic failure instead.
     """
-    if isinstance(error, commands.CommandInvokeError | discord.app_commands.CommandInvokeError):
+    # A hybrid command invoked as a slash command wraps its exception twice:
+    # app_commands.CommandInvokeError, then commands.HybridCommandError on top
+    # of that. The classic prefix path only wraps once, in
+    # commands.CommandInvokeError. All three expose the cause as `.original`.
+    if isinstance(
+        error,
+        commands.CommandInvokeError
+        | discord.app_commands.CommandInvokeError
+        | commands.HybridCommandError,
+    ):
         return describe_command_error(error.original)
 
     match error:

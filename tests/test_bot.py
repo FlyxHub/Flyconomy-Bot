@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import discord
 import pytest
 from discord.ext import commands
@@ -50,6 +52,23 @@ class TestErrorMessages:
 
     def test_a_wrapped_error_is_unwrapped(self):
         wrapped = commands.CommandInvokeError(InsufficientFundsError(0, 10))
+        message = describe_command_error(wrapped)
+        assert message is not None
+        assert "insufficient" in message.lower()
+
+    def test_a_hybrid_command_run_as_a_slash_command_is_unwrapped(self):
+        # discord.py wraps a hybrid command's exception twice on the slash
+        # path: app_commands.CommandInvokeError, then commands.HybridCommandError
+        # on top of that. Only the classic prefix path wraps once.
+        async def callback(interaction: discord.Interaction) -> None:
+            raise NotImplementedError
+
+        original = InsufficientFundsError(0, 10)
+        app_command: discord.app_commands.Command[Any, ..., Any] = discord.app_commands.Command(
+            name="x", description="x", callback=callback
+        )
+        inner = discord.app_commands.CommandInvokeError(app_command, original)
+        wrapped = commands.HybridCommandError(inner)
         message = describe_command_error(wrapped)
         assert message is not None
         assert "insufficient" in message.lower()
