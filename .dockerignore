@@ -18,5 +18,4 @@ __pycache__
 .mypy_cache
 htmlcov
 .coverage
-README.md
 CLAUDE.md
