@@ -150,34 +150,37 @@ Use this path for production on a Linux host.
    cd Flyconomy-Bot
    ```
 
-2. Create the environment file and set your token:
+2. Run the deploy script:
 
    ```bash
-   cp .env.example .env
+   ./scripts/deploy.sh
+   ```
+
+   The script installs the Docker Compose plugin if it is missing, creates
+   `.env` from `.env.example` on first run, restricts its permissions, and
+   runs `docker compose up -d --build`. Re-run it any time, including after
+   `git pull`, to rebuild and restart.
+
+3. Set your token in `.env`, then re-run the script:
+
+   ```bash
    $EDITOR .env
+   ./scripts/deploy.sh
    ```
 
    Leave `FLYCONOMY_DEV_GUILD_ID` empty in production so slash commands sync
    globally. Leave `FLYCONOMY_DATABASE_PATH` alone; Compose overrides it to a
    path on the data volume.
 
-3. Restrict the environment file, because it holds your bot token:
-
-   ```bash
-   chmod 600 .env
-   ```
-
-4. Build the image and start the bot:
-
-   ```bash
-   docker compose up -d --build
-   ```
-
-5. Confirm it connected:
+4. Confirm it connected:
 
    ```bash
    docker compose logs -f
    ```
+
+Prefer to run the steps yourself instead of the script? Create `.env` from
+`.env.example`, `chmod 600 .env` because it holds your bot token, then run
+`docker compose up -d --build`.
 
 ### Operate the deployment
 
@@ -186,7 +189,7 @@ Use this path for production on a Linux host.
 | Follow the logs | `docker compose logs -f` |
 | Restart the bot | `docker compose restart` |
 | Stop the bot | `docker compose down` |
-| Upgrade to the latest code | `git pull && docker compose up -d --build` |
+| Upgrade to the latest code | `git pull && ./scripts/deploy.sh` (or `git pull && docker compose up -d --build`) |
 | Open a shell in the container | `docker compose exec bot sh` |
 
 The container restarts automatically unless you stop it explicitly, runs as an
@@ -666,6 +669,14 @@ every message. Turn it on in the developer portal.
 
 Two processes are writing to the same SQLite file. Make sure only one instance
 of the bot is running against a given database.
+
+### `docker compose` fails with "unknown shorthand flag: 'd' in -d"
+
+The Docker Engine is installed but the Compose v2 plugin is not, so `docker`
+tries to parse `compose up -d --build` as flags on itself instead of running
+Compose. Run `./scripts/deploy.sh`, which installs the plugin, or install
+`docker-compose-plugin` yourself following
+[Docker's install guide](https://docs.docker.com/compose/install/linux/).
 
 ### PowerShell won't run the scripts
 
