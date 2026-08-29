@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, type check, and test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the package and its development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable ".[dev]"
+
+      - name: Check formatting
+        run: python -m ruff format --check .
+
+      - name: Lint
+        run: python -m ruff check --output-format=github .
+
+      - name: Type check
+        run: python -m mypy
+
+      - name: Test
+        run: python -m pytest --cov --cov-report=term-missing
+
+  windows:
+    name: Verify the Windows setup script
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Run the setup script
+        shell: pwsh
+        run: .\scripts\setup.ps1
+
+      - name: Run the checks through the script
+        shell: pwsh
+        run: .\scripts\check.ps1
+
+  docker:
+    name: Build the production image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: flyconomy-bot:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify the image starts and reports a configuration error
+        run: |
+          # With no token configured the bot must exit 2, not crash.
+          set +e
+          output=$(docker run --rm flyconomy-bot:ci 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          test "$code" -eq 2
+          echo "$output" | grep -q "Configuration is invalid"

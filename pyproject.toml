@@ -1,0 +1,153 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flyconomy-bot"
+version = "2.0.0"
+description = "A Discord economy bot with banking, Flyxcoin mining, and casino games."
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Jake H" }]
+keywords = ["discord", "bot", "economy", "discord.py"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+dependencies = [
+    "discord.py>=2.7.1,<3",
+    "aiosqlite>=0.22.1,<0.23",
+    "pydantic>=2.12,<3",
+    "pydantic-settings>=2.15,<3",
+    # zoneinfo has no timezone database on Windows and on slim Linux images.
+    "tzdata>=2025.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4",
+    "pytest-asyncio>=1.4",
+    "pytest-cov>=6.0",
+    "ruff>=0.16.5",
+    "mypy>=1.18",
+]
+
+[project.scripts]
+flyconomy-bot = "flyconomy.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/JakeHochstatter/Flyconomy-Bot"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flyconomy"]
+
+# ---------------------------------------------------------------- tooling ---
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # flake8-bugbear
+    "A",        # flake8-builtins
+    "C4",       # flake8-comprehensions
+    "DTZ",      # flake8-datetimez
+    "T20",      # flake8-print
+    "SIM",      # flake8-simplify
+    "PTH",      # flake8-use-pathlib
+    "RUF",      # ruff-specific
+    "ANN",      # flake8-annotations
+    "ASYNC",    # flake8-async
+    "S",        # flake8-bandit
+    "D",        # pydocstyle
+]
+ignore = [
+    "D203",     # conflicts with D211
+    "D213",     # conflicts with D212
+    "ANN401",   # allow typing.Any where discord.py needs it
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test names and asserts are the documentation; docstrings and annotations
+# on every test add noise without adding meaning.
+"tests/*" = [
+    "S101",    # asserts are the point of a test
+    "S105",    # placeholder tokens in fixtures are not secrets
+    "S106",    # ...including when passed as an argument
+    "S311",    # seeded random sources make outcomes deterministic
+    "D",       # the test name is the documentation
+    "ANN",     # fixtures and parameters are typed by pytest
+    "SLF001",  # tests may exercise private helpers
+    "PLR2004", # expected values belong inline in an assert
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-bugbear]
+# discord.py decorators legitimately use function calls in argument defaults.
+extend-immutable-calls = ["discord.app_commands.describe", "discord.app_commands.rename"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# A test's name states its intent; annotating every one with `-> None` is noise.
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+# These modules drive the command callbacks with deliberate stand-ins for the
+# bot and the invocation context, and reach through discord.py's decorators to
+# call `.callback` directly, which mypy resolves as taking Never. Everything
+# else in the suite stays strictly checked.
+module = [
+    "tests.test_cog_behavior",
+    "tests.test_admin_and_startup",
+    "tests.test_views",
+    "tests.test_antiabuse",
+    "tests.test_lottery",
+]
+disable_error_code = [
+    "arg-type",
+    "call-arg",
+    "unreachable",
+    "attr-defined",
+    "operator",     # reaching through discord.ui decorators to a callback
+    "assignment",   # assigning stand-ins where a discord type is declared
+    "union-attr",   # ...and then reading the stand-in back
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = [
+    "error",
+    # discord.py 2.7 calls asyncio.iscoroutinefunction, deprecated in 3.14.
+    # Upstream's problem; drop this line once discord.py stops doing it.
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src/flyconomy"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

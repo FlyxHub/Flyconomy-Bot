@@ -1,0 +1,14 @@
+# Normalize to LF in the repository; Git checks out native line endings.
+* text=auto
+
+# These are read by Linux tooling and must keep LF even on a Windows checkout.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+
+# PowerShell is happiest with CRLF on Windows.
+*.ps1 text eol=crlf
+
+*.db binary
