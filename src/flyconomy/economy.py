@@ -38,7 +38,7 @@ FLX_MEAN_REVERSION_PERCENT: Final = 5
 
 #: Minutes between price ticks, driven by the background task in
 #: ``cogs/market.py``.
-FLX_TICK_MINUTES: Final = 15
+FLX_TICK_MINUTES: Final = 5
 
 #: Wallet balance granted to a brand new account.
 STARTING_WALLET: Final = 0

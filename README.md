@@ -35,7 +35,7 @@ classic prefix command, such as `$balance`.
 - **Income.** Members beg for small amounts, collect a daily payout worth 10% of
   their bank balance, or rob another member's wallet.
 - **Flyxcoin.** Members buy a miner, upgrade it to improve their odds, mine
-  hourly, and buy, sell, or send coins. The price moves on its own every 15
+  hourly, and buy, sell, or send coins. The price moves on its own every 5
   minutes on a bounded random walk, and the bot's status shows it live as a
   `FLX: $10,340 ▲2.1%` stock ticker.
 - **Casino.** Blackjack with hit, stand, and double-down buttons, plus a slot
@@ -352,7 +352,7 @@ which is the wrong place to advertise a command nobody else can run.
 | Starting bank | $1,000 |
 | Flyxcoin price | Starts at $10,000, both buying and selling always trade at the current live price |
 | Flyxcoin price range | $5,000 to $20,000 (50% to 200% of the starting price) |
-| Flyxcoin price tick | Every 15 minutes: a random move of up to 3%, pulled 5% of the way back toward $10,000 first |
+| Flyxcoin price tick | Every 5 minutes: a random move of up to 3%, pulled 5% of the way back toward $10,000 first |
 | Net worth | wallet + bank + (Flyxcoin x the live Flyxcoin price) |
 
 ### Miner levels
