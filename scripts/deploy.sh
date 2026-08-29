@@ -35,6 +35,77 @@ if ! command -v docker >/dev/null 2>&1; then
     die "Docker is not installed. Follow https://docs.docker.com/engine/install/ for your distribution, then re-run this script."
 fi
 
+# Tries the host's package manager. This is the right source on a supported,
+# in-repo distro, but it is a no-op failure on an EOL release like Ubuntu
+# 23.04 (lunar), whose apt sources have moved to old-releases.ubuntu.com and
+# never carried docker-compose-plugin in the first place -- that package only
+# ever came from Docker's own apt repo, not Ubuntu's.
+install_compose_plugin_via_package_manager() {
+    if command -v apt-get >/dev/null 2>&1; then
+        $SUDO apt-get update && $SUDO apt-get install -y docker-compose-plugin
+    elif command -v dnf >/dev/null 2>&1; then
+        $SUDO dnf install -y docker-compose-plugin
+    elif command -v yum >/dev/null 2>&1; then
+        $SUDO yum install -y docker-compose-plugin
+    elif command -v pacman >/dev/null 2>&1; then
+        $SUDO pacman -Sy --noconfirm docker-compose
+    else
+        return 1
+    fi
+}
+
+# Falls back to Docker's documented manual install: drop the compose binary
+# straight into a cli-plugins directory. Works regardless of what (if
+# anything) the distro's package repos carry.
+install_compose_plugin_from_binary() {
+    step "Installing the Compose plugin binary directly from GitHub"
+
+    local downloader
+    if command -v curl >/dev/null 2>&1; then
+        downloader="curl"
+    elif command -v wget >/dev/null 2>&1; then
+        downloader="wget"
+    else
+        die "Neither curl nor wget is available to download the Compose plugin. Install one, then re-run this script."
+    fi
+
+    local arch
+    case "$(uname -m)" in
+        x86_64 | amd64) arch="x86_64" ;;
+        aarch64 | arm64) arch="aarch64" ;;
+        armv7l | armv6l) arch="armv7" ;;
+        *) die "Unsupported architecture $(uname -m). Install the Compose plugin manually: https://docs.docker.com/compose/install/linux/#install-the-plugin-manually" ;;
+    esac
+
+    local version="v2.29.7"
+    local latest=""
+    if [ "$downloader" = "curl" ]; then
+        latest="$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')" || true
+    else
+        latest="$(wget -qO- https://api.github.com/repos/docker/compose/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')" || true
+    fi
+    if [ -n "$latest" ]; then
+        version="$latest"
+    fi
+
+    local dest
+    if [ "$(id -u)" -eq 0 ]; then
+        dest="/usr/local/lib/docker/cli-plugins"
+    else
+        dest="$HOME/.docker/cli-plugins"
+    fi
+    mkdir -p "$dest"
+
+    local url="https://github.com/docker/compose/releases/download/${version}/docker-compose-linux-${arch}"
+    step "Downloading Docker Compose $version for linux/$arch"
+    if [ "$downloader" = "curl" ]; then
+        curl -fsSL "$url" -o "$dest/docker-compose"
+    else
+        wget -qO "$dest/docker-compose" "$url"
+    fi
+    chmod +x "$dest/docker-compose"
+}
+
 if ! docker compose version >/dev/null 2>&1; then
     step "Docker Compose plugin not found; installing it"
 
@@ -43,20 +114,13 @@ if ! docker compose version >/dev/null 2>&1; then
     elif command -v sudo >/dev/null 2>&1; then
         SUDO="sudo"
     else
-        die "The Compose plugin is missing and this script has no way to install it without root. Install docker-compose-plugin manually, then re-run this script."
+        SUDO=""
+        warn "Not running as root and sudo is unavailable; installing the Compose plugin for the current user only."
     fi
 
-    if command -v apt-get >/dev/null 2>&1; then
-        $SUDO apt-get update
-        $SUDO apt-get install -y docker-compose-plugin
-    elif command -v dnf >/dev/null 2>&1; then
-        $SUDO dnf install -y docker-compose-plugin
-    elif command -v yum >/dev/null 2>&1; then
-        $SUDO yum install -y docker-compose-plugin
-    elif command -v pacman >/dev/null 2>&1; then
-        $SUDO pacman -Sy --noconfirm docker-compose
-    else
-        die "Could not detect a supported package manager (apt, dnf, yum, pacman). Install the Compose plugin manually: https://docs.docker.com/compose/install/linux/"
+    if ! install_compose_plugin_via_package_manager; then
+        warn "The package manager could not install docker-compose-plugin (its repository may not be configured -- common on an end-of-life release like Ubuntu 23.04/lunar). Falling back to a direct binary install."
+        install_compose_plugin_from_binary
     fi
 
     if ! docker compose version >/dev/null 2>&1; then

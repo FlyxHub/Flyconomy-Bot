@@ -678,6 +678,19 @@ Compose. Run `./scripts/deploy.sh`, which installs the plugin, or install
 `docker-compose-plugin` yourself following
 [Docker's install guide](https://docs.docker.com/compose/install/linux/).
 
+### `apt-get install docker-compose-plugin` says "Unable to locate package"
+
+Your distro's own repos never carried `docker-compose-plugin` — it's only
+published in Docker's official apt repo, which isn't configured on your host.
+This is common on an end-of-life release (Ubuntu 23.04/lunar and older, whose
+sources have moved to `old-releases.ubuntu.com`). `./scripts/deploy.sh`
+detects this and falls back to installing the Compose plugin binary directly
+from [Docker's GitHub releases](https://github.com/docker/compose/releases),
+no apt repo required. To do it by hand instead, download the
+`docker-compose-linux-<arch>` binary for your architecture and save it as
+`~/.docker/cli-plugins/docker-compose` (or `/usr/local/lib/docker/cli-plugins/docker-compose`
+as root), then `chmod +x` it.
+
 ### PowerShell won't run the scripts
 
 Windows blocks unsigned scripts by default. Allow them for the current session:
