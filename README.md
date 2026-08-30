@@ -89,7 +89,7 @@ Use this path for local development and testing.
 1. Clone the repository and change into it:
 
    ```powershell
-   git clone https://github.com/JakeHochstatter/Flyconomy-Bot.git
+   git clone https://github.com/FlyxHub/Flyconomy-Bot.git
    cd Flyconomy-Bot
    ```
 
@@ -146,7 +146,7 @@ Use this path for production on a Linux host.
 1. Clone the repository onto the host and change into it:
 
    ```bash
-   git clone https://github.com/JakeHochstatter/Flyconomy-Bot.git
+   git clone https://github.com/FlyxHub/Flyconomy-Bot.git
    cd Flyconomy-Bot
    ```
 
