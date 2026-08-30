@@ -79,8 +79,8 @@ class Settings(BaseSettings):
     creator_tax_user_id: Annotated[int, Field(gt=0)] | None = Field(
         default=None,
         description=(
-            "Wallet credited with creator_tax_rate of every casino loss. Unset "
-            "disables the tax outright, regardless of the configured rate."
+            "Bank account credited with creator_tax_rate of every casino loss. "
+            "Unset disables the tax outright, regardless of the configured rate."
         ),
     )
     max_bet: Annotated[int, Field(gt=0)] = Field(

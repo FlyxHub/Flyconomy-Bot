@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from flyconomy import economy
 from flyconomy.cogs.gambling import Gambling
 from flyconomy.cogs.lottery import Lottery
 from flyconomy.config import Settings
@@ -334,7 +335,8 @@ class TestCreatorTax:
         await cog._settle(ctx, 1_000, 0)
 
         assert (await db.lottery_state()).pot == int(1_000 * taxed.lottery_rake)
-        assert (await db.get_account(creator)).wallet == int(1_000 * taxed.creator_tax_rate)
+        expected_bank = economy.STARTING_BANK + int(1_000 * taxed.creator_tax_rate)
+        assert (await db.get_account(creator)).bank == expected_bank
 
     async def test_a_win_pays_the_creator_nothing(self, db, ctx):
         creator = 999

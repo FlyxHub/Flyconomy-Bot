@@ -57,7 +57,7 @@ class BlackjackView(discord.ui.View):
             creator_tax_rate: Share of the house's take on this hand to send to
                 ``creator_tax_user_id``, carved out of what ``rake`` leaves for
                 destruction. Ignored when that user ID is unset.
-            creator_tax_user_id: Wallet credited with the creator tax, or
+            creator_tax_user_id: Bank account credited with the creator tax, or
                 ``None`` to disable it outright.
         """
         super().__init__(timeout=blackjack.DECISION_TIMEOUT_SECONDS)
@@ -114,7 +114,7 @@ class BlackjackView(discord.ui.View):
         if self.creator_tax_user_id is not None:
             cut = int(house_take * self.creator_tax_rate)
             if cut > 0:
-                await self.db.add_wallet(self.creator_tax_user_id, cut)
+                await self.db.add_bank(self.creator_tax_user_id, cut)
         self.stop()
 
     async def apply_hit(self) -> None:

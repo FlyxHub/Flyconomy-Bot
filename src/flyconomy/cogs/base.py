@@ -71,7 +71,7 @@ class BaseCog(commands.Cog):
         if creator_id is not None:
             cut = int(house_take * self.settings.creator_tax_rate)
             if cut > 0:
-                await self.db.add_wallet(creator_id, cut)
+                await self.db.add_bank(creator_id, cut)
 
     async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]
         """Spend one action from the member's budget.

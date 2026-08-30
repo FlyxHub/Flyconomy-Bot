@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from flyconomy import blackjack, embeds
+from flyconomy import blackjack, economy, embeds
 from flyconomy.blackjack import Game, Outcome
 from flyconomy.cogs.gambling import Gambling
 from flyconomy.config import Settings
@@ -149,7 +149,7 @@ class TestCreatorTax:
         await view.apply_stand()
 
         assert (await db.lottery_state()).pot == int(100 * 0.25)
-        assert (await db.get_account(999)).wallet == int(100 * 0.05)
+        assert (await db.get_account(999)).bank == economy.STARTING_BANK + int(100 * 0.05)
 
     async def test_a_win_pays_the_creator_nothing(self, db, player):
         game = Game(player=hand(10, 9), dealer=hand(10, 7), shoe=hand(2), stake=100)
