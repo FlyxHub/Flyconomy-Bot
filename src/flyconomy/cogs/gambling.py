@@ -198,6 +198,8 @@ class Gambling(BaseCog, name="Casino"):
             base_bet=bet,
             timezone=self.timezone,
             rake=self.settings.lottery_rake,
+            creator_tax_rate=self.settings.creator_tax_rate,
+            creator_tax_user_id=self.settings.creator_tax_user_id,
         )
 
         # A natural for either side decides the hand on the deal, so there is

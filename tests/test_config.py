@@ -104,6 +104,40 @@ class TestAlwaysMineUserIds:
         assert load_settings().always_mine_user_ids == frozenset()
 
 
+class TestCreatorTax:
+    def test_disabled_by_default(self, monkeypatch):
+        monkeypatch.setenv("FLYCONOMY_DISCORD_TOKEN", _TOKEN)
+        settings = load_settings()
+        assert settings.creator_tax_user_id is None
+        assert settings.creator_tax_rate == pytest.approx(0.05)
+
+    def test_a_blank_user_id_reads_as_unset(self, monkeypatch):
+        monkeypatch.setenv("FLYCONOMY_DISCORD_TOKEN", _TOKEN)
+        monkeypatch.setenv("FLYCONOMY_CREATOR_TAX_USER_ID", "")
+        assert load_settings().creator_tax_user_id is None
+
+    def test_a_user_id_must_be_positive(self, monkeypatch):
+        monkeypatch.setenv("FLYCONOMY_DISCORD_TOKEN", _TOKEN)
+        monkeypatch.setenv("FLYCONOMY_CREATOR_TAX_USER_ID", "0")
+        with pytest.raises(ValidationError):
+            load_settings()
+
+    def test_rake_and_tax_may_not_exceed_the_whole_take(self, monkeypatch):
+        monkeypatch.setenv("FLYCONOMY_DISCORD_TOKEN", _TOKEN)
+        monkeypatch.setenv("FLYCONOMY_LOTTERY_RAKE", "0.8")
+        monkeypatch.setenv("FLYCONOMY_CREATOR_TAX_RATE", "0.3")
+        with pytest.raises(ValidationError, match="lottery_rake"):
+            load_settings()
+
+    def test_rake_and_tax_may_add_up_to_exactly_the_whole_take(self, monkeypatch):
+        monkeypatch.setenv("FLYCONOMY_DISCORD_TOKEN", _TOKEN)
+        monkeypatch.setenv("FLYCONOMY_LOTTERY_RAKE", "0.7")
+        monkeypatch.setenv("FLYCONOMY_CREATOR_TAX_RATE", "0.3")
+        settings = load_settings()
+        assert settings.lottery_rake == pytest.approx(0.7)
+        assert settings.creator_tax_rate == pytest.approx(0.3)
+
+
 class TestImmutability:
     def test_settings_cannot_be_changed_after_loading(self, monkeypatch):
         monkeypatch.setenv("FLYCONOMY_DISCORD_TOKEN", _TOKEN)

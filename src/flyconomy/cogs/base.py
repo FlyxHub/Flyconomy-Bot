@@ -51,17 +51,27 @@ class BaseCog(commands.Cog):
         return self.bot.limiter
 
     async def rake(self, house_take: int) -> None:
-        """Send the configured share of the house's take to the lottery pot.
+        """Split the house's take between the lottery pot and the creator tax.
+
+        The remainder, after both shares, is still destroyed — the creator tax
+        is carved out of that destroyed portion rather than added on top, so
+        the total taken from a loss does not change.
 
         Args:
             house_take: What the house won on a wager, negative when the player
-                won. A player win contributes nothing, but is never clawed back
-                out of the pot either — ``add_to_pot`` ignores non-positive
-                amounts.
+                won. A player win contributes to neither share — ``add_to_pot``
+                and the tax below both ignore non-positive amounts, and neither
+                is ever clawed back out.
         """
         share = int(house_take * self.settings.lottery_rake)
         if share > 0:
             await self.db.add_to_pot(share)
+
+        creator_id = self.settings.creator_tax_user_id
+        if creator_id is not None:
+            cut = int(house_take * self.settings.creator_tax_rate)
+            if cut > 0:
+                await self.db.add_wallet(creator_id, cut)
 
     async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]
         """Spend one action from the member's budget.

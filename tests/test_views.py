@@ -132,6 +132,54 @@ class TestSettlement:
         assert not view.is_finished()
 
 
+class TestCreatorTax:
+    async def test_a_loss_pays_the_creator_without_touching_the_pot(self, db, player):
+        game = Game(player=hand(10, 6), dealer=hand(10, 8), shoe=hand(2), stake=100)
+        view = BlackjackView(
+            db=db,
+            game=game,
+            player=player,
+            base_bet=100,
+            timezone="UTC",
+            rake=0.25,
+            creator_tax_rate=0.05,
+            creator_tax_user_id=999,
+        )
+
+        await view.apply_stand()
+
+        assert (await db.lottery_state()).pot == int(100 * 0.25)
+        assert (await db.get_account(999)).wallet == int(100 * 0.05)
+
+    async def test_a_win_pays_the_creator_nothing(self, db, player):
+        game = Game(player=hand(10, 9), dealer=hand(10, 7), shoe=hand(2), stake=100)
+        view = BlackjackView(
+            db=db,
+            game=game,
+            player=player,
+            base_bet=100,
+            timezone="UTC",
+            creator_tax_rate=0.05,
+            creator_tax_user_id=999,
+        )
+
+        await view.apply_stand()
+
+        assert await db.find_account(999) is None
+
+    async def test_an_unset_creator_id_pays_nobody(self, db, player):
+        game = Game(player=hand(10, 6), dealer=hand(10, 8), shoe=hand(2), stake=100)
+        view = BlackjackView(
+            db=db, game=game, player=player, base_bet=100, timezone="UTC", creator_tax_rate=0.05
+        )
+
+        await view.apply_stand()
+
+        # No wallet was configured, so nothing outside the player's own account
+        # is touched even though the rate is nonzero.
+        assert (await db.get_account(ALICE)).wallet == 0
+
+
 class TestHitAndStand:
     async def test_hitting_draws_a_card(self, db, player):
         game = live_game()

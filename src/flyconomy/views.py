@@ -40,6 +40,8 @@ class BlackjackView(discord.ui.View):
         base_bet: int,
         timezone: str,
         rake: float = 0.0,
+        creator_tax_rate: float = 0.0,
+        creator_tax_user_id: int | None = None,
     ) -> None:
         """Build a view for a freshly dealt hand.
 
@@ -52,6 +54,11 @@ class BlackjackView(discord.ui.View):
             rake: Share of the house's take on this hand to send to the lottery
                 pot. Signed, but a hand the player wins contributes nothing and
                 never pulls the pot back down.
+            creator_tax_rate: Share of the house's take on this hand to send to
+                ``creator_tax_user_id``, carved out of what ``rake`` leaves for
+                destruction. Ignored when that user ID is unset.
+            creator_tax_user_id: Wallet credited with the creator tax, or
+                ``None`` to disable it outright.
         """
         super().__init__(timeout=blackjack.DECISION_TIMEOUT_SECONDS)
         self.db = db
@@ -60,6 +67,8 @@ class BlackjackView(discord.ui.View):
         self.base_bet = base_bet
         self.timezone = timezone
         self.rake = rake
+        self.creator_tax_rate = creator_tax_rate
+        self.creator_tax_user_id = creator_tax_user_id
         self.message: discord.Message | None = None
         self._settled = False
         self._refresh_buttons()
@@ -97,9 +106,15 @@ class BlackjackView(discord.ui.View):
         if amount:
             await self.db.add_wallet(self.player.id, amount)
 
-        share = int((self.game.stake - amount) * self.rake)
+        house_take = self.game.stake - amount
+        share = int(house_take * self.rake)
         if share > 0:
             await self.db.add_to_pot(share)
+
+        if self.creator_tax_user_id is not None:
+            cut = int(house_take * self.creator_tax_rate)
+            if cut > 0:
+                await self.db.add_wallet(self.creator_tax_user_id, cut)
         self.stop()
 
     async def apply_hit(self) -> None:

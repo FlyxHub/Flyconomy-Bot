@@ -309,6 +309,56 @@ class TestRake:
         assert potted == pytest.approx(house_take * settings.lottery_rake, rel=0.01)
 
 
+class TestCreatorTax:
+    """The creator tax is carved out of what the lottery rake leaves for
+    destruction, so it never changes the pot's share or the total taken."""
+
+    async def test_disabled_by_default_even_though_the_rate_is_nonzero(self, db, settings, ctx):
+        assert settings.creator_tax_user_id is None
+        assert settings.creator_tax_rate > 0
+        cog = Gambling(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 100_000)
+
+        await cog._settle(ctx, 1_000, 0)
+
+        # With no wallet configured, the loss behaves exactly like the plain
+        # lottery rake: only the pot is fed.
+        assert (await db.lottery_state()).pot == int(1_000 * settings.lottery_rake)
+
+    async def test_a_loss_pays_the_creator_without_shrinking_the_pot(self, db, ctx):
+        creator = 999
+        taxed = Settings(discord_token="placeholder", creator_tax_user_id=creator)
+        cog = Gambling(FakeBot(db, taxed))
+        await db.add_wallet(ALICE, 100_000)
+
+        await cog._settle(ctx, 1_000, 0)
+
+        assert (await db.lottery_state()).pot == int(1_000 * taxed.lottery_rake)
+        assert (await db.get_account(creator)).wallet == int(1_000 * taxed.creator_tax_rate)
+
+    async def test_a_win_pays_the_creator_nothing(self, db, ctx):
+        creator = 999
+        taxed = Settings(discord_token="placeholder", creator_tax_user_id=creator)
+        cog = Gambling(FakeBot(db, taxed))
+        await db.add_wallet(ALICE, 100_000)
+
+        await cog._settle(ctx, 1_000, 2)
+
+        assert await db.find_account(creator) is None
+
+    async def test_a_zero_tax_rate_pays_the_creator_nothing(self, db, ctx):
+        creator = 999
+        untaxed = Settings(
+            discord_token="placeholder", creator_tax_user_id=creator, creator_tax_rate=0.0
+        )
+        cog = Gambling(FakeBot(db, untaxed))
+        await db.add_wallet(ALICE, 100_000)
+
+        await cog._settle(ctx, 1_000, 0)
+
+        assert await db.find_account(creator) is None
+
+
 class TestCommands:
     async def test_info_reports_the_pot(self, db, settings, ctx):
         cog = make_cog(db, settings)

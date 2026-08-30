@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -67,6 +67,22 @@ class Settings(BaseSettings):
         default=24.0,
         description="Hours between lottery draws.",
     )
+    creator_tax_rate: Annotated[float, Field(ge=0, le=1)] = Field(
+        default=0.05,
+        description=(
+            "Share of the casino's net winnings paid to creator_tax_user_id. "
+            "Carved out of the portion lottery_rake leaves for destruction, so "
+            "the pot's cut and the total taken from a loss are unchanged. Has "
+            "no effect until creator_tax_user_id is set."
+        ),
+    )
+    creator_tax_user_id: Annotated[int, Field(gt=0)] | None = Field(
+        default=None,
+        description=(
+            "Wallet credited with creator_tax_rate of every casino loss. Unset "
+            "disables the tax outright, regardless of the configured rate."
+        ),
+    )
     max_bet: Annotated[int, Field(gt=0)] = Field(
         default=100_000,
         description=(
@@ -100,7 +116,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    @field_validator("dev_guild_id", mode="before")
+    @field_validator("dev_guild_id", "creator_tax_user_id", mode="before")
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         """Treat a blank value as unset.
@@ -113,6 +129,21 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def _check_creator_tax_fits(self) -> Settings:
+        """Reject a creator tax that would need to come from more than exists.
+
+        The tax is carved out of the share ``lottery_rake`` leaves for
+        destruction, so the two must not add up to more than the whole take.
+        """
+        if self.lottery_rake + self.creator_tax_rate > 1:
+            msg = (
+                f"lottery_rake ({self.lottery_rake}) + creator_tax_rate "
+                f"({self.creator_tax_rate}) must not exceed 1"
+            )
+            raise ValueError(msg)
+        return self
 
     @field_validator("always_mine_user_ids", mode="before")
     @classmethod

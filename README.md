@@ -265,6 +265,8 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_LOTTERY_TICKET_PRICE` | No | `10000` | Cost of one lottery entry. |
 | `FLYCONOMY_LOTTERY_RAKE` | No | `0.25` | Share of the casino's net winnings added to the pot. |
 | `FLYCONOMY_LOTTERY_DRAW_HOURS` | No | `24` | Hours between lottery draws. |
+| `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
+| `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | Wallet credited with the creator tax. Unset disables the tax outright, regardless of the rate. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
 | `FLYCONOMY_RATE_LIMIT_ACTIONS` | No | `6` | Game commands a member may run per window. |
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
@@ -489,6 +491,20 @@ down. Churning coinflip contributes nothing.
 | Roulette colour, 5.26% edge | $200M | $2.75M |
 
 The pot is floored at zero, so a run of player wins cannot take it negative.
+
+### Creator tax
+
+A second, optional cut of the same house take that the lottery rake reads,
+paid to a single configured wallet instead of the pot. It is carved out of the
+share the lottery rake leaves for destruction, so turning it on does not
+change how much a loss takes from the loser or how much the pot receives —
+it only redirects part of what would otherwise be destroyed. It follows the
+same wins-contribute-nothing rule as the lottery rake: a player win never
+pays it, and there is nothing to claw back.
+
+Off by default in the sense that matters: `FLYCONOMY_CREATOR_TAX_USER_ID` is
+unset, so no wallet is credited regardless of `FLYCONOMY_CREATOR_TAX_RATE`.
+Set the ID to turn it on.
 
 ### Blackjack
 
