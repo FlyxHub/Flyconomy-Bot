@@ -470,36 +470,51 @@ A draw runs every `FLYCONOMY_LOTTERY_DRAW_HOURS` and pays one entrant, picked
 uniformly. With nobody entered the pot rolls over untouched, so a jackpot builds
 on a quiet server. `$draw` runs one immediately.
 
-Two rules keep it from being farmed, and they are the whole design:
-
 **Odds cannot be bought.** Everyone entered has exactly one entry, enforced by a
 primary key on `(draw, user)` rather than by application code.
 
-**The pot is fed by the house's net take, not by gross losses.** This is the
-subtle one. Gross losses on a fair game are unbounded and nearly free: churning
-coinflip at the table limit generates hundreds of millions in losses that cost
-nothing, because the money comes straight back. Anything paid out in proportion
-to gross losses can be farmed that way. The house's *net* take from a fair game
-is zero, so the rake is signed, and a hand the player wins pulls the pot back
-down. Churning coinflip contributes nothing.
+**A win never shrinks the pot, and a loss always feeds it.** The rake is
+computed per wager from what the house won on that one hand, signed so a
+player win contributes nothing — but a win is never clawed back out of the pot
+either, since `add_to_pot` ignores non-positive amounts. That is a deliberate
+trade-off, not a closed loophole: because the rake reads the gross result of
+each wager rather than a player's net result across many, a game with 0% edge
+still feeds the pot on every loss. Churning coinflip at the table limit is
+"free" in the sense that wins and losses cancel out for the player, but every
+individual loss along the way still pays its share into the pot. It stays this
+way anyway because protecting a winner's payout from being retroactively taken
+back matters more than closing that narrow farming path — see
+`FLYCONOMY_MAX_BET` and the shared rate limit for what actually bounds it.
 
-| Game | Turnover | Into the pot |
+The pot's share tracks how often a game loses outright, not its average edge,
+so the two do not rank games the same way. At the default rake and an equal
+$200M turnover on each:
+
+| Game | Loses outright | Into the pot |
 | --- | --- | --- |
-| Coinflip, 0% edge | $20.0B | ~$0 |
-| War, 0% edge | $20.0B | ~$0 |
-| Slots, 4.17% edge | $200M | $2.04M |
-| Roulette colour, 5.26% edge | $200M | $2.75M |
+| Coinflip, 0% edge | 50.0% | $25.00M |
+| War, 0% edge | 47.1% | $23.53M |
+| Roulette colour, 5.26% edge | 52.6% | $26.32M |
+| Slots, 4.17% edge | 83.3% | $41.67M |
+
+Slots has the smallest average edge here but feeds the pot the most, because
+most spins are a total loss rather than a partial one. These are computed
+exactly over each game's full outcome space (a coin toss, the 52-card deck,
+the 216 reel combinations, the 38-pocket wheel), not sampled.
 
 The pot is floored at zero, so a run of player wins cannot take it negative.
 
 ### Creator tax
 
 A second, optional cut of the same house take that the lottery rake reads,
-paid to a single configured wallet instead of the pot. It is carved out of the
-share the lottery rake leaves for destruction, so turning it on does not
-change how much a loss takes from the loser or how much the pot receives —
-it only redirects part of what would otherwise be destroyed. It follows the
-same wins-contribute-nothing rule as the lottery rake: a player win never
+paid to a single configured wallet instead of the pot. Because it reads the
+same per-wager figure, it applies to every game's every loss exactly like the
+table above — coinflip and war included, not just the games with a listed
+house edge. It is carved out of the share the lottery rake leaves for
+destruction, so turning it on does not change how much a loss takes from the
+loser or how much the pot receives — it only redirects part of what would
+otherwise be destroyed. It follows the same wins-contribute-nothing rule as
+the lottery rake: a player win never
 pays it, and there is nothing to claw back.
 
 Off by default in the sense that matters: `FLYCONOMY_CREATOR_TAX_USER_ID` is
