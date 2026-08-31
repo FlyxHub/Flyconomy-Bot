@@ -74,12 +74,20 @@ class BaseCog(commands.Cog):
                 await self.db.add_bank(creator_id, cut)
 
     async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]
-        """Spend one action from the member's budget.
+        """Spend one action from the member's budget, then defer the response.
 
         Applied to every command in every cog that inherits this, so a member
         cannot escape it by rotating between commands. It also covers the
         commands that refund their own cooldown when they decline to act, such
         as mining without a miner, which would otherwise loop for free.
+
+        Every command body runs after this check and reaches the same shared
+        database connection, which executes statements one at a time on a
+        single background thread. A command queued behind a slow one — a
+        write, or an occasional WAL checkpoint — can be pushed past Discord's
+        3-second interaction deadline before it ever calls ``ctx.send``, which
+        then fails with "Unknown interaction" instead of a slow reply.
+        Deferring here trades that 3-second deadline for a 15-minute one.
 
         Args:
             ctx: Invocation context.
@@ -93,4 +101,5 @@ class BaseCog(commands.Cog):
         wait = self.limiter.acquire(ctx.author.id)
         if wait:
             raise RateLimitedError(wait)
+        await ctx.defer()
         return True
