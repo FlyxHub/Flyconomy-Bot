@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import random
+import time
 from contextlib import suppress
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import discord
 from discord.ext import commands
@@ -16,6 +18,12 @@ if TYPE_CHECKING:
     from flyconomy.config import Settings
     from flyconomy.database import Database
     from flyconomy.ratelimit import SlidingWindowLimiter
+
+log = logging.getLogger(__name__)
+
+#: A deferral slower than this is Discord's own API responding slowly, not
+#: anything this codebase controls — worth a log line to rule DB latency out.
+_SLOW_DEFER_SECONDS: Final = 1.0
 
 
 class BaseCog(commands.Cog):
@@ -111,6 +119,16 @@ class BaseCog(commands.Cog):
         wait = self.limiter.acquire(ctx.author.id)
         if wait:
             raise RateLimitedError(wait)
+
+        # Recorded here, before defer's own network round trip, so a slow
+        # command's log line (see bot.py) can be compared against how long
+        # just the defer took: that split is what tells apart "Discord itself
+        # is slow to reach" from "our own command body is slow."
+        ctx.flyconomy_started_at = time.monotonic()  # type: ignore[attr-defined]
+        defer_started = time.monotonic()
         with suppress(discord.NotFound):
             await ctx.defer()
+        defer_elapsed = time.monotonic() - defer_started
+        if defer_elapsed >= _SLOW_DEFER_SECONDS:
+            log.warning("Deferring %s took %.2fs", ctx.command, defer_elapsed)
         return True

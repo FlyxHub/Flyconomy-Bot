@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Final
 
 import discord
@@ -30,6 +31,29 @@ EXTENSIONS: Final[tuple[str, ...]] = (
     "flyconomy.cogs.lottery",
     "flyconomy.cogs.admin",
 )
+
+#: A command that took at least this long, start to finish, gets logged. Slow
+#: enough to matter for Discord's 3-second interaction deadline, rare enough
+#: in normal operation that it shouldn't fire on a healthy bot.
+_SLOW_COMMAND_SECONDS: Final = 1.0
+
+
+def _log_if_slow(ctx: commands.Context[commands.Bot]) -> None:
+    """Log a command whose total time, start to finish, was worth noticing.
+
+    ``flyconomy_started_at`` is set in ``BaseCog.cog_check``, right before the
+    interaction is deferred, so the elapsed time here covers everything after
+    that: the deferral's own network round trip, the command body's database
+    calls, and the final ``ctx.send``. ``cog_check`` separately logs how long
+    just the deferral took, so comparing the two figures is what tells a slow
+    database call apart from Discord's API itself being slow to reach.
+    """
+    started = getattr(ctx, "flyconomy_started_at", None)
+    if started is None:
+        return
+    elapsed = time.monotonic() - started
+    if elapsed >= _SLOW_COMMAND_SECONDS:
+        log.warning("Command %s took %.2fs to finish", ctx.command, elapsed)
 
 
 def build_intents() -> discord.Intents:
@@ -75,6 +99,11 @@ class FlyconomyBot(commands.Bot):
         # Pure slash commands bypass on_command_error, so the tree needs the
         # same handler. Hybrid commands route through on_command_error.
         self.tree.on_error = self.on_app_command_error  # type: ignore[method-assign]
+        self.after_invoke(self._report_command_duration)
+
+    async def _report_command_duration(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """after_invoke hook: log a command that took a while to finish."""
+        _log_if_slow(ctx)
 
     # ------------------------------------------------------------ lifecycle --
 
@@ -148,6 +177,7 @@ class FlyconomyBot(commands.Bot):
             context: Invocation context.
             exception: The raised error.
         """
+        _log_if_slow(context)
         message = describe_command_error(exception)
         if message is None:
             log.error("Unhandled error in command %s", context.command, exc_info=exception)
