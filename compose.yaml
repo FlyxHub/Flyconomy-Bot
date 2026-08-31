@@ -18,6 +18,13 @@ services:
       FLYCONOMY_DATABASE_PATH: /data/bot.db
     volumes:
       - flyconomy-data:/data
+    # Docker's embedded resolver (127.0.0.11) forwards to whatever DNS server
+    # was reachable when the daemon started, which on this host adds ~4s to
+    # every lookup -- and every outbound call the bot makes starts with one.
+    # Pointing straight at public resolvers skips that broken hop.
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
     # The bot only makes outbound connections, so it needs no published ports.
     stop_grace_period: 30s
     logging:
