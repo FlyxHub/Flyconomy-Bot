@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 import random
 import time
-from contextlib import suppress
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
-import discord
 from discord.ext import commands
 
 from flyconomy.errors import RateLimitedError
@@ -18,12 +15,6 @@ if TYPE_CHECKING:
     from flyconomy.config import Settings
     from flyconomy.database import Database
     from flyconomy.ratelimit import SlidingWindowLimiter
-
-log = logging.getLogger(__name__)
-
-#: A deferral slower than this is Discord's own API responding slowly, not
-#: anything this codebase controls — worth a log line to rule DB latency out.
-_SLOW_DEFER_SECONDS: Final = 1.0
 
 
 class BaseCog(commands.Cog):
@@ -84,28 +75,26 @@ class BaseCog(commands.Cog):
                 await self.db.add_bank(creator_id, cut)
 
     async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]
-        """Spend one action from the member's budget, then defer the response.
+        """Spend one action from the member's budget.
 
         Applied to every command in every cog that inherits this, so a member
         cannot escape it by rotating between commands. It also covers the
         commands that refund their own cooldown when they decline to act, such
         as mining without a miner, which would otherwise loop for free.
 
-        Every command body runs after this check and reaches the same shared
-        database connection, which executes statements one at a time on a
-        single background thread. A command queued behind a slow one — a
-        write, or an occasional WAL checkpoint — can be pushed past Discord's
-        3-second interaction deadline before it ever calls ``ctx.send``, which
-        then fails with "Unknown interaction" instead of a slow reply.
-        Deferring here trades that 3-second deadline for a 15-minute one.
-
-        A dead interaction can also reach here already expired — most often
-        two bot processes briefly overlapping during a restart, both of which
-        received the same interaction from Discord. ``defer`` on an interaction
-        like that raises before `prepare()`'s caller can route it through the
-        normal command-error handling, so it must be swallowed here; the
-        command still runs, and its own eventual ``ctx.send`` fails the same
-        way a slow command already did, which *is* reported normally.
+        This briefly deferred every interaction unconditionally, trading
+        Discord's 3-second response deadline for a 15-minute one, to cover two
+        problems: reads could get stuck queued behind a slow write on what was
+        then a single shared database connection, and this host's DNS resolver
+        was separately adding several seconds to every outbound call the bot
+        made. Both are fixed at the source now — reads have their own
+        connection (see ``database.py``), and the resolver is pinned in
+        ``compose.yaml`` — so the blanket defer was left costing every command
+        a second network round trip (an ack, then a followup) for no
+        remaining benefit; removed rather than kept "just in case", since
+        ``bot.py`` still logs any command whose total time is worth noticing,
+        so a real regression here shows up in the logs rather than being
+        silently papered over by making every command feel slower.
 
         Args:
             ctx: Invocation context.
@@ -120,15 +109,5 @@ class BaseCog(commands.Cog):
         if wait:
             raise RateLimitedError(wait)
 
-        # Recorded here, before defer's own network round trip, so a slow
-        # command's log line (see bot.py) can be compared against how long
-        # just the defer took: that split is what tells apart "Discord itself
-        # is slow to reach" from "our own command body is slow."
         ctx.flyconomy_started_at = time.monotonic()  # type: ignore[attr-defined]
-        defer_started = time.monotonic()
-        with suppress(discord.NotFound):
-            await ctx.defer()
-        defer_elapsed = time.monotonic() - defer_started
-        if defer_elapsed >= _SLOW_DEFER_SECONDS:
-            log.warning("Deferring %s took %.2fs", ctx.command, defer_elapsed)
         return True

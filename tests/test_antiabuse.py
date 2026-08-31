@@ -11,7 +11,6 @@ from collections.abc import AsyncIterator
 from fractions import Fraction
 from pathlib import Path
 
-import discord
 import pytest
 
 from flyconomy import economy
@@ -252,22 +251,6 @@ class TestSharedRateLimit:
         )
         assert limiter.rate == 2
         assert limiter.per == 30
-
-
-class TestDeferSurvivesADeadInteraction:
-    """Two bot processes can briefly overlap during a restart and both receive
-    the same interaction; whichever answers second finds Discord has already
-    invalidated it. That must not crash the check outright."""
-
-    async def test_a_dead_interaction_still_lets_the_command_run(self, db, settings):
-        class DeadInteractionContext(FakeContext):
-            async def defer(self, *, ephemeral: bool = False) -> None:
-                response = type("Response", (), {"status": 404, "reason": "Not Found"})()
-                raise discord.NotFound(response, {"code": 10062, "message": "Unknown interaction"})
-
-        cog = Gambling(FakeBot(db, settings))
-        ctx = DeadInteractionContext(author=FakeUser(id=ALICE))
-        assert await cog.cog_check(ctx) is True
 
 
 class TestRefundedCooldownsCannotLoop:

@@ -75,9 +75,6 @@ class FakeContext:
     views: list[Any] = field(default_factory=list)
     command: FakeCommand = field(default_factory=FakeCommand)
 
-    async def defer(self, *, ephemeral: bool = False) -> None:
-        """No-op, matching a real Context with no interaction to acknowledge."""
-
     async def send(
         self, content: str | None = None, *, embed: Any = None, view: Any = None, **_: Any
     ) -> FakeMessage:

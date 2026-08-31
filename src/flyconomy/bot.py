@@ -41,12 +41,9 @@ _SLOW_COMMAND_SECONDS: Final = 1.0
 def _log_if_slow(ctx: commands.Context[commands.Bot]) -> None:
     """Log a command whose total time, start to finish, was worth noticing.
 
-    ``flyconomy_started_at`` is set in ``BaseCog.cog_check``, right before the
-    interaction is deferred, so the elapsed time here covers everything after
-    that: the deferral's own network round trip, the command body's database
-    calls, and the final ``ctx.send``. ``cog_check`` separately logs how long
-    just the deferral took, so comparing the two figures is what tells a slow
-    database call apart from Discord's API itself being slow to reach.
+    ``flyconomy_started_at`` is set in ``BaseCog.cog_check``, right as the
+    command is accepted, so the elapsed time here covers the whole rest of the
+    invocation: the command body's database calls and the final ``ctx.send``.
     """
     started = getattr(ctx, "flyconomy_started_at", None)
     if started is None:
