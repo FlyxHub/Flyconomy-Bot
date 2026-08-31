@@ -104,6 +104,9 @@ class Database:
     def __init__(self, connection: aiosqlite.Connection) -> None:
         """Wrap an open connection. Prefer :meth:`connect`."""
         self._db = connection
+        # Falls back to the write connection until connect() attaches a
+        # dedicated one; only connect() actually gives reads their own thread.
+        self._reader = connection
         # A single connection cannot interleave transactions, so multi-statement
         # operations take this lock to serialize themselves.
         self._lock = asyncio.Lock()
@@ -140,10 +143,23 @@ class Database:
             # thread, so fail cleanly instead.
             await connection.close()
             raise
+
+        # aiosqlite runs every statement on one connection's own dedicated
+        # background thread, in the order it was queued. A read sharing the
+        # writer's connection would sit behind whatever write (or WAL
+        # checkpoint) is already running there, no matter how fast the read
+        # itself is. WAL mode is built for concurrent readers, so a second
+        # connection is what actually lets a read skip that queue.
+        reader = await aiosqlite.connect(path, isolation_level=None)
+        reader.row_factory = aiosqlite.Row
+        await reader.execute("PRAGMA query_only = ON")
+        self._reader = reader
         return self
 
     async def close(self) -> None:
-        """Close the underlying connection."""
+        """Close the underlying connections."""
+        if self._reader is not self._db:
+            await self._reader.close()
         await self._db.close()
 
     async def __aenter__(self) -> Self:
@@ -225,7 +241,7 @@ class Database:
 
     async def find_account(self, user_id: int) -> Account | None:
         """Return a member's account, or ``None`` when they have never played."""
-        async with self._db.execute(
+        async with self._reader.execute(
             "SELECT b.wallet, b.bank, b.crypto, b.miner, m.price AS flx_price "
             "FROM bank b, market m WHERE b.user = ? AND m.id = 1",
             (user_id,),
@@ -252,7 +268,7 @@ class Database:
 
     async def total_crypto(self) -> int:
         """Return the number of Flyxcoin in circulation across all accounts."""
-        async with self._db.execute(
+        async with self._reader.execute(
             "SELECT COALESCE(SUM(crypto), 0) AS total FROM bank WHERE crypto > 0"
         ) as cursor:
             row = await cursor.fetchone()
@@ -265,7 +281,7 @@ class Database:
 
     async def get_flx_price(self) -> int:
         """Return the live Flyxcoin price."""
-        async with self._db.execute("SELECT price FROM market WHERE id = 1") as cursor:
+        async with self._reader.execute("SELECT price FROM market WHERE id = 1") as cursor:
             row = await cursor.fetchone()
         if row is None:  # pragma: no cover - migration 4 guarantees the row
             return economy.FLX_PRICE
@@ -326,7 +342,7 @@ class Database:
             f"SELECT user, {expression} AS amount FROM bank "  # noqa: S608
             f"WHERE {expression} > 0 ORDER BY amount DESC, user ASC LIMIT ?"
         )
-        async with self._db.execute(query, (limit,)) as cursor:
+        async with self._reader.execute(query, (limit,)) as cursor:
             rows = await cursor.fetchall()
         return [LeaderboardEntry(user_id=row["user"], amount=row["amount"]) for row in rows]
 
@@ -607,12 +623,12 @@ class Database:
 
     async def lottery_state(self) -> LotteryState:
         """Return the pot, the open draw number, and how many have entered."""
-        async with self._db.execute("SELECT pot, draw FROM lottery WHERE id = 1") as cursor:
+        async with self._reader.execute("SELECT pot, draw FROM lottery WHERE id = 1") as cursor:
             row = await cursor.fetchone()
         if row is None:  # pragma: no cover - migration 3 guarantees the row
             return LotteryState(pot=0, draw=1, entrants=0)
 
-        async with self._db.execute(
+        async with self._reader.execute(
             "SELECT COUNT(*) AS n FROM lottery_entries WHERE draw = ?", (row["draw"],)
         ) as cursor:
             count = await cursor.fetchone()
@@ -688,7 +704,7 @@ class Database:
     async def lottery_entrants(self) -> list[int]:
         """Return everyone entered in the open draw."""
         state = await self.lottery_state()
-        async with self._db.execute(
+        async with self._reader.execute(
             "SELECT user FROM lottery_entries WHERE draw = ? ORDER BY user", (state.draw,)
         ) as cursor:
             rows = await cursor.fetchall()
@@ -697,7 +713,7 @@ class Database:
     async def has_entered(self, user_id: int) -> bool:
         """Return whether a member is already in the open draw."""
         state = await self.lottery_state()
-        async with self._db.execute(
+        async with self._reader.execute(
             "SELECT 1 FROM lottery_entries WHERE draw = ? AND user = ?",
             (state.draw, user_id),
         ) as cursor:

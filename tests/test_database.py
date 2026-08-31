@@ -348,3 +348,17 @@ class TestLifecycle:
         database = await Database.connect(path)
         await database.close()
         assert path.exists()
+
+    async def test_reads_use_a_connection_separate_from_writes(self, db: Database):
+        # A read sharing the writer's connection would queue behind whatever
+        # that connection's single background thread is doing -- a write, or
+        # an occasional WAL checkpoint -- no matter how fast the read itself
+        # is. A dedicated connection is what lets it skip that queue.
+        assert db._reader is not db._db  # type: ignore[attr-defined]
+
+    async def test_closing_closes_the_reader_connection_too(self, db_path):
+        database = await Database.connect(db_path)
+        reader = database._reader  # type: ignore[attr-defined]
+        await database.close()
+        with pytest.raises(ValueError):
+            await reader.execute("SELECT 1")
