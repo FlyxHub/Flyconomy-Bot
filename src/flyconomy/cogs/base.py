@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import random
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
+import discord
 from discord.ext import commands
 
 from flyconomy.errors import RateLimitedError
@@ -89,6 +91,14 @@ class BaseCog(commands.Cog):
         then fails with "Unknown interaction" instead of a slow reply.
         Deferring here trades that 3-second deadline for a 15-minute one.
 
+        A dead interaction can also reach here already expired — most often
+        two bot processes briefly overlapping during a restart, both of which
+        received the same interaction from Discord. ``defer`` on an interaction
+        like that raises before `prepare()`'s caller can route it through the
+        normal command-error handling, so it must be swallowed here; the
+        command still runs, and its own eventual ``ctx.send`` fails the same
+        way a slow command already did, which *is* reported normally.
+
         Args:
             ctx: Invocation context.
 
@@ -101,5 +111,6 @@ class BaseCog(commands.Cog):
         wait = self.limiter.acquire(ctx.author.id)
         if wait:
             raise RateLimitedError(wait)
-        await ctx.defer()
+        with suppress(discord.NotFound):
+            await ctx.defer()
         return True
