@@ -167,6 +167,15 @@ class TestEntry:
         await db.enter_lottery(ALICE, PRICE)
         assert await db.has_entered(ALICE) is True
 
+    async def test_resetting_an_entrant_removes_them_from_the_draw(self, db):
+        await db.add_bank(ALICE, 50_000)
+        await db.enter_lottery(ALICE, PRICE)
+
+        await db.delete_account(ALICE)
+
+        assert await db.has_entered(ALICE) is False
+        assert (await db.lottery_state()).entrants == 0
+
 
 class TestDraw:
     async def test_the_winner_is_paid_the_whole_pot(self, db):

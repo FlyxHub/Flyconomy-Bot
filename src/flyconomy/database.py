@@ -766,7 +766,15 @@ class Database:
         """
         async with self._transaction() as db:
             cursor = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+            async with db.execute("SELECT draw FROM lottery WHERE id = 1") as lottery_cursor:
+                lottery_row = await lottery_cursor.fetchone()
+            if lottery_row is not None:
+                await db.execute(
+                    "DELETE FROM lottery_entries WHERE draw = ? AND user = ?",
+                    (lottery_row["draw"], user_id),
+                )
+            return deleted
 
 
 # ------------------------------------------------------------- migrations ----
