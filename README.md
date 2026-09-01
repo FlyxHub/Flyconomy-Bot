@@ -293,6 +293,7 @@ mentioning the bot works as a prefix too.
 | `rob <member>` | Takes a random share of a member's wallet, half the time. Cooldown: 1 hour. |
 | `leaderboard` | Ranks the top 10 members by net worth. Alias: `lb`. |
 | `wallets` | Ranks the top 10 undeposited wallets, which are the best robbery targets. |
+| `resetme` | Deletes your own account, resetting you to a new player. |
 
 ### Flyxcoin
 
@@ -340,7 +341,7 @@ which is the wrong place to advertise a command nobody else can run.
 | --- | --- |
 | `$adminme` | Gives you the admin miner, level 999. |
 | `$adminmine <amount>` | Adds Flyxcoin to your own account. A negative amount removes coins. |
-| `$reset <member>` | Deletes a member's account, resetting them to a new player. |
+| `$reset <member>` | Deletes another member's account, resetting them to a new player. Members reset themselves with `resetme`. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
 

@@ -117,6 +117,15 @@ class Economy(BaseCog, name="Economy"):
             )
         )
 
+    @commands.hybrid_command(name="resetme")  # type: ignore[arg-type]
+    async def resetme(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Delete your own account, resetting you to a new player."""
+        deleted = await self.db.delete_account(ctx.author.id)
+        if deleted:
+            await ctx.send("Your account has been reset.")
+        else:
+            await ctx.send("You don't have an account to reset.")
+
     @commands.hybrid_command(name="wallets")  # type: ignore[arg-type]
     async def wallets(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """Show the largest undeposited wallets, which are the best robbery targets."""
