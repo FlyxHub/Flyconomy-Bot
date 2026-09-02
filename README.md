@@ -22,6 +22,7 @@ classic prefix command, such as `$balance`.
   - [Surviving a season](#surviving-a-season)
   - [The lottery](#the-lottery)
   - [Blackjack](#blackjack)
+  - [Crash](#crash)
   - [Slot machine paytable](#slot-machine-paytable)
 - [Develop and test](#develop-and-test)
 - [Architecture](#architecture)
@@ -319,6 +320,7 @@ Every game stakes money from your wallet.
 | `dice <1-6> <bet>` | Returns 6x your stake on a correct call. |
 | `roulette <red\|black\|0-36\|00> <bet>` | Returns 2x on a color and 35x on a single pocket. |
 | `blackjack <bet>` | Deals a hand against the dealer, with buttons to hit, stand, or double down. Alias: `bj`. |
+| `crash <bet>` | A multiplier climbs from 1.00x. Press Cash Out before it crashes to lock in the payout. |
 | `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 
@@ -388,6 +390,7 @@ below if you win. The profit column is what you gain overall.
 | Roulette, single pocket | 1 in 38 | 35x stake | 34x stake | 7.89% |
 | Rock paper scissors | 1 in 3 | 3x stake | 2x stake | 0% |
 | Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.4% to 15.8% |
+| Crash | Depends on when you cash out | Whatever multiplier you cash out at | Multiplier minus 1, times stake | 3%, flat at every cash-out target |
 
 House edge is the share of each staked dollar the bot keeps on average. **No
 game pays players more than its odds justify**, which is enforced by a test: if
@@ -556,6 +559,30 @@ ruleset:
 Played well, blackjack is the best bet in the casino. Played badly, it is the
 worst. That is the point of it.
 
+### Crash
+
+`crash <bet>` starts a multiplier climbing from 1.00x and posts a **Cash Out**
+button. Press it before the multiplier crashes to lock in that payout; wait
+too long and the stake is gone. Only the member who staked it can press the
+button. If nobody acts, the round settles as a loss once the crash point is
+reached, so a stake is never stranded.
+
+House rules:
+
+| Rule | This table |
+| --- | --- |
+| Growth rate | 1.06x per second |
+| Maximum multiplier | 20x, which caps a round at about 51 seconds |
+| Live redraw | Every 2 seconds, best effort |
+| Decision timeout | 75 seconds, a safety net well past the longest possible round |
+
+Unlike blackjack, crash's house edge does not depend on how you play: cashing
+out at any fixed target multiplier has the same expected profit, a flat **3%**
+of the stake. That is a property of the formula the crash point is drawn from,
+not an average over strategies — see `crash.Game.deal`'s docstring for the
+derivation, and `tests/test_crash.py` for the simulation that checks the
+sampler actually matches it.
+
 ### Slot machine paytable
 
 Three identical reels, each carrying six equally likely symbols, for 216
@@ -617,7 +644,8 @@ The suite is organized by concern:
 | `test_season.py` | That a 365-day season stays bounded and grows linearly. |
 | `test_lottery.py` | The pot, entries, draws, and the rake. |
 | `test_blackjack.py` | The blackjack ruleset: hand values, soft aces, dealer policy, payouts. |
-| `test_views.py` | The blackjack buttons, ownership, timeout, and settlement. |
+| `test_crash.py` | The crash ruleset: the multiplier curve, the crash-point sampler, and its house edge. |
+| `test_views.py` | The blackjack and crash buttons, ownership, timeout, and settlement. |
 | `test_cog_behavior.py` | The command bodies, against a real database. |
 | `test_admin_and_startup.py` | Owner commands, logging, and process exit codes. |
 | `test_config.py`, `test_bot.py` | Settings validation and error message translation. |
@@ -650,12 +678,13 @@ src/flyconomy/
 ├── config.py         Settings, validated from the environment
 ├── database.py       SQLite access and schema migrations
 ├── blackjack.py      The blackjack ruleset, also free of any discord import
+├── crash.py          The crash ruleset, also free of any discord import
 ├── economy.py        Every tunable number and the pure rules that use them
 ├── embeds.py         Message and embed builders
 ├── errors.py         Exceptions the bot raises deliberately
 ├── logging_config.py Logging setup
 ├── ratelimit.py      A sliding window limiter, with an injectable clock
-├── views.py          Interactive buttons, currently the blackjack table
+├── views.py          Interactive buttons: the blackjack table and the crash round
 └── cogs/             One module per command group
 ```
 

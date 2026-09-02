@@ -7,13 +7,14 @@ so these are regression tests: if one fails, that exploit is open again.
 from __future__ import annotations
 
 import itertools
+import random
 from collections.abc import AsyncIterator
 from fractions import Fraction
 from pathlib import Path
 
 import pytest
 
-from flyconomy import economy
+from flyconomy import crash, economy
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
@@ -32,6 +33,7 @@ WAGER_COMMANDS = [
     ("slots", ()),
     ("war", ()),
     ("blackjack_command", ()),
+    ("crash_command", ()),
 ]
 
 
@@ -92,6 +94,24 @@ class TestNoGameIsProfitable:
         wheel = economy.ROULETTE_WHEEL
         ev = sum(economy.roulette_payout_multiplier(bet, p) - 1 for p in wheel) / len(wheel)
         assert ev < 0
+
+    @pytest.mark.parametrize("target", [1.5, 2.0, 5.0, 10.0])
+    def test_crash_favours_the_house_at_every_target(self, target):
+        """Unlike blackjack, crash's edge is provably flat across every
+        cash-out strategy -- see crash.Game.deal's docstring for the
+        derivation. This is a coarse regression check against the actual
+        sampler; the detailed magnitude proof lives in tests/test_crash.py."""
+        rng = random.Random(99)
+        stake = 100
+        staked = 0
+        returned = 0
+        for _ in range(100_000):
+            game = crash.Game.deal(stake, rng)
+            staked += game.stake
+            if game.crash_point >= target:
+                returned += crash.payout(game.stake, target)
+        edge = (staked - returned) / staked
+        assert edge > 0, f"target {target}x gave the player an edge"
 
     def test_no_game_pays_more_than_it_takes(self):
         """The property that actually matters: nothing has a positive edge."""
