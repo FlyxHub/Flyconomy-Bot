@@ -29,4 +29,7 @@ def configure_logging(level: str = "INFO") -> None:
     # discord.py logs every gateway heartbeat at DEBUG, which drowns out our own
     # messages when the root level is lowered for troubleshooting.
     logging.getLogger("discord").setLevel(max(logging.INFO, root.level))
-    logging.getLogger("discord.http").setLevel(logging.WARNING)
+    # discord.py's HTTP client logs its proactive rate-limit waits at DEBUG too --
+    # cap that at WARNING in normal operation, but let a DEBUG root level through
+    # so a rate-limit stall is visible instead of silently eating command time.
+    logging.getLogger("discord.http").setLevel(logging.WARNING if root.level > logging.DEBUG else logging.DEBUG)
