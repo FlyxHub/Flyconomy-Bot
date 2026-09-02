@@ -341,6 +341,7 @@ which is the wrong place to advertise a command nobody else can run.
 | `$adminme` | Gives you the admin miner, level 999. |
 | `$adminmine <amount>` | Adds Flyxcoin to your own account. A negative amount removes coins. |
 | `$reset <member>` | Deletes a member's account, resetting them to a new player. |
+| `$purge <id>` | Deletes a user id from every table, taking the id itself or a mention. Use this for a row whose id no longer resolves to a member, which `$reset` cannot take. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
 

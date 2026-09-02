@@ -117,6 +117,55 @@ class TestAdminCommands:
 
         assert "does not have an account" in ctx.last.lower()
 
+    async def test_purge_deletes_by_raw_id(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.add_wallet(BOB, 5_000)
+
+        await cog.purge.callback(cog, ctx, str(BOB))
+
+        assert await db.find_account(BOB) is None
+        assert "their account" in ctx.last
+
+    async def test_purge_accepts_a_mention(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.add_wallet(BOB, 5_000)
+
+        await cog.purge.callback(cog, ctx, f"<@{BOB}>")
+
+        assert await db.find_account(BOB) is None
+
+    async def test_purge_deletes_an_id_no_member_converter_could_resolve(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.add_wallet(1, 5)
+
+        await cog.purge.callback(cog, ctx, "<@1>")
+
+        assert await db.find_account(1) is None
+        assert "1" in ctx.last
+
+    async def test_purge_reports_a_lottery_entry_it_removed(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.add_bank(BOB, 5_000)
+        await db.enter_lottery(BOB, 1_000)
+
+        await cog.purge.callback(cog, ctx, str(BOB))
+
+        assert "1 lottery entry" in ctx.last
+        assert await db.lottery_entrants() == []
+
+    async def test_purge_says_when_an_id_is_not_in_the_database(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+
+        await cog.purge.callback(cog, ctx, str(BOB))
+
+        assert "not in the database" in ctx.last
+
+    async def test_purge_rejects_an_argument_that_is_not_an_id(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+
+        with pytest.raises(commands.BadArgument):
+            await cog.purge.callback(cog, ctx, "nobody")
+
     async def test_sync_republishes_and_reports_the_scope(self, db, settings, ctx):
         bot = FakeAdminBot(db, settings)
         cog = Admin(bot)

@@ -94,6 +94,24 @@ class LeaderboardEntry:
     amount: int
 
 
+@dataclass(frozen=True, slots=True)
+class PurgeResult:
+    """What removing a member from the database actually deleted.
+
+    Attributes:
+        account: Whether a ``bank`` row was removed.
+        lottery_entries: How many open-draw entries were removed.
+    """
+
+    account: bool
+    lottery_entries: int
+
+    @property
+    def found(self) -> bool:
+        """Whether the member existed anywhere in the database."""
+        return self.account or self.lottery_entries > 0
+
+
 class Database:
     """An async wrapper around the bot's SQLite database.
 
@@ -764,9 +782,32 @@ class Database:
         Returns:
             ``True`` if a row was removed, ``False`` if there was nothing to delete.
         """
+        return (await self.purge_user(user_id)).account
+
+    async def purge_user(self, user_id: int) -> PurgeResult:
+        """Remove every trace of a member from the database.
+
+        A member lives in two tables: their balances in ``bank`` and, while a
+        draw is open, one row in ``lottery_entries``. Both go, in one
+        transaction, so a purge can never leave a ticket behind that pays a
+        pot into an account that no longer exists.
+
+        The pot itself is untouched. Ticket money is redistributed rather than
+        held per member, so refunding it here would mint the price of a ticket
+        back out of the jackpot.
+
+        Args:
+            user_id: The member's Discord snowflake. Not validated as a real
+                Discord user — purging a bogus id is the point.
+
+        Returns:
+            What was deleted.
+        """
         async with self._transaction() as db:
-            cursor = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
-            return cursor.rowcount > 0
+            account = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
+            removed = account.rowcount > 0
+            entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
+            return PurgeResult(account=removed, lottery_entries=max(entries.rowcount, 0))
 
 
 # ------------------------------------------------------------- migrations ----
