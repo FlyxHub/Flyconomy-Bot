@@ -14,13 +14,13 @@ from typing import Any
 
 import pytest
 
-from flyconomy import blackjack, economy, embeds
+from flyconomy import blackjack, crash, economy, embeds
 from flyconomy.blackjack import Game, Outcome
 from flyconomy.cogs.gambling import Gambling
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import InsufficientFundsError
-from flyconomy.views import BlackjackView
+from flyconomy.views import BlackjackView, CrashView
 from tests.conftest import ALICE, BOB
 from tests.test_blackjack import ACE, KING, hand
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
@@ -82,6 +82,27 @@ def live_game(stake: int = 100) -> Game:
         shoe=hand(5, 4, 3, 8, 7, 2),
         stake=stake,
     )
+
+
+class _FakeClock:
+    """A controllable clock, so a round's elapsed time never depends on a
+    real delay."""
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.time = start
+
+    def __call__(self) -> float:
+        return self.time
+
+    def advance(self, seconds: float) -> None:
+        self.time += seconds
+
+
+def make_crash_view(
+    db: Database, game: crash.Game, player: FakeUser, clock: _FakeClock
+) -> CrashView:
+    """Build a view around an already-dealt round."""
+    return CrashView(db=db, game=game, player=player, timezone="UTC", now=clock)
 
 
 class TestSettlement:
@@ -457,6 +478,13 @@ class _NaturalDeal:
         return [*rest[: k - len(scripted)], *reversed(scripted)]
 
 
+class _InstantBustDeal:
+    """A random source whose crash round busts immediately."""
+
+    def random(self) -> float:
+        return 0.0
+
+
 class TestBlackjackEmbed:
     def test_the_hole_card_is_hidden_while_the_hand_is_live(self, player):
         embed = embeds.blackjack_embed(live_game(), player, "UTC")
@@ -531,3 +559,258 @@ class TestBlackjackEmbed:
         game = live_game(stake=100)
         game.outcome = Outcome.PLAYER_BLACKJACK
         assert "$250" in embeds.blackjack_result_line(game)
+
+
+class TestCrashSettlement:
+    async def test_cashing_out_before_the_crash_pays_the_multiplier(self, db, player):
+        clock = _FakeClock()
+        game = crash.Game(stake=100, crash_point=5.0)
+        view = make_crash_view(db, game, player, clock)
+        clock.advance(1.0)
+
+        problem = await view.apply_cashout()
+
+        assert problem is None
+        expected = crash.payout(100, crash.multiplier_at(1.0))
+        assert (await db.get_account(ALICE)).wallet == expected
+
+    async def test_cashing_out_after_the_crash_is_refused(self, db, player):
+        clock = _FakeClock()
+        game = crash.Game(stake=100, crash_point=2.0)
+        view = make_crash_view(db, game, player, clock)
+        clock.advance(crash.crash_time_seconds(game) + 1.0)
+
+        problem = await view.apply_cashout()
+
+        assert problem is not None
+        assert "already crashed" in problem
+        assert (await db.get_account(ALICE)).wallet == 0
+
+    async def test_settling_twice_only_pays_once(self, db, player):
+        # A cash out and a bust tick can both reach settle(); only one may pay.
+        clock = _FakeClock()
+        game = crash.Game(stake=100, crash_point=5.0)
+        view = make_crash_view(db, game, player, clock)
+
+        await view.apply_cashout()
+        await view.settle(multiplier=99.0)  # would grossly overpay if it ran
+
+        assert (await db.get_account(ALICE)).wallet == crash.payout(100, crash.multiplier_at(0.0))
+
+    async def test_a_bust_settles_at_zero(self, db, player):
+        clock = _FakeClock()
+        game = crash.Game(stake=100, crash_point=5.0)
+        view = make_crash_view(db, game, player, clock)
+
+        await view.settle(multiplier=0.0)
+
+        assert (await db.get_account(ALICE)).wallet == 0
+
+
+class TestCrashCreatorTax:
+    async def test_a_bust_pays_the_creator_and_the_pot(self, db, player):
+        clock = _FakeClock()
+        game = crash.Game(stake=100, crash_point=5.0)
+        view = CrashView(
+            db=db,
+            game=game,
+            player=player,
+            timezone="UTC",
+            rake=0.25,
+            creator_tax_rate=0.05,
+            creator_tax_user_id=999,
+            now=clock,
+        )
+
+        await view.settle(multiplier=0.0)
+
+        assert (await db.lottery_state()).pot == int(100 * 0.25)
+        assert (await db.get_account(999)).bank == economy.STARTING_BANK + int(100 * 0.05)
+
+    async def test_a_win_pays_the_creator_nothing(self, db, player):
+        clock = _FakeClock()
+        game = crash.Game(stake=100, crash_point=5.0)
+        view = CrashView(
+            db=db,
+            game=game,
+            player=player,
+            timezone="UTC",
+            creator_tax_rate=0.05,
+            creator_tax_user_id=999,
+            now=clock,
+        )
+
+        await view.settle(multiplier=2.0)
+
+        assert await db.find_account(999) is None
+
+
+class TestCrashButtonState:
+    async def test_a_live_round_enables_the_button(self, db, player):
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, _FakeClock())
+        assert not any(child.disabled for child in view.children)
+
+    async def test_a_settled_round_disables_the_button(self, db, player):
+        clock = _FakeClock()
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, clock)
+
+        await view.apply_cashout()
+
+        assert all(child.disabled for child in view.children)
+
+
+class TestCrashOwnership:
+    async def test_the_dealt_player_may_press(self, db, player):
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, _FakeClock())
+        interaction = FakeInteraction(user=player)
+
+        assert await view.interaction_check(interaction) is True
+        assert not interaction.response.ephemeral
+
+    async def test_anyone_else_is_turned_away(self, db, player):
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, _FakeClock())
+        interaction = FakeInteraction(user=FakeUser(id=BOB))
+
+        assert await view.interaction_check(interaction) is False
+        assert len(interaction.response.ephemeral) == 1
+
+
+class TestCrashButtonCallback:
+    async def test_the_cash_out_button_pays_and_redraws(self, db, player):
+        clock = _FakeClock()
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, clock)
+        interaction = FakeInteraction(user=player)
+
+        await CrashView.cash_out(view, interaction, None)
+
+        assert (await db.get_account(ALICE)).wallet == crash.payout(100, crash.multiplier_at(0.0))
+        assert len(interaction.response.edited) == 1
+
+    async def test_a_late_cash_out_reports_a_refusal_privately(self, db, player):
+        clock = _FakeClock()
+        game = crash.Game(stake=100, crash_point=2.0)
+        view = make_crash_view(db, game, player, clock)
+        clock.advance(crash.crash_time_seconds(game) + 1.0)
+        interaction = FakeInteraction(user=player)
+
+        await CrashView.cash_out(view, interaction, None)
+
+        assert len(interaction.response.ephemeral) == 1
+        assert not interaction.response.edited
+
+
+class TestCrashTimeout:
+    async def test_a_timeout_forces_a_bust_and_pays_nothing(self, db, player):
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, _FakeClock())
+        view.message = _FakeMessage()
+
+        await view.on_timeout()
+
+        assert (await db.get_account(ALICE)).wallet == 0
+        assert view.message.edits == 1
+
+    async def test_a_timeout_on_a_settled_round_changes_nothing(self, db, player):
+        clock = _FakeClock()
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, clock)
+        await view.apply_cashout()
+        paid = (await db.get_account(ALICE)).wallet
+        view.message = _FakeMessage()
+
+        await view.on_timeout()
+
+        assert (await db.get_account(ALICE)).wallet == paid
+        assert view.message.edits == 0
+
+    async def test_a_timeout_without_a_message_still_settles(self, db, player):
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, _FakeClock())
+
+        await view.on_timeout()
+
+        assert (await db.get_account(ALICE)).wallet == 0
+
+    def test_the_timeout_matches_the_documented_window(self, db, player):
+        view = make_crash_view(db, crash.Game(stake=100, crash_point=5.0), player, _FakeClock())
+        assert view.timeout == crash.DECISION_TIMEOUT_SECONDS
+
+
+class TestCrashCommand:
+    async def test_the_stake_is_debited_on_the_deal(self, db, settings):
+        cog = Gambling(FakeBot(db, settings))
+        ctx = FakeContext(author=FakeUser(id=ALICE))
+        await db.add_wallet(ALICE, 1_000)
+
+        await cog.crash_command.callback(cog, ctx, 100)
+        for view in ctx.views:
+            view._tick.cancel()
+
+        # Either the round is live and 100 is staked, or an instant bust
+        # already took it.
+        assert (await db.get_account(ALICE)).wallet != 1_000
+
+    async def test_a_live_round_posts_a_button(self, db, settings):
+        cog = Gambling(FakeBot(db, settings))
+        ctx = FakeContext(author=FakeUser(id=ALICE))
+        await db.add_wallet(ALICE, 100_000)
+
+        for _ in range(40):
+            ctx.views.clear()
+            await cog.crash_command.callback(cog, ctx, 100)
+            if ctx.views:
+                view = ctx.views[-1]
+                assert isinstance(view, CrashView)
+                view._tick.cancel()
+                return
+        pytest.fail("no live round was dealt in 40 tries")
+
+    async def test_an_instant_bust_resolves_without_a_button(self, db, settings):
+        cog = Gambling(FakeBot(db, settings))
+        ctx = FakeContext(author=FakeUser(id=ALICE))
+        await db.add_wallet(ALICE, 1_000)
+
+        # Force an instant bust by rigging the deal.
+        cog.rng = _InstantBustDeal()
+        await cog.crash_command.callback(cog, ctx, 100)
+
+        assert not ctx.views, "an instant bust must not offer a button"
+        assert ctx.embeds
+        assert (await db.get_account(ALICE)).wallet == 900
+
+    async def test_a_bet_beyond_the_wallet_is_refused(self, db, settings):
+        cog = Gambling(FakeBot(db, settings))
+        ctx = FakeContext(author=FakeUser(id=ALICE))
+        await db.add_wallet(ALICE, 10)
+
+        with pytest.raises(InsufficientFundsError):
+            await cog.crash_command.callback(cog, ctx, 11)
+
+        assert (await db.get_account(ALICE)).wallet == 10
+
+
+class TestCrashEmbed:
+    def test_a_live_round_prompts_to_cash_out(self, player):
+        game = crash.Game(stake=100, crash_point=5.0)
+        embed = embeds.crash_embed(game, player, "UTC", elapsed=1.0, cashed_out_multiplier=None)
+        assert embed.footer.text is not None
+        assert not any(f.name == "Result" for f in embed.fields)
+
+    def test_a_cashed_out_round_shows_the_payout(self, player):
+        game = crash.Game(stake=100, crash_point=5.0)
+        embed = embeds.crash_embed(game, player, "UTC", elapsed=1.0, cashed_out_multiplier=2.0)
+        result = next(f for f in embed.fields if f.name == "Result")
+        assert "$200" in result.value
+
+    def test_a_busted_round_shows_the_loss(self, player):
+        game = crash.Game(stake=100, crash_point=2.0)
+        elapsed = crash.crash_time_seconds(game) + 1.0
+        embed = embeds.crash_embed(game, player, "UTC", elapsed=elapsed, cashed_out_multiplier=None)
+        result = next(f for f in embed.fields if f.name == "Result")
+        assert "$100" in result.value
+
+    def test_a_loss_is_coloured_differently_from_a_win(self, player):
+        game = crash.Game(stake=100, crash_point=2.0)
+        elapsed = crash.crash_time_seconds(game) + 1.0
+        busted = embeds.crash_embed(
+            game, player, "UTC", elapsed=elapsed, cashed_out_multiplier=None
+        )
+        won = embeds.crash_embed(game, player, "UTC", elapsed=1.0, cashed_out_multiplier=2.0)
+        assert busted.color != won.color

@@ -11,11 +11,11 @@ from __future__ import annotations
 from discord import app_commands
 from discord.ext import commands
 
-from flyconomy import blackjack, economy, embeds
+from flyconomy import blackjack, crash, economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.errors import BetTooLargeError
-from flyconomy.views import BlackjackView
+from flyconomy.views import BlackjackView, CrashView
 
 _ROULETTE_HELP = (
     "Bet on `red`, `black`, or a single pocket (`0`, `00`, or `1`-`36`). "
@@ -210,6 +210,35 @@ class Gambling(BaseCog, name="Casino"):
             return
 
         view.message = await ctx.send(embed=view.embed(), view=view)
+
+    @commands.hybrid_command(name="crash")  # type: ignore[arg-type]
+    @app_commands.describe(bet="Dollars to stake.")
+    async def crash_command(
+        self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
+    ) -> None:
+        """Cash out before the multiplier crashes. The longer you wait, the more it pays."""
+        await self._stake(ctx, bet)
+        game = crash.Game.deal(bet, self.rng)
+
+        view = CrashView(
+            db=self.db,
+            game=game,
+            player=ctx.author,
+            timezone=self.timezone,
+            rake=self.settings.lottery_rake,
+            creator_tax_rate=self.settings.creator_tax_rate,
+            creator_tax_user_id=self.settings.creator_tax_user_id,
+        )
+
+        # An instant bust decides the round on the deal, so there is nothing
+        # to press and the button never appears.
+        if game.crash_point <= 1.0:
+            await view.settle(multiplier=0.0)
+            await ctx.send(embed=view.embed())
+            return
+
+        view.message = await ctx.send(embed=view.embed(), view=view)
+        view.start_ticking()
 
     @commands.hybrid_command(name="war")  # type: ignore[arg-type]
     @app_commands.describe(bet="Dollars to stake.")

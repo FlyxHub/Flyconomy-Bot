@@ -227,6 +227,33 @@ class TestBanking:
         assert account.wallet == economy.STARTING_BANK
 
 
+class TestResetMe:
+    async def test_resetme_deletes_the_caller_account(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 5_000)
+
+        await cog.resetme.callback(cog, ctx)
+
+        assert await db.find_account(ALICE) is None
+        assert "reset" in ctx.last.lower()
+
+    async def test_resetme_leaves_other_members_alone(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 5_000)
+        await db.add_wallet(BOB, 500)
+
+        await cog.resetme.callback(cog, ctx)
+
+        assert (await db.get_account(BOB)).wallet == 500
+
+    async def test_resetting_with_no_account_says_so(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+
+        await cog.resetme.callback(cog, ctx)
+
+        assert "don't have an account" in ctx.last.lower()
+
+
 class TestIncome:
     async def test_beg_either_pays_or_says_nothing(self, db, settings, ctx):
         cog = _seeded(Economy(FakeBot(db, settings)), 7)

@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import blackjack, economy
+from flyconomy import blackjack, crash, economy
 from flyconomy.database import Account, LeaderboardEntry
 from flyconomy.economy import Card
 
@@ -230,4 +230,74 @@ def blackjack_embed(game: blackjack.Game, user: discord.abc.User, timezone: str)
         embed.add_field(name="Result", value=blackjack_result_line(game), inline=False)
     else:
         embed.set_footer(text="Hit, stand, or double down.")
+    return embed
+
+
+def crash_result_line(
+    game: crash.Game, *, elapsed: float, cashed_out_multiplier: float | None
+) -> str:
+    """Describe how a round of crash ended, or its live state if it hasn't.
+
+    Args:
+        game: The round.
+        elapsed: Seconds since the round started.
+        cashed_out_multiplier: The multiplier the player locked in, or
+            ``None`` if they have not cashed out.
+
+    Returns:
+        One line for the embed's result field, or a prompt if still live.
+    """
+    if cashed_out_multiplier is not None:
+        won = crash.payout(game.stake, cashed_out_multiplier)
+        return f"Cashed out at **{cashed_out_multiplier:.2f}x**. You win {money(won)}"
+    if crash.has_crashed(game, elapsed):
+        return f"**Crashed at {game.crash_point:.2f}x!** You lose {money(game.stake)}"
+    return "Cash out before it crashes!"
+
+
+def crash_embed(
+    game: crash.Game,
+    user: discord.abc.User,
+    timezone: str,
+    *,
+    elapsed: float,
+    cashed_out_multiplier: float | None,
+) -> discord.Embed:
+    """Build the embed for a round of crash, live or decided.
+
+    Args:
+        game: The round.
+        user: The player.
+        timezone: IANA timezone for the embed timestamp.
+        elapsed: Seconds since the round started.
+        cashed_out_multiplier: The multiplier the player locked in, or
+            ``None`` if they have not cashed out.
+
+    Returns:
+        A populated embed.
+    """
+    busted = crash.has_crashed(game, elapsed)
+    finished = cashed_out_multiplier is not None or busted
+    colour = ERROR_COLOR if finished and cashed_out_multiplier is None else BRAND_COLOR
+
+    embed = discord.Embed(
+        title=f"Crash - {user.display_name}",
+        color=colour,
+        timestamp=now(timezone),
+    )
+    embed.add_field(
+        name="Multiplier", value=f"{crash.current_multiplier(game, elapsed):.2f}x", inline=True
+    )
+    embed.add_field(name="Stake", value=money(game.stake), inline=True)
+
+    if finished:
+        embed.add_field(
+            name="Result",
+            value=crash_result_line(
+                game, elapsed=elapsed, cashed_out_multiplier=cashed_out_multiplier
+            ),
+            inline=False,
+        )
+    else:
+        embed.set_footer(text="Cash out before it crashes.")
     return embed
