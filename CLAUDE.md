@@ -29,6 +29,13 @@ Run a single test with the venv interpreter directly:
 
 `check.ps1` runs every check even after one fails, so a single pass reports everything.
 
+## Workflow
+
+Commit and push after every change, without waiting to be asked. Stage only the files the change
+actually touched, write a message that follows the existing commit style (short, present tense,
+explains the why), and push straight to `main` — this repo has no branch-protection or review step
+that would make that unsafe.
+
 ## Architecture
 
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
