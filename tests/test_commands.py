@@ -152,6 +152,11 @@ class TestOwnerCommands:
         published = {command.qualified_name for command in bot.tree.walk_commands()}
         assert name not in published
 
+    async def test_purge_is_owner_only(self, bot: FlyconomyBot):
+        published = {command.qualified_name for command in bot.tree.walk_commands()}
+        assert bot.get_command("purge") is not None
+        assert "purge" not in published
+
     async def test_a_sync_command_exists_for_republishing(self, bot: FlyconomyBot):
         assert bot.get_command("sync") is not None
 

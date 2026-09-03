@@ -48,6 +48,60 @@ class TestAccounts:
     async def test_deleting_a_missing_account_reports_nothing_removed(self, db: Database):
         assert await db.delete_account(ALICE) is False
 
+    async def test_purge_removes_the_account_and_the_lottery_entry(self, db: Database):
+        await db.add_bank(ALICE, 5_000)
+        await db.enter_lottery(ALICE, 1_000)
+
+        result = await db.purge_user(ALICE)
+
+        assert result.account is True
+        assert result.lottery_entries == 1
+        assert result.found is True
+        assert await db.find_account(ALICE) is None
+        assert await db.lottery_entrants() == []
+
+    async def test_purge_reports_an_id_that_was_never_in_the_database(self, db: Database):
+        result = await db.purge_user(ALICE)
+
+        assert result.account is False
+        assert result.lottery_entries == 0
+        assert result.found is False
+
+    async def test_purge_removes_an_entry_left_without_an_account(self, db: Database):
+        await db.add_bank(ALICE, 5_000)
+        await db.enter_lottery(ALICE, 1_000)
+        # A ticket with no account behind it, which is how a member deleted
+        # before purge_user existed would look.
+        await db._db.execute("DELETE FROM bank WHERE user = ?", (ALICE,))
+
+        result = await db.purge_user(ALICE)
+
+        assert result.account is False
+        assert result.lottery_entries == 1
+        assert result.found is True
+
+    async def test_purge_leaves_other_members_alone(self, db: Database):
+        await db.add_bank(BOB, 5_000)
+        await db.enter_lottery(BOB, 1_000)
+
+        await db.purge_user(ALICE)
+
+        assert await db.find_account(BOB) is not None
+        assert await db.lottery_entrants() == [BOB]
+
+    async def test_purge_accepts_an_id_no_real_member_could_own(self, db: Database):
+        await db.add_wallet(1, 5)
+
+        assert (await db.purge_user(1)).account is True
+        assert await db.find_account(1) is None
+
+    async def test_resetting_a_member_also_clears_their_lottery_entry(self, db: Database):
+        await db.add_bank(ALICE, 5_000)
+        await db.enter_lottery(ALICE, 1_000)
+
+        assert await db.delete_account(ALICE) is True
+        assert await db.lottery_entrants() == []
+
 
 class TestBalanceChanges:
     async def test_credit_and_debit(self, db: Database):
