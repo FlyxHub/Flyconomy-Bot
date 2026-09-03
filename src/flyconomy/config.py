@@ -63,9 +63,11 @@ class Settings(BaseSettings):
             "remainder is destroyed, which is what keeps the casino a money sink."
         ),
     )
-    lottery_draw_hours: Annotated[float, Field(gt=0)] = Field(
-        default=24.0,
-        description="Hours between lottery draws.",
+    lottery_draw_time: str = Field(
+        default="18:00",
+        description=(
+            "24-hour clock time (HH:MM) the lottery draws each day, in the timezone setting."
+        ),
     )
     creator_tax_rate: Annotated[float, Field(ge=0, le=1)] = Field(
         default=0.05,
@@ -163,6 +165,19 @@ class Settings(BaseSettings):
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError) as exc:
             msg = f"unknown IANA timezone: {value!r}"
+            raise ValueError(msg) from exc
+        return value
+
+    @field_validator("lottery_draw_time")
+    @classmethod
+    def _validate_draw_time(cls, value: str) -> str:
+        """Reject a draw time that isn't a plain 24-hour HH:MM."""
+        import datetime
+
+        try:
+            datetime.datetime.strptime(value, "%H:%M")  # noqa: DTZ007 - format check only
+        except ValueError as exc:
+            msg = f"lottery_draw_time must be HH:MM in 24-hour time, got {value!r}"
             raise ValueError(msg) from exc
         return value
 

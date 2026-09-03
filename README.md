@@ -260,12 +260,12 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_DISCORD_TOKEN` | Yes | None | Bot token from the Discord developer portal. |
 | `FLYCONOMY_DATABASE_PATH` | No | `data/bot.db` | Path to the SQLite file. Parent directories are created. |
 | `FLYCONOMY_COMMAND_PREFIX` | No | `$` | Prefix for classic text commands. Slash commands ignore it. |
-| `FLYCONOMY_TIMEZONE` | No | `America/Chicago` | IANA timezone for embed timestamps. |
+| `FLYCONOMY_TIMEZONE` | No | `America/Chicago` | IANA timezone for embed timestamps and the lottery draw time. |
 | `FLYCONOMY_LOG_LEVEL` | No | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `FLYCONOMY_MAX_DAILY_PAYOUT` | No | `10000` | Ceiling on one `daily` claim. This is what bounds a season. |
 | `FLYCONOMY_LOTTERY_TICKET_PRICE` | No | `10000` | Cost of one lottery entry. |
 | `FLYCONOMY_LOTTERY_RAKE` | No | `0.25` | Share of the casino's net winnings added to the pot. |
-| `FLYCONOMY_LOTTERY_DRAW_HOURS` | No | `24` | Hours between lottery draws. |
+| `FLYCONOMY_LOTTERY_DRAW_TIME` | No | `18:00` | 24-hour clock time the lottery draws each day, in `FLYCONOMY_TIMEZONE`. |
 | `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
 | `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | Bank account credited with the creator tax. Unset disables the tax outright, regardless of the rate. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
@@ -471,9 +471,9 @@ places, and both matter:
   to a quarter. The other three quarters are still destroyed, so the casino
   stays a money sink.
 
-A draw runs every `FLYCONOMY_LOTTERY_DRAW_HOURS` and pays one entrant, picked
-uniformly. With nobody entered the pot rolls over untouched, so a jackpot builds
-on a quiet server. `$draw` runs one immediately.
+A draw runs daily at `FLYCONOMY_LOTTERY_DRAW_TIME` (in `FLYCONOMY_TIMEZONE`) and
+pays one entrant, picked uniformly. With nobody entered the pot rolls over
+untouched, so a jackpot builds on a quiet server. `$draw` runs one immediately.
 
 **Odds cannot be bought.** Everyone entered has exactly one entry, enforced by a
 primary key on `(draw, user)` rather than by application code.

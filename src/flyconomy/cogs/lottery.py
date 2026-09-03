@@ -15,7 +15,9 @@ and the rake is a share of what the house already won.
 
 from __future__ import annotations
 
+import datetime
 import logging
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands, tasks
@@ -33,7 +35,9 @@ class Lottery(BaseCog, name="Lottery"):
     def __init__(self, bot: FlyconomyBot) -> None:
         """Bind the cog and start the draw timer."""
         super().__init__(bot)
-        self.draw_loop.change_interval(hours=bot.settings.lottery_draw_hours)
+        hour, minute = (int(part) for part in bot.settings.lottery_draw_time.split(":"))
+        draw_time = datetime.time(hour, minute, tzinfo=ZoneInfo(bot.settings.timezone))
+        self.draw_loop.change_interval(time=draw_time)
         self.draw_loop.start()
 
     async def cog_unload(self) -> None:
