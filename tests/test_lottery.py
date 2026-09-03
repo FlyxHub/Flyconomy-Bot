@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import discord
 import pytest
 
 from flyconomy import economy
@@ -18,6 +19,21 @@ from tests.conftest import ALICE, BOB, CAROL, make_v1_database
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
 
 PRICE = 10_000
+CHANNEL_ID = 555
+
+
+class FakeChannel(discord.abc.Messageable):
+    """A stand-in for the announcement channel.
+
+    Subclasses ``Messageable`` so ``isinstance`` checks in the cog pass, with
+    ``send`` overridden to avoid touching the gateway.
+    """
+
+    def __init__(self) -> None:
+        self.embeds: list[object] = []
+
+    async def send(self, *, embed: object) -> None:  # type: ignore[override]
+        self.embeds.append(embed)
 
 
 @pytest.fixture
@@ -39,12 +55,14 @@ def ctx() -> FakeContext:
     return FakeContext(author=FakeUser(id=ALICE))
 
 
-def make_cog(db: Database, settings: Settings) -> Lottery:
+def make_cog(
+    db: Database, settings: Settings, channels: dict[int, FakeChannel] | None = None
+) -> Lottery:
     """Build the lottery cog without starting its background timer."""
     cog = Lottery.__new__(Lottery)
     from flyconomy.cogs.base import BaseCog
 
-    BaseCog.__init__(cog, FakeBot(db, settings))
+    BaseCog.__init__(cog, FakeBot(db, settings, channels=channels))
     return cog
 
 
@@ -471,3 +489,34 @@ class TestRunDraw:
             await db.enter_lottery(user, PRICE)
 
         assert len(await db.lottery_entrants()) == 2
+
+    async def test_a_win_is_announced_when_a_channel_is_configured(self, db, settings):
+        announced = Settings(discord_token="placeholder", lottery_announce_channel_id=CHANNEL_ID)
+        channel = FakeChannel()
+        cog = make_cog(db, announced, channels={CHANNEL_ID: channel})
+        await db.add_bank(ALICE, 100_000)
+        await db.enter_lottery(ALICE, PRICE)
+
+        winner, amount = await cog.run_draw()
+
+        assert len(channel.embeds) == 1
+        assert f"<@{winner}>" in channel.embeds[0].description
+        assert f"{amount:,}" in channel.embeds[0].description
+
+    async def test_a_rollover_is_not_announced(self, db):
+        announced = Settings(discord_token="placeholder", lottery_announce_channel_id=CHANNEL_ID)
+        channel = FakeChannel()
+        cog = make_cog(db, announced, channels={CHANNEL_ID: channel})
+
+        await cog.run_draw()
+
+        assert channel.embeds == []
+
+    async def test_no_announcement_without_a_configured_channel(self, db, settings):
+        assert settings.lottery_announce_channel_id is None
+        cog = make_cog(db, settings)
+        await db.add_bank(ALICE, 100_000)
+        await db.enter_lottery(ALICE, PRICE)
+
+        # With no channel configured, the cog must not even attempt a lookup.
+        await cog.run_draw()

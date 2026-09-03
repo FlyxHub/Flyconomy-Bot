@@ -57,6 +57,7 @@ class Lottery(BaseCog, name="Lottery"):
             A ``(winner_id, amount)`` pair. The winner is ``None`` when the draw
             rolled over, and the amount is then the pot carried forward.
         """
+        draw = (await self.db.lottery_state()).draw
         entrants = await self.db.lottery_entrants()
         if not entrants:
             carried = await self.db.roll_over_lottery()
@@ -66,7 +67,36 @@ class Lottery(BaseCog, name="Lottery"):
         winner = self.rng.choice(entrants)
         amount = await self.db.award_lottery(winner)
         log.info("Lottery paid %d to %s across %d entrants", amount, winner, len(entrants))
+        await self._announce_winner(winner, amount, draw)
         return winner, amount
+
+    async def _announce_winner(self, winner: int, amount: int, draw: int) -> None:
+        """Post the result to the configured announcement channel, best effort.
+
+        A missing or unreachable channel must not fail the draw itself -- the
+        payout has already been made by the time this runs.
+        """
+        channel_id = self.settings.lottery_announce_channel_id
+        if channel_id is None:
+            return
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except discord.HTTPException:
+                log.warning("Lottery announce channel %d is not reachable", channel_id)
+                return
+
+        if not isinstance(channel, discord.abc.Messageable):
+            log.warning("Lottery announce channel %d cannot receive messages", channel_id)
+            return
+
+        embed = embeds.lottery_winner_embed(winner, amount, draw, self.timezone)
+        try:
+            await channel.send(embed=embed)
+        except discord.HTTPException:
+            log.warning("Failed to post the lottery announcement to channel %d", channel_id)
 
     @tasks.loop(hours=24)
     async def draw_loop(self) -> None:

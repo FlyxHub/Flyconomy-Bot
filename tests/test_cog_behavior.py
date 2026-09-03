@@ -99,13 +99,21 @@ class FakeBot:
     """The bot surface the cogs read: a database, settings, and a rate limiter."""
 
     def __init__(
-        self, db: Database, settings: Settings, limiter: SlidingWindowLimiter | None = None
+        self,
+        db: Database,
+        settings: Settings,
+        limiter: SlidingWindowLimiter | None = None,
+        channels: dict[int, Any] | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
         self.limiter = limiter or SlidingWindowLimiter(
             rate=settings.rate_limit_actions, per=settings.rate_limit_seconds
         )
+        self._channels = channels or {}
+
+    def get_channel(self, channel_id: int) -> Any:
+        return self._channels.get(channel_id)
 
 
 @pytest.fixture

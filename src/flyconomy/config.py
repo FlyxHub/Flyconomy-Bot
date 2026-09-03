@@ -69,6 +69,13 @@ class Settings(BaseSettings):
             "24-hour clock time (HH:MM) the lottery draws each day, in the timezone setting."
         ),
     )
+    lottery_announce_channel_id: Annotated[int, Field(gt=0)] | None = Field(
+        default=None,
+        description=(
+            "Channel to announce each draw's winner in. Unset skips the announcement; "
+            "the draw itself is unaffected either way."
+        ),
+    )
     creator_tax_rate: Annotated[float, Field(ge=0, le=1)] = Field(
         default=0.05,
         description=(
@@ -118,7 +125,9 @@ class Settings(BaseSettings):
         ),
     )
 
-    @field_validator("dev_guild_id", "creator_tax_user_id", mode="before")
+    @field_validator(
+        "dev_guild_id", "creator_tax_user_id", "lottery_announce_channel_id", mode="before"
+    )
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         """Treat a blank value as unset.

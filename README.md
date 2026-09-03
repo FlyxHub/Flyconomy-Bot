@@ -266,6 +266,7 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_LOTTERY_TICKET_PRICE` | No | `10000` | Cost of one lottery entry. |
 | `FLYCONOMY_LOTTERY_RAKE` | No | `0.25` | Share of the casino's net winnings added to the pot. |
 | `FLYCONOMY_LOTTERY_DRAW_TIME` | No | `18:00` | 24-hour clock time the lottery draws each day, in `FLYCONOMY_TIMEZONE`. |
+| `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` | No | None | Channel to announce each draw's winner in. Unset skips the announcement. |
 | `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
 | `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | Bank account credited with the creator tax. Unset disables the tax outright, regardless of the rate. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
@@ -474,6 +475,9 @@ places, and both matter:
 A draw runs daily at `FLYCONOMY_LOTTERY_DRAW_TIME` (in `FLYCONOMY_TIMEZONE`) and
 pays one entrant, picked uniformly. With nobody entered the pot rolls over
 untouched, so a jackpot builds on a quiet server. `$draw` runs one immediately.
+Set `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` to have the winner announced in a
+channel; a rollover is not announced, and a missing or unreachable channel is
+logged and otherwise does not affect the draw.
 
 **Odds cannot be bought.** Everyone entered has exactly one entry, enforced by a
 primary key on `(draw, user)` rather than by application code.

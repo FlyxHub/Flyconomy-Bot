@@ -143,6 +143,27 @@ def circulation_embed(total: int, price: int, timezone: str) -> discord.Embed:
     return embed
 
 
+def lottery_winner_embed(winner_id: int, amount: int, draw: int, timezone: str) -> discord.Embed:
+    """Build the embed announcing a lottery draw's winner.
+
+    Args:
+        winner_id: The member who won.
+        amount: The pot paid out.
+        draw: The draw number that was decided.
+        timezone: IANA timezone for the embed timestamp.
+
+    Returns:
+        A populated embed.
+    """
+    embed = discord.Embed(
+        title=f"Lottery draw #{draw}",
+        description=f"<@{winner_id}> won {money(amount)}!",
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+    return embed
+
+
 def error_embed(message: str) -> discord.Embed:
     """Build the embed used for refusals and unexpected failures."""
     return discord.Embed(description=message, color=ERROR_COLOR)
