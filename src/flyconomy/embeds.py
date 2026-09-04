@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import blackjack, connect4, crash, economy, jackpot
+from flyconomy import blackjack, connect4, crash, economy, jackpot, tictactoe
 from flyconomy.database import Account, JackpotState, LeaderboardEntry
 from flyconomy.economy import Card
 
@@ -476,20 +476,25 @@ def connect4_board(game: connect4.Game) -> str:
     return "\n".join(lines)
 
 
-def connect4_challenge_embed(
+def match_challenge_embed(
+    title: str,
     challenger: discord.abc.User,
     challenged: discord.abc.User | None,
     bet: int,
     timezone: str,
+    *,
+    lapses_in: float,
 ) -> discord.Embed:
-    """Build the embed offering a match, before either stake is taken.
+    """Build the embed offering a head-to-head match, before either stake is taken.
 
     Args:
+        title: What to call the game.
         challenger: The member who called it.
         challenged: The member being challenged, or ``None`` when the offer is
             open to whoever takes it first.
         bet: Dollars each of them stakes.
         timezone: IANA timezone for the embed timestamp.
+        lapses_in: Seconds before an unanswered challenge withdraws itself.
 
     Returns:
         A populated embed.
@@ -507,7 +512,7 @@ def connect4_challenge_embed(
         )
 
     embed = discord.Embed(
-        title="Connect 4 challenge",
+        title=f"{title} challenge",
         description=description,
         color=BRAND_COLOR,
         timestamp=now(timezone),
@@ -515,7 +520,7 @@ def connect4_challenge_embed(
     embed.set_footer(
         text=(
             "Nothing is staked until the challenge is accepted. It lapses in "
-            f"{connect4.CHALLENGE_TIMEOUT_SECONDS} seconds."
+            f"{round(lapses_in)} seconds."
         )
     )
     return embed
@@ -618,4 +623,154 @@ def connect4_embed(
             name="To move", value=f"{connect4_disc(game.turn)} {to_move.mention}", inline=False
         )
         embed.set_footer(text="Drop a disc with the numbered buttons.")
+    return embed
+
+
+#: What a button shows for each mark. An empty square carries a zero-width
+#: space, because Discord will not take a button with no label at all.
+_TICTACTOE_LABELS: Final = {
+    tictactoe.EMPTY: "\N{ZERO WIDTH SPACE}",
+    tictactoe.FIRST: "X",
+    tictactoe.SECOND: "O",
+}
+
+#: What a button looks like for each mark, and for the line that won.
+_TICTACTOE_STYLES: Final = {
+    tictactoe.EMPTY: discord.ButtonStyle.secondary,
+    tictactoe.FIRST: discord.ButtonStyle.danger,
+    tictactoe.SECOND: discord.ButtonStyle.primary,
+}
+
+
+def tictactoe_label(mark: int) -> str:
+    """Return the label a square's button shows."""
+    return _TICTACTOE_LABELS[mark]
+
+
+def tictactoe_style(mark: int, *, won: bool) -> discord.ButtonStyle:
+    """Return the style a square's button takes.
+
+    Args:
+        mark: What occupies the square.
+        won: Whether the square is part of the line that won the board.
+
+    Returns:
+        The button style. A winning line turns green, so the three squares
+        that decided the board are obvious without reading them.
+    """
+    if won:
+        return discord.ButtonStyle.success
+    return _TICTACTOE_STYLES[mark]
+
+
+def tictactoe_result_line(
+    players: Sequence[discord.abc.User],
+    *,
+    winner: discord.abc.User | None,
+    forfeited: bool,
+    voided: bool,
+    paid: int,
+    bet: int,
+    boards: int,
+) -> str:
+    """Describe how a match ended.
+
+    Args:
+        players: Both players.
+        winner: The member who won, or ``None`` for a called-off match.
+        forfeited: Whether the loser resigned or ran out of time.
+        voided: Whether the match was called off by a purge.
+        paid: Dollars paid to the winner.
+        bet: What each player staked.
+        boards: How many boards were played.
+
+    Returns:
+        One line for the embed's result field.
+    """
+    if voided:
+        return f"The match was called off. Both stakes of {money(bet)} were returned."
+    if winner is None:
+        return (
+            f"All {boards} boards were drawn, so nobody won. "
+            f"Both stakes of {money(bet)} were returned."
+        )
+    loser = next((player for player in players if player.id != winner.id), None)
+    how = f"{loser.mention} forfeits. " if forfeited and loser is not None else ""
+    return f"{how}{winner.mention} wins {money(paid)}!"
+
+
+def tictactoe_embed(
+    players: Sequence[discord.abc.User],
+    timezone: str,
+    *,
+    bet: int,
+    board_number: int,
+    to_move: discord.abc.User | None,
+    winner: discord.abc.User | None = None,
+    forfeited: bool = False,
+    voided: bool = False,
+    drawn: bool = False,
+    paid: int = 0,
+) -> discord.Embed:
+    """Build the embed for a tic-tac-toe match, live or decided.
+
+    There is deliberately no picture of the board here: the buttons are the
+    board, so drawing it twice would only give the two a chance to disagree.
+
+    Args:
+        players: Both players, the one to move first on this board first.
+        timezone: IANA timezone for the embed timestamp.
+        bet: What each player staked.
+        board_number: Which board of the match is being played.
+        to_move: The player whose turn it is, or ``None`` once decided.
+        winner: The member who won, once decided.
+        forfeited: Whether the loser resigned or timed out.
+        voided: Whether the match was called off and both stakes returned.
+        drawn: Whether every board was drawn.
+        paid: Dollars paid to the winner.
+
+    Returns:
+        A populated embed.
+    """
+    finished = winner is not None or drawn or voided
+    colour = ERROR_COLOR if voided or drawn else BRAND_COLOR
+
+    embed = discord.Embed(
+        title="Tic-tac-toe",
+        color=colour,
+        timestamp=now(timezone),
+    )
+    embed.add_field(
+        name="Players",
+        value="\n".join(
+            f"{tictactoe_label(mark)} {player.mention}"
+            for mark, player in zip((tictactoe.FIRST, tictactoe.SECOND), players, strict=False)
+        ),
+        inline=True,
+    )
+    embed.add_field(name="Stake", value=f"{money(bet)} each", inline=True)
+    embed.add_field(
+        name="Board", value=f"{board_number} of {tictactoe.BOARDS_PER_MATCH}", inline=True
+    )
+
+    if finished:
+        embed.add_field(
+            name="Result",
+            value=tictactoe_result_line(
+                players,
+                winner=winner,
+                forfeited=forfeited,
+                voided=voided,
+                paid=paid,
+                bet=bet,
+                boards=board_number,
+            ),
+            inline=False,
+        )
+    elif to_move is not None:
+        embed.add_field(name="To move", value=to_move.mention, inline=False)
+        footer = "Take a square."
+        if board_number > 1:
+            footer = "That board was drawn. New board, and the first move swaps."
+        embed.set_footer(text=footer)
     return embed

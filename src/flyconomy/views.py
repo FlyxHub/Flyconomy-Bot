@@ -17,7 +17,7 @@ from collections.abc import Callable
 import discord
 from discord.ext import tasks
 
-from flyconomy import blackjack, connect4, crash, embeds, jackpot
+from flyconomy import blackjack, connect4, crash, embeds, jackpot, tictactoe
 from flyconomy.database import Database, JackpotState
 from flyconomy.errors import InsufficientFundsError
 from flyconomy.ratelimit import SlidingWindowLimiter
@@ -728,23 +728,24 @@ class JackpotView(discord.ui.View):
         await interaction.response.edit_message(embed=self.embed(), view=self)
 
 
-class Connect4View(discord.ui.View):
-    """A board of Connect 4 between two members, with a stake already held.
+class MatchView(discord.ui.View):
+    """Shared behaviour for a head-to-head match whose stakes are in escrow.
 
-    Both stakes are in escrow before this view exists, so settling is a matter
-    of releasing that hold: to the winner less the house's cut, or back to both
-    on a draw. The match can end three ways -- a connected four, a resignation,
-    and a player running out of time -- and all three come through
-    :meth:`settle`, which moves money exactly once.
+    Both stakes are held before a match view exists, so settling is a matter of
+    releasing that hold: to the winner less the house's cut, or back to both
+    when nobody won. Every way a match can end routes through :meth:`settle`,
+    which moves money exactly once, and the two ways a match can *stop
+    existing* are covered elsewhere -- ``Gambling.cog_load`` refunds every hold
+    at startup, and ``Database.purge_user`` voids a match and refunds the
+    opponent. A new game that holds money across turns needs all four paths.
 
-    The view's timeout is per move rather than per match, because discord.py
+    A match's timeout is per move rather than per match, because discord.py
     restarts it on every interaction. A player who walks away therefore
     forfeits instead of leaving two stakes held indefinitely.
 
     Attributes:
-        game: The board.
-        players: Both players, the first mover first.
-        message: The message the board lives on, set by the caller after
+        players: Both players, the one to move first at index zero.
+        message: The message the match lives on, set by the caller after
             sending so the timeout can redraw it.
     """
 
@@ -752,33 +753,32 @@ class Connect4View(discord.ui.View):
         self,
         *,
         db: Database,
-        game: connect4.Game,
         players: tuple[discord.abc.User, discord.abc.User],
         hold_id: int,
         bet: int,
         timezone: str,
+        timeout: float,
         rake: float = 0.0,
         creator_tax_rate: float = 0.0,
         creator_tax_user_id: int | None = None,
     ) -> None:
-        """Build a view for a match whose stakes are already held.
+        """Bind a match to the stakes already held for it.
 
         Args:
             db: Open database, used to release the escrowed stakes.
-            game: The board, usually empty.
-            players: Both players, the first mover first.
+            players: Both players, the one to move first at index zero.
             hold_id: The escrow holding both stakes.
             bet: What each player staked.
             timezone: IANA timezone for the embed timestamp.
+            timeout: Seconds a player has to move before forfeiting.
             rake: Share of the house's cut to send to the lottery pot.
             creator_tax_rate: Share of the house's cut to send to
                 ``creator_tax_user_id``. Ignored when that user ID is unset.
             creator_tax_user_id: Bank account credited with the creator tax,
                 or ``None`` to disable it outright.
         """
-        super().__init__(timeout=connect4.MOVE_TIMEOUT_SECONDS)
+        super().__init__(timeout=timeout)
         self.db = db
-        self.game = game
         self.players = players
         self.hold_id = hold_id
         self.bet = bet
@@ -794,40 +794,35 @@ class Connect4View(discord.ui.View):
         self.paid = 0
         self._settled = False
 
-        for column in range(connect4.COLUMNS):
-            # Five buttons to a row is Discord's limit, so seven columns take
-            # two rows and the resignation sits below them.
-            self.add_item(_ColumnButton(column, row=column // 5))
-        self._refresh_buttons()
-
-    # ----------------------------------------------------------- rendering --
+    # ------------------------------------------------------ for subclasses --
 
     @property
     def to_move(self) -> discord.abc.User:
         """The player whose turn it is."""
-        return self.players[self.game.turn - 1]
+        raise NotImplementedError
+
+    def house_cut(self, pot: int) -> int:
+        """Return what the house keeps from this game's pot."""
+        raise NotImplementedError
 
     def embed(self) -> discord.Embed:
         """Return the embed for the match as it currently stands."""
-        return embeds.connect4_embed(
-            self.game,
-            self.players,
-            self.timezone,
-            bet=self.bet,
-            winner=self.winner,
-            forfeited=self.forfeited,
-            voided=self.voided,
-            drawn=self.drawn,
-            paid=self.paid,
-        )
+        raise NotImplementedError
 
     def _refresh_buttons(self) -> None:
-        """Match each button to the board: a full column cannot be played."""
-        for child in self.children:
-            if isinstance(child, _ColumnButton):
-                child.disabled = self._settled or not self.game.can_drop(child.column)
-            elif isinstance(child, discord.ui.Button):
-                child.disabled = self._settled
+        """Match the buttons to the position."""
+        raise NotImplementedError
+
+    # ----------------------------------------------------------- rendering --
+
+    @property
+    def settled(self) -> bool:
+        """Whether the stakes have been released."""
+        return self._settled
+
+    def is_player(self, user_id: int) -> bool:
+        """Return whether a member is in this match."""
+        return any(player.id == user_id for player in self.players)
 
     def opponent_of(self, user: discord.abc.User) -> discord.abc.User:
         """Return the other player.
@@ -841,34 +836,7 @@ class Connect4View(discord.ui.View):
         first, second = self.players
         return second if user.id == first.id else first
 
-    def is_player(self, user_id: int) -> bool:
-        """Return whether a member is in this match."""
-        return any(player.id == user_id for player in self.players)
-
     # ------------------------------------------------------------- actions --
-
-    async def apply_drop(self, user_id: int, column: int) -> str | None:
-        """Drop the moving player's disc, settling the match if that ends it.
-
-        Args:
-            user_id: The member pressing.
-            column: Column index, from zero on the left.
-
-        Returns:
-            ``None`` on success, or a message explaining the refusal.
-        """
-        if self._settled:
-            return "That match is already over."
-        if user_id != self.to_move.id:
-            return f"It is {self.to_move.display_name}'s turn."
-        if not self.game.can_drop(column):
-            return f"Column {column + 1} is full."
-
-        self.game.drop(column)
-        if self.game.finished:
-            await self.settle()
-        self._refresh_buttons()
-        return None
 
     async def apply_resign(self, user_id: int) -> str | None:
         """Concede the match, handing the pot to the other player.
@@ -885,15 +853,21 @@ class Connect4View(discord.ui.View):
         await self.settle(forfeited_by=resigning)
         return None
 
-    async def settle(self, *, forfeited_by: discord.abc.User | None = None) -> None:
+    async def settle(
+        self,
+        *,
+        winner: discord.abc.User | None = None,
+        forfeited_by: discord.abc.User | None = None,
+    ) -> None:
         """Release the escrowed stakes, once.
 
         Safe to call more than once: only the first call moves money, so a
         resignation racing the move timeout can never pay out twice.
 
         Args:
+            winner: The player who won on the board, if one did.
             forfeited_by: The player who resigned or ran out of time, if the
-                match ended that way rather than on the board.
+                match ended that way instead.
         """
         if self._settled:
             return
@@ -901,19 +875,18 @@ class Connect4View(discord.ui.View):
 
         if forfeited_by is not None:
             self.forfeited = True
-            self.winner = self.opponent_of(forfeited_by)
-        elif self.game.winner is not None:
-            self.winner = self.players[self.game.winner - 1]
+            winner = self.opponent_of(forfeited_by)
+        self.winner = winner
 
-        if self.winner is None:
-            # A drawn board: both stakes go back untouched, the same as a push
-            # at blackjack or a tie at war.
+        if winner is None:
+            # Nobody won: both stakes go back untouched, the same as a push at
+            # blackjack or a tie at war.
             returned = await self.db.refund_escrow(self.hold_id)
             self.voided = returned == 0
             self.drawn = not self.voided
         else:
-            cut = connect4.house_cut(self.bet * 2)
-            self.paid = await self.db.settle_escrow(self.hold_id, winner_id=self.winner.id, cut=cut)
+            cut = self.house_cut(self.bet * 2)
+            self.paid = await self.db.settle_escrow(self.hold_id, winner_id=winner.id, cut=cut)
             if self.paid == 0:
                 # The hold was gone, so a purge voided this match while it was
                 # being played and both stakes have already gone back.
@@ -971,12 +944,92 @@ class Connect4View(discord.ui.View):
         try:
             await self.message.edit(embed=self.embed(), view=self)
         except discord.HTTPException:
-            log.warning("Could not redraw a Connect 4 match", exc_info=True)
+            log.warning("Could not redraw a match", exc_info=True)
+
+
+class Connect4View(MatchView):
+    """A board of Connect 4 between two members, with a stake already held.
+
+    Attributes:
+        game: The board.
+    """
+
+    def __init__(self, *, game: connect4.Game, **kwargs: object) -> None:
+        """Build a view for a match whose stakes are already held.
+
+        Args:
+            game: The board, usually empty.
+            **kwargs: Passed through to :class:`MatchView`.
+        """
+        super().__init__(timeout=connect4.MOVE_TIMEOUT_SECONDS, **kwargs)  # type: ignore[arg-type]
+        self.game = game
+        for column in range(connect4.COLUMNS):
+            self.add_item(_ColumnButton(column))
+        self._refresh_buttons()
+
+    # ----------------------------------------------------------- rendering --
+
+    @property
+    def to_move(self) -> discord.abc.User:
+        """The player whose turn it is."""
+        return self.players[self.game.turn - 1]
+
+    def house_cut(self, pot: int) -> int:
+        """Return what the house keeps from a decided board."""
+        return connect4.house_cut(pot)
+
+    def embed(self) -> discord.Embed:
+        """Return the embed for the match as it currently stands."""
+        return embeds.connect4_embed(
+            self.game,
+            self.players,
+            self.timezone,
+            bet=self.bet,
+            winner=self.winner,
+            forfeited=self.forfeited,
+            voided=self.voided,
+            drawn=self.drawn,
+            paid=self.paid,
+        )
+
+    def _refresh_buttons(self) -> None:
+        """Match each button to the board: a full column cannot be played."""
+        for child in self.children:
+            if isinstance(child, _ColumnButton):
+                child.disabled = self.settled or not self.game.can_drop(child.column)
+            elif isinstance(child, discord.ui.Button):
+                child.disabled = self.settled
+
+    # ------------------------------------------------------------- actions --
+
+    async def apply_drop(self, user_id: int, column: int) -> str | None:
+        """Drop the moving player's disc, settling the match if that ends it.
+
+        Args:
+            user_id: The member pressing.
+            column: Column index, from zero on the left.
+
+        Returns:
+            ``None`` on success, or a message explaining the refusal.
+        """
+        if self.settled:
+            return "That match is already over."
+        if user_id != self.to_move.id:
+            return f"It is {self.to_move.display_name}'s turn."
+        if not self.game.can_drop(column):
+            return f"Column {column + 1} is full."
+
+        self.game.drop(column)
+        if self.game.finished:
+            winner = None if self.game.winner is None else self.players[self.game.winner - 1]
+            await self.settle(winner=winner)
+        self._refresh_buttons()
+        return None
 
     # ------------------------------------------------------------- buttons --
 
     @discord.ui.button(
-        label="Resign", style=discord.ButtonStyle.danger, custom_id="connect4:resign", row=2
+        label="Resign", style=discord.ButtonStyle.danger, custom_id="connect4:resign", row=1
     )
     async def resign(
         self, interaction: discord.Interaction, _button: discord.ui.Button[Connect4View]
@@ -992,25 +1045,24 @@ class Connect4View(discord.ui.View):
 
 
 class _ColumnButton(discord.ui.Button["Connect4View"]):
-    """One column of the board.
+    """One column of the Connect 4 board.
 
-    Seven near-identical decorated callbacks would say nothing seven times, so
-    the column is carried on the button instead and the callback stays as thin
-    as the others: it calls an ``apply_*`` coroutine and redraws.
+    Near-identical decorated callbacks would say the same thing once per
+    column, so the column is carried on the button instead and the callback
+    stays as thin as the others: it calls an ``apply_*`` coroutine and redraws.
     """
 
-    def __init__(self, column: int, *, row: int) -> None:
+    def __init__(self, column: int) -> None:
         """Build the button for one column.
 
         Args:
             column: Column index, from zero on the left.
-            row: Which action row to place it on.
         """
         super().__init__(
             label=str(column + 1),
             style=discord.ButtonStyle.primary,
             custom_id=f"connect4:drop:{column}",
-            row=row,
+            row=0,
         )
         self.column = column
 
@@ -1027,12 +1079,180 @@ class _ColumnButton(discord.ui.Button["Connect4View"]):
         await interaction.response.edit_message(embed=view.embed(), view=view)
 
 
-class Connect4ChallengeView(discord.ui.View):
-    """Accept and decline buttons on a Connect 4 challenge.
+class TicTacToeView(MatchView):
+    """A best-of-three tic-tac-toe match, played on the buttons themselves.
+
+    The nine cells are nine buttons in three rows of three, so the grid the
+    players press is the board: there is no picture of it in the embed to keep
+    in step, and a finished match leaves the position on screen in its disabled
+    buttons.
+
+    A drawn board is replayed with the seats swapped rather than settled, for
+    the reason set out in :mod:`flyconomy.tictactoe`: two players paying
+    attention draw every time, and a match that refunded on the first draw
+    would almost never move any money. Only after
+    ``tictactoe.BOARDS_PER_MATCH`` drawn boards is the match called off and
+    both stakes returned.
+
+    Attributes:
+        game: The board being played now.
+        board_number: Which board of the match that is, counting from one.
+    """
+
+    def __init__(self, *, game: tictactoe.Game, **kwargs: object) -> None:
+        """Build a view for a match whose stakes are already held.
+
+        Args:
+            game: The first board, usually empty.
+            **kwargs: Passed through to :class:`MatchView`.
+        """
+        super().__init__(timeout=tictactoe.MOVE_TIMEOUT_SECONDS, **kwargs)  # type: ignore[arg-type]
+        self.game = game
+        self.board_number = 1
+        for index in range(tictactoe.CELLS):
+            self.add_item(_CellButton(index))
+        self._refresh_buttons()
+
+    # ----------------------------------------------------------- rendering --
+
+    @property
+    def to_move(self) -> discord.abc.User:
+        """The player whose turn it is."""
+        return self.players[self.game.turn - 1]
+
+    def house_cut(self, pot: int) -> int:
+        """Return what the house keeps from a decided match."""
+        return tictactoe.house_cut(pot)
+
+    def embed(self) -> discord.Embed:
+        """Return the embed for the match as it currently stands."""
+        return embeds.tictactoe_embed(
+            self.players,
+            self.timezone,
+            bet=self.bet,
+            board_number=self.board_number,
+            to_move=None if self.settled else self.to_move,
+            winner=self.winner,
+            forfeited=self.forfeited,
+            voided=self.voided,
+            drawn=self.drawn,
+            paid=self.paid,
+        )
+
+    def _refresh_buttons(self) -> None:
+        """Draw the position onto the buttons: a taken cell cannot be played."""
+        winning = set(self.game.winning_cells)
+        for child in self.children:
+            if isinstance(child, _CellButton):
+                mark = self.game.cell(child.index)
+                child.label = embeds.tictactoe_label(mark)
+                child.style = embeds.tictactoe_style(mark, won=child.index in winning)
+                child.disabled = self.settled or mark != tictactoe.EMPTY
+            elif isinstance(child, discord.ui.Button):
+                child.disabled = self.settled
+
+    # ------------------------------------------------------------- actions --
+
+    async def apply_place(self, user_id: int, index: int) -> str | None:
+        """Play the moving player's mark, and take the board to its end.
+
+        Args:
+            user_id: The member pressing.
+            index: Cell to play, counting left to right and top to bottom.
+
+        Returns:
+            ``None`` on success, or a message explaining the refusal.
+        """
+        if self.settled:
+            return "That match is already over."
+        if user_id != self.to_move.id:
+            return f"It is {self.to_move.display_name}'s turn."
+        if not self.game.can_place(index):
+            return "That square is taken."
+
+        self.game.place(index)
+        if self.game.finished:
+            await self._finish_board()
+        self._refresh_buttons()
+        return None
+
+    async def _finish_board(self) -> None:
+        """Settle a won board, or deal the next one after a drawn board.
+
+        The seats swap between boards. Moving first is the whole of the
+        advantage at tic-tac-toe, so handing it to the same player every board
+        would decide the match before it started.
+        """
+        if self.game.winner is not None:
+            await self.settle(winner=self.players[self.game.winner - 1])
+            return
+
+        if self.board_number >= tictactoe.BOARDS_PER_MATCH:
+            await self.settle()
+            return
+
+        self.board_number += 1
+        self.players = (self.players[1], self.players[0])
+        self.game = tictactoe.Game.new()
+
+    # ------------------------------------------------------------- buttons --
+
+    @discord.ui.button(
+        label="Resign", style=discord.ButtonStyle.danger, custom_id="tictactoe:resign", row=3
+    )
+    async def resign(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[TicTacToeView]
+    ) -> None:
+        """Concede the match."""
+        problem = await self.apply_resign(interaction.user.id)
+        if problem is not None:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(problem), ephemeral=True
+            )
+            return
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+
+class _CellButton(discord.ui.Button["TicTacToeView"]):
+    """One square of the tic-tac-toe grid.
+
+    Three of these to a row, three rows, which is Discord's five-per-row limit
+    used as the layout rather than fought with: the wrap is the grid.
+    """
+
+    def __init__(self, index: int) -> None:
+        """Build the button for one square.
+
+        Args:
+            index: Cell to play, counting left to right and top to bottom.
+        """
+        super().__init__(
+            label=embeds.tictactoe_label(tictactoe.EMPTY),
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"tictactoe:cell:{index}",
+            row=index // tictactoe.SIZE,
+        )
+        self.index = index
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        """Play the pressing player's mark in this square."""
+        view = self.view
+        assert view is not None  # noqa: S101 - a button always has its view
+        problem = await view.apply_place(interaction.user.id, self.index)
+        if problem is not None:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(problem), ephemeral=True
+            )
+            return
+        await interaction.response.edit_message(embed=view.embed(), view=view)
+
+
+class MatchChallengeView(discord.ui.View):
+    """Accept and decline buttons on a challenge to a head-to-head match.
 
     A challenge is either aimed at one member or left open for whoever takes it
     first. Nothing is staked while this view is up: both stakes are taken in
-    one transaction the moment it is accepted, and the board replaces this view
+    one transaction the moment it is accepted, and the match replaces this view
     on the same message. A challenge that lapses or is turned down therefore
     has nothing to refund.
 
@@ -1047,7 +1267,7 @@ class Connect4ChallengeView(discord.ui.View):
         accepter: Whoever took it, once somebody has.
         message: The message the buttons live on, set by the caller after
             sending so the timeout can redraw it.
-        match: The board's view, once the challenge has been accepted.
+        match: The match's view, once the challenge has been accepted.
     """
 
     def __init__(
@@ -1055,13 +1275,14 @@ class Connect4ChallengeView(discord.ui.View):
         *,
         db: Database,
         rng: random.Random,
+        game_name: str,
+        title: str,
+        build_match: Callable[[int, tuple[discord.abc.User, discord.abc.User]], MatchView],
         challenger: discord.abc.User,
         challenged: discord.abc.User | None = None,
         bet: int,
         timezone: str,
-        rake: float = 0.0,
-        creator_tax_rate: float = 0.0,
-        creator_tax_user_id: int | None = None,
+        timeout: float,
         limiter: SlidingWindowLimiter | None = None,
     ) -> None:
         """Build a view offering a match.
@@ -1069,34 +1290,35 @@ class Connect4ChallengeView(discord.ui.View):
         Args:
             db: Open database, used to take both stakes on acceptance.
             rng: Random source, used to decide who moves first.
+            game_name: Which game this is, recorded against the escrow.
+            title: What to call the game in the embed.
+            build_match: Builds the match view from the escrow's id and the
+                seated players. It closes over the stake and the payout
+                settings, so this view never needs to know them.
             challenger: The member who called the match.
             challenged: The member being challenged, or ``None`` to leave the
                 offer open to anyone.
             bet: Dollars each player stakes. The caller has already checked it
                 against the table limit.
             timezone: IANA timezone for the embed timestamp.
-            rake: Share of the house's cut to send to the lottery pot.
-            creator_tax_rate: Share of the house's cut to send to
-                ``creator_tax_user_id``.
-            creator_tax_user_id: Bank account credited with the creator tax,
-                or ``None`` to disable it outright.
+            timeout: Seconds before an unanswered challenge lapses.
             limiter: The shared action budget. Accepting is a wager that never
                 passes through ``BaseCog.cog_check``, so it spends budget here
                 instead; ``None`` disables that, which is what tests want.
         """
-        super().__init__(timeout=connect4.CHALLENGE_TIMEOUT_SECONDS)
+        super().__init__(timeout=timeout)
         self.db = db
         self.rng = rng
+        self.game_name = game_name
+        self.title = title
+        self.build_match = build_match
         self.challenger = challenger
         self.challenged = challenged
         self.bet = bet
         self.timezone = timezone
-        self.rake = rake
-        self.creator_tax_rate = creator_tax_rate
-        self.creator_tax_user_id = creator_tax_user_id
         self.limiter = limiter
         self.message: discord.Message | None = None
-        self.match: Connect4View | None = None
+        self.match: MatchView | None = None
         self.accepter: discord.abc.User | None = None
         self.declined_by: discord.abc.User | None = None
         self._answered = False
@@ -1122,8 +1344,13 @@ class Connect4ChallengeView(discord.ui.View):
             return embeds.error_embed(f"{self._describe()} was {who}. Nothing was staked.")
         if self._answered and self.match is None:
             return embeds.error_embed(f"{self._describe()} lapsed. Nothing was staked.")
-        return embeds.connect4_challenge_embed(
-            self.challenger, self.challenged, self.bet, self.timezone
+        return embeds.match_challenge_embed(
+            self.title,
+            self.challenger,
+            self.challenged,
+            self.bet,
+            self.timezone,
+            lapses_in=self.timeout or 0,
         )
 
     # ------------------------------------------------------------- actions --
@@ -1163,25 +1390,14 @@ class Connect4ChallengeView(discord.ui.View):
                 return "That challenge is no longer open."
             try:
                 hold = await self.db.open_escrow(
-                    "connect4", self.challenger.id, accepter.id, self.bet
+                    self.game_name, self.challenger.id, accepter.id, self.bet
                 )
             except InsufficientFundsError:
                 return await self._describe_shortfall(accepter)
             self._answered = True
             self.accepter = accepter
 
-        first, second = self._seat(accepter)
-        self.match = Connect4View(
-            db=self.db,
-            game=connect4.Game.new(),
-            players=(first, second),
-            hold_id=hold.hold_id,
-            bet=self.bet,
-            timezone=self.timezone,
-            rake=self.rake,
-            creator_tax_rate=self.creator_tax_rate,
-            creator_tax_user_id=self.creator_tax_user_id,
-        )
+        self.match = self.build_match(hold.hold_id, self._seat(accepter))
         self.stop()
         return None
 
@@ -1216,8 +1432,8 @@ class Connect4ChallengeView(discord.ui.View):
     def _seat(self, accepter: discord.abc.User) -> tuple[discord.abc.User, discord.abc.User]:
         """Decide who moves first.
 
-        Moving first is a real advantage at Connect 4, so it is drawn rather
-        than handed to whoever typed the command.
+        Moving first is a real advantage in both of these games, so it is drawn
+        rather than handed to whoever typed the command.
         """
         seated = [self.challenger, accepter]
         self.rng.shuffle(seated)
@@ -1290,17 +1506,15 @@ class Connect4ChallengeView(discord.ui.View):
             try:
                 await self.message.edit(embed=self.embed(), view=self)
             except discord.HTTPException:
-                log.warning("Could not redraw a lapsed Connect 4 challenge", exc_info=True)
+                log.warning("Could not redraw a lapsed challenge", exc_info=True)
 
     # ------------------------------------------------------------- buttons --
 
-    @discord.ui.button(
-        label="Accept", style=discord.ButtonStyle.success, custom_id="connect4:accept"
-    )
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, custom_id="match:accept")
     async def accept(
-        self, interaction: discord.Interaction, _button: discord.ui.Button[Connect4ChallengeView]
+        self, interaction: discord.Interaction, _button: discord.ui.Button[MatchChallengeView]
     ) -> None:
-        """Take both stakes and put the board up in place of the challenge."""
+        """Take both stakes and put the match up in place of the challenge."""
         problem = self.may_accept(interaction.user)
         if problem is None:
             problem = self._spend_budget(interaction.user.id)
@@ -1317,10 +1531,10 @@ class Connect4ChallengeView(discord.ui.View):
         self.match.message = self.message
 
     @discord.ui.button(
-        label="Decline", style=discord.ButtonStyle.secondary, custom_id="connect4:decline"
+        label="Decline", style=discord.ButtonStyle.secondary, custom_id="match:decline"
     )
     async def decline(
-        self, interaction: discord.Interaction, _button: discord.ui.Button[Connect4ChallengeView]
+        self, interaction: discord.Interaction, _button: discord.ui.Button[MatchChallengeView]
     ) -> None:
         """Turn the challenge down, or withdraw it."""
         problem = self.apply_decline(interaction.user)

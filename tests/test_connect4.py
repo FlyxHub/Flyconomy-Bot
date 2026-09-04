@@ -21,13 +21,14 @@ from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import BetTooLargeError, InsufficientFundsError
 from flyconomy.ratelimit import SlidingWindowLimiter
-from flyconomy.views import Connect4ChallengeView, Connect4View
+from flyconomy.views import Connect4View, MatchChallengeView
 from tests.conftest import ALICE, BOB, CAROL
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
 from tests.test_views import FakeInteraction
 
 BET = 1_000
 POT = BET * 2
+LAST_COLUMN = connect4.COLUMNS - 1
 
 
 def alice() -> FakeUser:
@@ -69,7 +70,7 @@ def full_board() -> connect4.Game:
 def nearly_full_board() -> connect4.Game:
     """Return the drawn board one disc short, with that disc's owner to move."""
     game = full_board()
-    missing = game.columns[6].pop()
+    missing = game.columns[LAST_COLUMN].pop()
     game.turn = missing
     return game
 
@@ -121,6 +122,22 @@ async def make_match(
     )
 
 
+def build_connect4(db: Database, bet: int = BET):
+    """Return the factory a challenge uses to turn itself into a match."""
+
+    def build(hold_id, players):
+        return Connect4View(
+            db=db,
+            game=connect4.Game.new(),
+            players=players,
+            hold_id=hold_id,
+            bet=bet,
+            timezone="UTC",
+        )
+
+    return build
+
+
 def make_challenge(
     db: Database,
     *,
@@ -128,30 +145,38 @@ def make_challenge(
     challenged: FakeUser | None = None,
     limiter: SlidingWindowLimiter | None = None,
     seed: int = 7,
-) -> Connect4ChallengeView:
+) -> MatchChallengeView:
     """Build a challenge from Alice, aimed at Bob unless told otherwise."""
-    return Connect4ChallengeView(
+    return MatchChallengeView(
         db=db,
         rng=random.Random(seed),
+        game_name="connect4",
+        title="Connect 4",
+        build_match=build_connect4(db, bet),
         challenger=alice(),
         challenged=challenged if challenged is not None else bob(),
         bet=bet,
         timezone="UTC",
+        timeout=connect4.CHALLENGE_TIMEOUT_SECONDS,
         limiter=limiter,
     )
 
 
 def make_open_challenge(
     db: Database, *, bet: int = BET, limiter: SlidingWindowLimiter | None = None, seed: int = 7
-) -> Connect4ChallengeView:
+) -> MatchChallengeView:
     """Build a challenge from Alice that anyone may take."""
-    return Connect4ChallengeView(
+    return MatchChallengeView(
         db=db,
         rng=random.Random(seed),
+        game_name="connect4",
+        title="Connect 4",
+        build_match=build_connect4(db, bet),
         challenger=alice(),
         challenged=None,
         bet=bet,
         timezone="UTC",
+        timeout=connect4.CHALLENGE_TIMEOUT_SECONDS,
         limiter=limiter,
     )
 
@@ -237,9 +262,9 @@ class TestWinning:
         assert game.winning_cells == ((0, 0), (1, 1), (2, 2), (3, 3))
 
     def test_four_on_a_falling_diagonal_wins(self):
-        game = play(5, 6, 4, 5, 4, 4, 3, 3, 3, 3)
+        game = play(3, 4, 2, 3, 2, 2, 1, 1, 1, 1)
         assert game.winner == connect4.SECOND
-        assert game.winning_cells == ((3, 3), (4, 2), (5, 1), (6, 0))
+        assert game.winning_cells == ((1, 3), (2, 2), (3, 1), (4, 0))
 
     def test_three_in_a_row_is_not_a_win(self):
         game = play(0, 0, 1, 1, 2, 2)
@@ -462,7 +487,7 @@ class TestChallenge:
         view = make_challenge(db)
 
         interaction = FakeInteraction(user=alice())
-        await Connect4ChallengeView.accept(view, interaction, None)
+        await MatchChallengeView.accept(view, interaction, None)
 
         assert interaction.response.ephemeral
         assert view.match is None
@@ -519,7 +544,7 @@ class TestChallenge:
         view = make_challenge(db, limiter=limiter)
 
         interaction = FakeInteraction(user=bob())
-        await Connect4ChallengeView.accept(view, interaction, None)
+        await MatchChallengeView.accept(view, interaction, None)
 
         assert interaction.response.ephemeral, "a press past the budget was not refused"
         assert view.match is None
@@ -638,7 +663,7 @@ class TestMatch:
         # One disc short of the drawn board, so the last move fills it.
         view = await make_match(db, game=nearly_full_board())
 
-        await view.apply_drop(view.to_move.id, 6)
+        await view.apply_drop(view.to_move.id, LAST_COLUMN)
 
         assert view.drawn is True
         assert view.winner is None
@@ -718,7 +743,7 @@ class TestMatch:
     async def test_a_draw_rakes_nothing(self, db):
         view = await make_match(db, game=nearly_full_board(), rake=0.25)
 
-        await view.apply_drop(view.to_move.id, 6)
+        await view.apply_drop(view.to_move.id, LAST_COLUMN)
 
         assert (await db.lottery_state()).pot == 0
 
@@ -761,6 +786,14 @@ class TestMatch:
 
         button = next(child for child in view.children if getattr(child, "column", None) == 0)
         assert button.disabled is True
+
+    async def test_every_column_fits_one_row_of_buttons(self, db):
+        # Discord caps an action row at five, and the board is sized to it, so
+        # the columns never wrap onto a second row.
+        view = await make_match(db)
+        rows = {child.row for child in view.children if getattr(child, "column", None) is not None}
+        assert rows == {0}
+        assert connect4.COLUMNS <= 5
 
     async def test_the_board_shows_the_winning_line(self, db):
         view = await make_match(db)

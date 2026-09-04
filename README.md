@@ -45,9 +45,9 @@ classic prefix command, such as `$balance`.
 - **Jackpot.** A player-funded pot anyone can ante into for a minute, then one
   entrant wins the lot. Odds are the share of the pot you paid for, so a bigger
   ante wins more often at exactly the same edge.
-- **Connect 4.** Challenge another member for money and play it out on buttons.
-  The first game of skill here, and the first where you are playing a person
-  rather than the house.
+- **Head-to-head games.** Connect 4 and tic-tac-toe, played against another
+  member for money on a board made of buttons. The only games of skill here,
+  and the only ones where you are playing a person rather than the house.
 - **Lottery.** A pot fed by entry fees and a share of the casino's winnings,
   drawn on a schedule. One entry each, so everyone has the same chance.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
@@ -332,6 +332,7 @@ Every game stakes money from your wallet.
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 | `jackpot <ante>` | Antes into a shared pot that anyone can join for 60 seconds. One entrant wins it all. Alias: `jp`. |
 | `connect4 [member] <bet>` | Challenges a member to Connect 4 for a matching stake, or leaves the offer open to anyone. Alias: `c4`. |
+| `tictactoe [member] <bet>` | Challenges a member to best-of-three tic-tac-toe, or leaves the offer open to anyone. Alias: `ttt`. |
 
 ### Connect 4
 
@@ -348,10 +349,15 @@ the challenger's to withdraw.
 Who moves first is drawn rather than given to whoever typed the command,
 because moving first is a real advantage.
 
-Drop a disc with the numbered buttons. The winner takes both stakes less a 5%
-cut, a drawn board returns both stakes in full, and either player can **Resign**
-at any time. A player who does not move for two minutes forfeits, which is what
-stops an abandoned match from holding two stakes indefinitely.
+Drop a disc with the numbered buttons. The board is five columns wide rather
+than the boxed game's seven, so all five buttons sit on one row — Discord caps
+a row of buttons at five, and a seven-wide board wrapped two of them onto a
+second row.
+
+The winner takes both stakes less a 5% cut, a drawn board returns both stakes
+in full, and either player can **Resign** at any time. A player who does not
+move for two minutes forfeits, which is what stops an abandoned match from
+holding two stakes indefinitely.
 
 Both stakes sit in escrow in the database while the match is played, so they
 always have a way back:
@@ -360,6 +366,27 @@ always have a way back:
   held at startup belongs to a match nobody can finish.
 - **A reset or a purge voids the match** and returns the opponent's stake,
   rather than awarding a pot against an account that no longer exists.
+
+### Tic-tac-toe
+
+`tictactoe @member <bet>` challenges one member, and `tictactoe <bet>` leaves
+the offer open to anyone — the same challenge flow as Connect 4, including the
+60-second lapse.
+
+The nine squares are nine buttons in three rows of three, so the grid you press
+*is* the board: there is no picture of it to read, and a finished match leaves
+the position on screen. X is red, O is blue, and the three squares that won
+turn green.
+
+**A match is best of three boards.** Tic-tac-toe between two people paying
+attention is a draw every time, so a single board would refund both stakes and
+leave the wager pointless. A drawn board is replayed with the first move
+swapping sides, and the money follows the first mistake either player makes. If
+all three boards are drawn the match is called off and both stakes go back,
+which is the honest result for two players who never slipped.
+
+The winner takes both stakes less a 5% cut. Either player can **Resign**, and a
+player who does not move for 90 seconds forfeits.
 
 ### Jackpot
 
@@ -455,6 +482,7 @@ below if you win. The profit column is what you gain overall.
 | Crash | Depends on when you cash out | Whatever multiplier you cash out at | Multiplier minus 1, times stake | 3%, flat at every cash-out target |
 | Jackpot | Your share of the pot | 95% of the pot | Pot less your ante and the cut | 5%, flat at every ante size |
 | Connect 4 | However well you play | 95% of both stakes | Their stake, less the cut | 5% against an even opponent |
+| Tic-tac-toe | However well you play | 95% of both stakes | Their stake, less the cut | 5% against an even opponent |
 
 House edge is the share of each staked dollar the bot keeps on average. **No
 game pays players more than its odds justify**, which is enforced by a test: if

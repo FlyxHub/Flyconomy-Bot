@@ -10,16 +10,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from flyconomy import blackjack, crash, economy, embeds
+from flyconomy import blackjack, connect4, crash, economy, embeds, tictactoe
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.errors import BetTooLargeError
-from flyconomy.views import BlackjackView, Connect4ChallengeView, CrashView, JackpotView
+from flyconomy.views import (
+    BlackjackView,
+    Connect4View,
+    CrashView,
+    JackpotView,
+    MatchChallengeView,
+    MatchView,
+    TicTacToeView,
+)
 
 log = logging.getLogger(__name__)
 
@@ -350,6 +359,115 @@ class Gambling(BaseCog, name="Casino"):
         view.start_ticking()
         self._live_jackpot = view
 
+    def _match_builder(
+        self, view_class: Callable[..., MatchView], new_game: Callable[[], object], bet: int
+    ) -> Callable[[int, tuple[discord.abc.User, discord.abc.User]], MatchView]:
+        """Return a factory that turns an accepted challenge into a match.
+
+        The challenge view holds no payout settings of its own: they are closed
+        over here instead, so a new head-to-head game only has to say which
+        view and which board it wants.
+
+        Args:
+            view_class: The match view to build.
+            new_game: Builds this game's opening position.
+            bet: What each player is staking.
+
+        Returns:
+            A callable taking the escrow's id and the seated players.
+        """
+
+        def build(hold_id: int, players: tuple[discord.abc.User, discord.abc.User]) -> MatchView:
+            return view_class(
+                db=self.db,
+                game=new_game(),
+                players=players,
+                hold_id=hold_id,
+                bet=bet,
+                timezone=self.timezone,
+                rake=self.settings.lottery_rake,
+                creator_tax_rate=self.settings.creator_tax_rate,
+                creator_tax_user_id=self.settings.creator_tax_user_id,
+            )
+
+        return build
+
+    async def _offer_match(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        *,
+        opponent: discord.Member | None,
+        bet: int,
+        game_name: str,
+        title: str,
+        lapses_in: float,
+        view_class: Callable[..., MatchView],
+        new_game: Callable[[], object],
+    ) -> None:
+        """Post a challenge to a head-to-head match.
+
+        Nothing is staked here: both stakes are taken together when the
+        challenge is accepted, so a challenge nobody answers costs nothing and
+        there is no held money to refund. The table limit is still checked
+        first, because the accept button stakes exactly this amount.
+
+        Args:
+            ctx: Invocation context, used to identify the challenger.
+            opponent: Who to challenge, or ``None`` to leave it open.
+            bet: Dollars each player stakes.
+            game_name: Which game this is, recorded against the escrow.
+            title: What to call the game in the embed.
+            lapses_in: Seconds before an unanswered challenge lapses.
+            view_class: The match view to build on acceptance.
+            new_game: Builds the game's opening position.
+        """
+        self._check_limit(bet)
+        if opponent is not None:
+            if opponent.id == ctx.author.id:
+                await ctx.send("You cannot play yourself.")
+                return
+            if opponent.bot:
+                await ctx.send(f"Bots do not play {title}.")
+                return
+
+        view = MatchChallengeView(
+            db=self.db,
+            rng=self.rng,
+            game_name=game_name,
+            title=title,
+            build_match=self._match_builder(view_class, new_game, bet),
+            challenger=ctx.author,
+            challenged=opponent,
+            bet=bet,
+            timezone=self.timezone,
+            timeout=lapses_in,
+            limiter=self.limiter,
+        )
+        view.message = await ctx.send(embed=view.embed(), view=view)
+
+    @commands.hybrid_command(name="tictactoe", aliases=["ttt"])  # type: ignore[arg-type]
+    @app_commands.describe(
+        opponent="Who to challenge. Leave it out to let anyone accept.",
+        bet="Dollars each of you stakes.",
+    )
+    async def tictactoe_command(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        opponent: discord.Member | None,
+        bet: commands.Range[int, 1],
+    ) -> None:
+        """Challenge someone to tic-tac-toe. Best of three boards, winner takes the pot."""
+        await self._offer_match(
+            ctx,
+            opponent=opponent,
+            bet=bet,
+            game_name="tictactoe",
+            title="Tic-tac-toe",
+            lapses_in=tictactoe.CHALLENGE_TIMEOUT_SECONDS,
+            view_class=TicTacToeView,
+            new_game=tictactoe.Game.new,
+        )
+
     @commands.hybrid_command(name="connect4", aliases=["c4"])  # type: ignore[arg-type]
     @app_commands.describe(
         opponent="Who to challenge. Leave it out to let anyone accept.",
@@ -362,36 +480,19 @@ class Gambling(BaseCog, name="Casino"):
         bet: commands.Range[int, 1],
     ) -> None:
         """Challenge someone to Connect 4. Leave the member out to let anyone accept."""
-        # Nothing is staked here: both stakes are taken together when the
-        # challenge is accepted, so a challenge nobody answers costs nothing
-        # and there is no held money to refund. The limit is still checked
-        # first, because the accept button stakes exactly this amount.
-        #
         # `opponent` is optional in the prefix grammar too: discord.py rewinds
         # the parser when an optional converter does not match, so `$c4 5000`
         # reads the amount as the bet rather than as a member.
-        self._check_limit(bet)
-        if opponent is not None:
-            if opponent.id == ctx.author.id:
-                await ctx.send("You cannot play yourself.")
-                return
-            if opponent.bot:
-                await ctx.send("Bots do not play Connect 4.")
-                return
-
-        view = Connect4ChallengeView(
-            db=self.db,
-            rng=self.rng,
-            challenger=ctx.author,
-            challenged=opponent,
+        await self._offer_match(
+            ctx,
+            opponent=opponent,
             bet=bet,
-            timezone=self.timezone,
-            rake=self.settings.lottery_rake,
-            creator_tax_rate=self.settings.creator_tax_rate,
-            creator_tax_user_id=self.settings.creator_tax_user_id,
-            limiter=self.limiter,
+            game_name="connect4",
+            title="Connect 4",
+            lapses_in=connect4.CHALLENGE_TIMEOUT_SECONDS,
+            view_class=Connect4View,
+            new_game=connect4.Game.new,
         )
-        view.message = await ctx.send(embed=view.embed(), view=view)
 
     @commands.hybrid_command(name="war")  # type: ignore[arg-type]
     @app_commands.describe(bet="Dollars to stake.")

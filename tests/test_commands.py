@@ -47,6 +47,7 @@ ADDED_COMMANDS = {
     "crash": (),
     "jackpot": ("jp",),
     "connect4": ("c4",),
+    "tictactoe": ("ttt",),
     "lottery": (),
 }
 

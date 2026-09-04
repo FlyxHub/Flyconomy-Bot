@@ -42,7 +42,9 @@ that would make that unsafe.
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
 buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings. The lottery adds two
 tables in migration 3, the jackpot two more in migration 5, and head-to-head matches one in
-migration 6; the `bank` table is still untouched.
+migration 6; the `bank` table is still untouched. Connect 4 and tic-tac-toe share `MatchView`
+(escrow settlement) and `MatchChallengeView` (the offer) in `views.py`, so a third one is a rules
+module, a board view, and a command.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
 
@@ -90,7 +92,11 @@ is lost. Keep that passing.
   published to every member, including those who can't run it. `$sync` republishes the tree.
 - **`self.rng`** on `BaseCog` is the random source for game outcomes, so tests can seed it.
 - **Interactive components** live in `views.py`. Keep the button callbacks trivial: each one calls an
-  `apply_*` coroutine that takes no `Interaction`, then redraws. That split is what lets
+  `apply_*` coroutine that takes no `Interaction`, then redraws. **Discord caps an action row at
+  five components**, and a select menu fills a row on its own — this is a hard API limit, not a
+  discord.py one, and dropping the embed does not change it. Design a board to that number rather
+  than against it: Connect 4 is five columns wide so its buttons fit one row, and tic-tac-toe's
+  nine squares are three rows of three, where the wrap *is* the grid. That split is what lets
   `tests/test_views.py` drive a whole hand against a real database with no gateway. A view that
   moves money must be idempotent — a click and a timeout can both reach it, so `BlackjackView.settle`
   guards with a `_settled` flag.
@@ -154,17 +160,24 @@ Three further layers, all in place because they cover different failure modes:
   `jackpot.HOUSE_CUT`, so a round can only shrink the supply. Weighting the odds by ante is safe
   *here* precisely because the entrants fund the pot themselves — the lottery forbids buying odds
   because its pot is fed by the house's rake instead. Don't carry either rule across to the other.
-- **Money held across a live match always has a way back.** Connect 4 is the first wager that
-  outlives the command that placed it: both stakes go into the `escrow` table when the challenge is
-  accepted, and the board that decides them lives in a view in memory. Every way that view can end
-  — a win, a draw, a resignation, a move timeout — routes through one `settle`, and the two ways it
-  can *stop existing* are covered too: `Gambling.cog_load` refunds every hold at startup, and
+- **Money held across a live match always has a way back.** A head-to-head wager outlives the
+  command that placed it: both stakes go into the `escrow` table when the challenge is accepted,
+  and the board that decides them lives in a view in memory. Every way that view can end — a win, a
+  draw, a resignation, a move timeout — routes through `MatchView.settle`, and the two ways it can
+  *stop existing* are covered too: `Gambling.cog_load` refunds every hold at startup, and
   `purge_user` voids a match and refunds the opponent. A new game that holds money across turns
-  needs all four paths, not three. Nothing is staked while a challenge is merely offered, which is
-  what makes an unanswered or declined challenge cost nothing. An open challenge — one with no
-  named opponent — can be pressed by several members at once, so accepting is serialized behind a
-  lock in the view: without it two presses could both pass the "still open" check while the first
-  was still awaiting its escrow, and the challenger would be staked twice for one seat.
+  needs all four paths, not three, which is why the settlement lives on the base class rather than
+  in each game. Nothing is staked while a challenge is merely offered, which is what makes an
+  unanswered or declined challenge cost nothing. An open challenge — one with no named opponent —
+  can be pressed by several members at once, so accepting is serialized behind a lock in the view:
+  without it two presses could both pass the "still open" check while the first was still awaiting
+  its escrow, and the challenger would be staked twice for one seat.
+- **A drawn game must not make the wager pointless.** Tic-tac-toe draws every time between players
+  paying attention, so a single board would refund almost every match. It plays best of three with
+  the first move swapping each board, and only a match where nobody slips three times over is
+  called off. Board counts stay odd so the first-move advantage is shared as evenly as it can be.
+  Before adding a game with a common draw, work out how often two competent members would actually
+  move money — a game that mostly refunds is a game nobody plays twice.
 
 `RateLimitedError` subclasses `commands.CheckFailure` on purpose. discord.py's `Bot.invoke` only
 dispatches `CommandError` subclasses to an error handler, so a plain exception raised from a cog

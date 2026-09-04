@@ -19,8 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Final, Self
 
-#: Board size, in the classic proportions.
-COLUMNS: Final = 7
+#: Board size. Five columns rather than the boxed game's seven, so the whole
+#: board fits one row of buttons: Discord caps an action row at five, and a
+#: seven-wide board wrapped two columns onto a second row that read as a
+#: mistake. Everything below is written against these numbers rather than
+#: against a literal seven, so the shape is the only thing that changed.
+COLUMNS: Final = 5
 ROWS: Final = 6
 
 #: Discs in a row needed to win.
