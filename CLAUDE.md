@@ -41,8 +41,8 @@ that would make that unsafe.
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
 buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings. The lottery adds two
-tables in migration 3 and the jackpot two more in migration 5; the `bank` table is still
-untouched.
+tables in migration 3, the jackpot two more in migration 5, and head-to-head matches one in
+migration 6; the `bank` table is still untouched.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
 
@@ -154,6 +154,14 @@ Three further layers, all in place because they cover different failure modes:
   `jackpot.HOUSE_CUT`, so a round can only shrink the supply. Weighting the odds by ante is safe
   *here* precisely because the entrants fund the pot themselves — the lottery forbids buying odds
   because its pot is fed by the house's rake instead. Don't carry either rule across to the other.
+- **Money held across a live match always has a way back.** Connect 4 is the first wager that
+  outlives the command that placed it: both stakes go into the `escrow` table when the challenge is
+  accepted, and the board that decides them lives in a view in memory. Every way that view can end
+  — a win, a draw, a resignation, a move timeout — routes through one `settle`, and the two ways it
+  can *stop existing* are covered too: `Gambling.cog_load` refunds every hold at startup, and
+  `purge_user` voids a match and refunds the opponent. A new game that holds money across turns
+  needs all four paths, not three. Nothing is staked while a challenge is merely offered, which is
+  what makes an unanswered or declined challenge cost nothing.
 
 `RateLimitedError` subclasses `commands.CheckFailure` on purpose. discord.py's `Bot.invoke` only
 dispatches `CommandError` subclasses to an error handler, so a plain exception raised from a cog

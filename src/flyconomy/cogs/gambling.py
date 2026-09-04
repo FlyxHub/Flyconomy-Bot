@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import discord
 from discord import app_commands
 from discord.ext import commands
 
@@ -18,7 +19,7 @@ from flyconomy import blackjack, crash, economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.errors import BetTooLargeError
-from flyconomy.views import BlackjackView, CrashView, JackpotView
+from flyconomy.views import BlackjackView, Connect4ChallengeView, CrashView, JackpotView
 
 log = logging.getLogger(__name__)
 
@@ -42,15 +43,20 @@ class Gambling(BaseCog, name="Casino"):
         self._jackpot_lock = asyncio.Lock()
 
     async def cog_load(self) -> None:
-        """Refund any jackpot round the last shutdown left open.
+        """Hand back every wager the last shutdown left in play.
 
-        Antes live in the database while a round runs, but the timer that draws
-        them lives in a view in memory. Anything still open at startup is a
-        round nobody is left to draw, so the money goes back.
+        Money for a live game lives in the database while the thing that
+        decides it -- a jackpot's timer, a Connect 4 board -- lives in a view
+        in memory. Anything still open at startup therefore belongs to a game
+        nobody is left to finish, so it all goes back.
         """
         refunded = await self.db.refund_jackpot()
         if refunded:
             log.info("Refunded %d jackpot ante(s) left open by a restart", len(refunded))
+
+        holds = await self.db.refund_all_escrow()
+        if holds:
+            log.info("Refunded %d match stake(s) left held by a restart", len(holds))
 
     async def cog_unload(self) -> None:
         """Drop a live jackpot round, leaving its antes for the startup refund."""
@@ -343,6 +349,43 @@ class Gambling(BaseCog, name="Casino"):
         view.message = await ctx.send(embed=view.embed(), view=view)
         view.start_ticking()
         self._live_jackpot = view
+
+    @commands.hybrid_command(name="connect4", aliases=["c4"])  # type: ignore[arg-type]
+    @app_commands.describe(
+        opponent="The member you are challenging.", bet="Dollars each of you stakes."
+    )
+    async def connect4_command(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        opponent: discord.Member,
+        bet: commands.Range[int, 1],
+    ) -> None:
+        """Challenge a member to Connect 4. You both stake, and the winner takes the pot."""
+        # Nothing is staked here: both stakes are taken together when the
+        # challenge is accepted, so a challenge nobody answers costs nothing
+        # and there is no held money to refund. The limit is still checked
+        # first, because the accept button stakes exactly this amount.
+        self._check_limit(bet)
+        if opponent.id == ctx.author.id:
+            await ctx.send("You cannot play yourself.")
+            return
+        if opponent.bot:
+            await ctx.send("Bots do not play Connect 4.")
+            return
+
+        view = Connect4ChallengeView(
+            db=self.db,
+            rng=self.rng,
+            challenger=ctx.author,
+            opponent=opponent,
+            bet=bet,
+            timezone=self.timezone,
+            rake=self.settings.lottery_rake,
+            creator_tax_rate=self.settings.creator_tax_rate,
+            creator_tax_user_id=self.settings.creator_tax_user_id,
+            limiter=self.limiter,
+        )
+        view.message = await ctx.send(embed=view.embed(), view=view)
 
     @commands.hybrid_command(name="war")  # type: ignore[arg-type]
     @app_commands.describe(bet="Dollars to stake.")

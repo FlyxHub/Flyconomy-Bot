@@ -31,6 +31,7 @@ class FakeUser:
 
     id: int
     display_name: str = "Tester"
+    bot: bool = False
 
     @property
     def mention(self) -> str:

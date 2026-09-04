@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from flyconomy import crash, economy, jackpot
+from flyconomy import connect4, crash, economy, jackpot
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
@@ -35,6 +35,7 @@ WAGER_COMMANDS = [
     ("blackjack_command", ()),
     ("crash_command", ()),
     ("jackpot_command", ()),
+    ("connect4_command", (FakeUser(id=BOB),)),
 ]
 
 
@@ -114,6 +115,13 @@ class TestNoGameIsProfitable:
         edge = (staked - returned) / staked
         assert edge > 0, f"target {target}x gave the player an edge"
 
+    @pytest.mark.parametrize("bet", [1, 100, 10_000, 1_000_000])
+    def test_connect4_cannot_pay_out_more_than_was_staked(self, bet):
+        """A match is zero-sum before the cut however well anybody plays: the
+        two stakes are the whole pot, and the winner takes less than it. Skill
+        decides which player the money moves to, never how much there is."""
+        assert connect4.payout(bet * 2) <= bet * 2
+
     @pytest.mark.parametrize(
         "antes", [(100, 100), (100, 900), (1, 1_000_000), (500, 300, 200), (10_000,) * 8]
     )
@@ -138,6 +146,8 @@ class TestNoGameIsProfitable:
             + (1 / 3) * -1,
             "jackpot": (jackpot.win_chance(10_000, 20_000) * jackpot.payout(20_000) - 10_000)
             / 10_000,
+            # Two evenly matched players each win half the time.
+            "connect4": (0.5 * connect4.payout(20_000) - 10_000) / 10_000,
         }
         for name, edge in edges.items():
             assert edge <= 1e-9, f"{name} pays players {edge:+.4f} per unit staked"

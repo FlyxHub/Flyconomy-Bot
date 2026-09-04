@@ -45,6 +45,9 @@ classic prefix command, such as `$balance`.
 - **Jackpot.** A player-funded pot anyone can ante into for a minute, then one
   entrant wins the lot. Odds are the share of the pot you paid for, so a bigger
   ante wins more often at exactly the same edge.
+- **Connect 4.** Challenge another member for money and play it out on buttons.
+  The first game of skill here, and the first where you are playing a person
+  rather than the house.
 - **Lottery.** A pot fed by entry fees and a share of the casino's winnings,
   drawn on a schedule. One entry each, so everyone has the same chance.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
@@ -328,6 +331,28 @@ Every game stakes money from your wallet.
 | `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 | `jackpot <ante>` | Antes into a shared pot that anyone can join for 60 seconds. One entrant wins it all. Alias: `jp`. |
+| `connect4 <member> <bet>` | Challenges a member to Connect 4 for a matching stake. Winner takes the pot. Alias: `c4`. |
+
+### Connect 4
+
+`connect4 @member <bet>` posts a challenge. Nothing is staked until they press
+**Accept**, at which point both stakes are taken together and the board
+replaces the challenge on the same message. Who moves first is drawn rather
+than given to whoever typed the command, because moving first is a real
+advantage.
+
+Drop a disc with the numbered buttons. The winner takes both stakes less a 5%
+cut, a drawn board returns both stakes in full, and either player can **Resign**
+at any time. A player who does not move for two minutes forfeits, which is what
+stops an abandoned match from holding two stakes indefinitely.
+
+Both stakes sit in escrow in the database while the match is played, so they
+always have a way back:
+
+- **A restart hands them back.** The board lives in memory, so any stake still
+  held at startup belongs to a match nobody can finish.
+- **A reset or a purge voids the match** and returns the opponent's stake,
+  rather than awarding a pot against an account that no longer exists.
 
 ### Jackpot
 
@@ -422,6 +447,7 @@ below if you win. The profit column is what you gain overall.
 | Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.4% to 15.8% |
 | Crash | Depends on when you cash out | Whatever multiplier you cash out at | Multiplier minus 1, times stake | 3%, flat at every cash-out target |
 | Jackpot | Your share of the pot | 95% of the pot | Pot less your ante and the cut | 5%, flat at every ante size |
+| Connect 4 | However well you play | 95% of both stakes | Their stake, less the cut | 5% against an even opponent |
 
 House edge is the share of each staked dollar the bot keeps on average. **No
 game pays players more than its odds justify**, which is enforced by a test: if

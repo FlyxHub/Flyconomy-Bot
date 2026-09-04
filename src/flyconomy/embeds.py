@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Final
 from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import blackjack, crash, economy, jackpot
+from flyconomy import blackjack, connect4, crash, economy, jackpot
 from flyconomy.database import Account, JackpotState, LeaderboardEntry
 from flyconomy.economy import Card
 
@@ -424,4 +425,180 @@ def jackpot_embed(
                 f"pot and better odds with it."
             )
         )
+    return embed
+
+
+#: How an empty cell and each player's disc are drawn.
+_CONNECT4_DISCS: Final = {
+    connect4.EMPTY: "\N{MEDIUM WHITE CIRCLE}",
+    connect4.FIRST: "\N{LARGE RED CIRCLE}",
+    connect4.SECOND: "\N{LARGE YELLOW CIRCLE}",
+}
+
+#: The winning four are drawn as squares, so the line that decided the match
+#: reads at a glance instead of having to be traced.
+_CONNECT4_WINNING: Final = {
+    connect4.FIRST: "\N{LARGE RED SQUARE}",
+    connect4.SECOND: "\N{LARGE YELLOW SQUARE}",
+}
+
+#: The column numbers under the board, matching the buttons.
+_CONNECT4_COLUMN_LABELS: Final = "".join(
+    f"{index}\N{VARIATION SELECTOR-16}\N{COMBINING ENCLOSING KEYCAP}"
+    for index in range(1, connect4.COLUMNS + 1)
+)
+
+
+def connect4_disc(player: int) -> str:
+    """Return the disc a player drops."""
+    return _CONNECT4_DISCS[player]
+
+
+def connect4_board(game: connect4.Game) -> str:
+    """Render a board, top row first, with the column numbers underneath.
+
+    Args:
+        game: The board to draw.
+
+    Returns:
+        One line per row, then the column labels.
+    """
+    winning = set(game.winning_cells)
+    lines = []
+    for row in reversed(range(connect4.ROWS)):
+        cells = []
+        for column in range(connect4.COLUMNS):
+            value = game.cell(column, row)
+            drawn = _CONNECT4_WINNING if (column, row) in winning else _CONNECT4_DISCS
+            cells.append(drawn[value])
+        lines.append("".join(cells))
+    lines.append(_CONNECT4_COLUMN_LABELS)
+    return "\n".join(lines)
+
+
+def connect4_challenge_embed(
+    challenger: discord.abc.User, opponent: discord.abc.User, bet: int, timezone: str
+) -> discord.Embed:
+    """Build the embed offering a match, before either stake is taken.
+
+    Args:
+        challenger: The member who called it.
+        opponent: The member being challenged.
+        bet: Dollars each of them stakes.
+        timezone: IANA timezone for the embed timestamp.
+
+    Returns:
+        A populated embed.
+    """
+    embed = discord.Embed(
+        title="Connect 4 challenge",
+        description=(
+            f"{challenger.mention} challenges {opponent.mention} for "
+            f"**{money(bet)}** each.\n\nWinner takes "
+            f"**{money(connect4.payout(bet * 2))}**."
+        ),
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+    embed.set_footer(text="Nothing is staked until the challenge is accepted.")
+    return embed
+
+
+def connect4_result_line(
+    players: Sequence[discord.abc.User],
+    *,
+    winner: discord.abc.User | None,
+    forfeited: bool,
+    voided: bool,
+    paid: int,
+    bet: int,
+) -> str:
+    """Describe how a match ended.
+
+    Args:
+        players: Both players, first mover first.
+        winner: The member who won, or ``None`` for a draw or a void.
+        forfeited: Whether the loser resigned or ran out of time.
+        voided: Whether the match was called off and both stakes returned.
+        paid: Dollars paid to the winner.
+        bet: What each player staked.
+
+    Returns:
+        One line for the embed's result field.
+    """
+    if voided:
+        return f"The match was called off. Both stakes of {money(bet)} were returned."
+    if winner is None:
+        return f"A draw. Both stakes of {money(bet)} were returned."
+    loser = next((player for player in players if player.id != winner.id), None)
+    how = f"{loser.mention} forfeits. " if forfeited and loser is not None else ""
+    return f"{how}{winner.mention} wins {money(paid)}!"
+
+
+def connect4_embed(
+    game: connect4.Game,
+    players: Sequence[discord.abc.User],
+    timezone: str,
+    *,
+    bet: int,
+    winner: discord.abc.User | None = None,
+    forfeited: bool = False,
+    voided: bool = False,
+    drawn: bool = False,
+    paid: int = 0,
+) -> discord.Embed:
+    """Build the embed for a match, live or decided.
+
+    Args:
+        game: The board.
+        players: Both players, first mover first.
+        timezone: IANA timezone for the embed timestamp.
+        bet: What each player staked.
+        winner: The member who won, once decided.
+        forfeited: Whether the loser resigned or timed out.
+        voided: Whether the match was called off and both stakes returned.
+        drawn: Whether the board filled with nobody connecting four.
+        paid: Dollars paid to the winner.
+
+    Returns:
+        A populated embed.
+    """
+    finished = winner is not None or drawn or voided
+    colour = ERROR_COLOR if voided or drawn else BRAND_COLOR
+
+    embed = discord.Embed(
+        title="Connect 4",
+        description=connect4_board(game),
+        color=colour,
+        timestamp=now(timezone),
+    )
+    embed.add_field(
+        name="Players",
+        value="\n".join(
+            f"{connect4_disc(number)} {player.mention}"
+            for number, player in zip((connect4.FIRST, connect4.SECOND), players, strict=False)
+        ),
+        inline=True,
+    )
+    embed.add_field(name="Stake", value=f"{money(bet)} each", inline=True)
+
+    if finished:
+        embed.add_field(
+            name="Result",
+            value=connect4_result_line(
+                players,
+                winner=winner,
+                forfeited=forfeited,
+                voided=voided,
+                paid=paid,
+                bet=bet,
+            ),
+            inline=False,
+        )
+    else:
+        to_move = players[game.turn - 1]
+        embed.add_field(
+            name="To move", value=f"{connect4_disc(game.turn)} {to_move.mention}", inline=False
+        )
+        embed.set_footer(text="Drop a disc with the numbered buttons.")
     return embed

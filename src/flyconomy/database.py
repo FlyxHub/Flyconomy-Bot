@@ -30,7 +30,7 @@ from flyconomy.errors import InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 5
+SCHEMA_VERSION: Final = 6
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -109,6 +109,30 @@ class JackpotState:
 
 
 @dataclass(frozen=True, slots=True)
+class EscrowHold:
+    """Two equal stakes held while a head-to-head match is played.
+
+    Attributes:
+        hold_id: Row id, which the match carries until it settles.
+        game: Which game the stakes belong to, for the startup refund's log.
+        first_user: One player.
+        second_user: The other.
+        stake: What each of them staked. The pot is twice this.
+    """
+
+    hold_id: int
+    game: str
+    first_user: int
+    second_user: int
+    stake: int
+
+    @property
+    def pot(self) -> int:
+        """Both stakes together."""
+        return self.stake * 2
+
+
+@dataclass(frozen=True, slots=True)
 class LeaderboardEntry:
     """One row of a ranked listing.
 
@@ -129,16 +153,24 @@ class PurgeResult:
         account: Whether a ``bank`` row was removed.
         lottery_entries: How many open-draw entries were removed.
         jackpot_entries: How many open-round jackpot antes were removed.
+        escrow_holds: How many live matches were voided, each one refunding
+            the opponent whose stake was still being held.
     """
 
     account: bool
     lottery_entries: int
     jackpot_entries: int = 0
+    escrow_holds: int = 0
 
     @property
     def found(self) -> bool:
         """Whether the member existed anywhere in the database."""
-        return self.account or self.lottery_entries > 0 or self.jackpot_entries > 0
+        return (
+            self.account
+            or self.lottery_entries > 0
+            or self.jackpot_entries > 0
+            or self.escrow_holds > 0
+        )
 
 
 class Database:
@@ -955,6 +987,162 @@ class Database:
             row = await cursor.fetchone()
         return int(row["pot"]) if row else 0
 
+    # -------------------------------------------------------------- escrow --
+
+    async def open_escrow(
+        self, game: str, first_user: int, second_user: int, stake: int
+    ) -> EscrowHold:
+        """Take an equal stake from two members and hold it for one match.
+
+        Both debits and the hold move in one transaction, so a match can never
+        start with only one stake taken, and the money is recorded where a
+        restart can find it -- the match itself lives in memory, so a hold with
+        nothing left to settle it is exactly what the startup refund looks for.
+
+        Args:
+            game: Which game is holding the stakes, recorded for diagnostics.
+            first_user: One player.
+            second_user: The other. Must not be the same member.
+            stake: Dollars taken from each, charged to the wallet.
+
+        Returns:
+            The hold, whose ``hold_id`` settles or refunds it later.
+
+        Raises:
+            InsufficientFundsError: If either wallet cannot cover the stake.
+                Neither is charged in that case.
+            ValueError: If the stake is not positive, or both players are the
+                same member.
+        """
+        if stake <= 0:
+            msg = "a stake must be positive"
+            raise ValueError(msg)
+        if first_user == second_user:
+            msg = "a match needs two different players"
+            raise ValueError(msg)
+
+        async with self._transaction() as db:
+            for user_id in (first_user, second_user):
+                await self.ensure_account(user_id)
+                cursor = await db.execute(
+                    "UPDATE bank SET wallet = wallet - ? WHERE user = ? AND wallet >= ?",
+                    (stake, user_id, stake),
+                )
+                if cursor.rowcount == 0:
+                    # The transaction rolls back, so the other player's stake
+                    # is not taken either.
+                    raise InsufficientFundsError(
+                        await self._read_column(db, user_id, "wallet"), stake
+                    )
+
+            cursor = await db.execute(
+                "INSERT INTO escrow (game, first_user, second_user, stake) VALUES (?, ?, ?, ?)",
+                (game, first_user, second_user, stake),
+            )
+            hold_id = cursor.lastrowid
+            assert hold_id is not None  # noqa: S101 - sqlite always assigns one
+            return EscrowHold(
+                hold_id=hold_id,
+                game=game,
+                first_user=first_user,
+                second_user=second_user,
+                stake=stake,
+            )
+
+    async def settle_escrow(self, hold_id: int, *, winner_id: int, cut: int) -> int:
+        """Pay a held pot to the winner and release the hold.
+
+        Args:
+            hold_id: The hold to settle.
+            winner_id: The member who won. Must be one of the two players.
+            cut: Dollars the house keeps, withheld from the payout.
+
+        Returns:
+            The dollars paid, credited to the winner's wallet, or ``0`` if the
+            hold was already gone -- which means a purge voided the match while
+            it was being played, and the stakes have already gone back.
+
+        Raises:
+            ValueError: If the cut does not fit the pot, or the winner was not
+                one of the players.
+        """
+        async with self._transaction() as db:
+            hold = await self._read_escrow(db, hold_id)
+            if hold is None:
+                return 0
+            if winner_id not in (hold.first_user, hold.second_user):
+                msg = f"{winner_id} did not play in hold {hold_id}"
+                raise ValueError(msg)
+            if not 0 <= cut <= hold.pot:
+                msg = f"a cut of {cut} does not fit a pot of {hold.pot}"
+                raise ValueError(msg)
+
+            paid = hold.pot - cut
+            await self.ensure_account(winner_id)
+            if paid:
+                await db.execute(
+                    "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (paid, winner_id)
+                )
+            await db.execute("DELETE FROM escrow WHERE id = ?", (hold_id,))
+            return paid
+
+    async def refund_escrow(self, hold_id: int) -> int:
+        """Hand both stakes in a hold back and release it.
+
+        Args:
+            hold_id: The hold to refund.
+
+        Returns:
+            The stake returned to each player, or ``0`` if the hold was gone.
+        """
+        async with self._transaction() as db:
+            hold = await self._read_escrow(db, hold_id)
+            if hold is None:
+                return 0
+            await self._return_stakes(db, hold)
+            await db.execute("DELETE FROM escrow WHERE id = ?", (hold_id,))
+            return hold.stake
+
+    async def refund_all_escrow(self) -> list[EscrowHold]:
+        """Hand back every stake still held, and release every hold.
+
+        Used at startup, where a hold can only belong to a match a restart
+        interrupted: the stakes are real, but the board that would have decided
+        them is gone.
+
+        Returns:
+            The holds that were refunded, empty when none were open.
+        """
+        async with self._transaction() as db:
+            async with db.execute(
+                "SELECT id, game, first_user, second_user, stake FROM escrow ORDER BY id"
+            ) as cursor:
+                rows = await cursor.fetchall()
+            holds = [_escrow_from_row(row) for row in rows]
+            for hold in holds:
+                await self._return_stakes(db, hold)
+            if holds:
+                await db.execute("DELETE FROM escrow")
+            return holds
+
+    @staticmethod
+    async def _read_escrow(db: aiosqlite.Connection, hold_id: int) -> EscrowHold | None:
+        """Read one hold on the given connection, or ``None`` if it is gone."""
+        async with db.execute(
+            "SELECT id, game, first_user, second_user, stake FROM escrow WHERE id = ?",
+            (hold_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return _escrow_from_row(row) if row is not None else None
+
+    async def _return_stakes(self, db: aiosqlite.Connection, hold: EscrowHold) -> None:
+        """Credit both players their stake back, on the given connection."""
+        for user_id in (hold.first_user, hold.second_user):
+            await self.ensure_account(user_id)
+            await db.execute(
+                "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (hold.stake, user_id)
+            )
+
     async def delete_account(self, user_id: int) -> bool:
         """Delete a member's account.
 
@@ -969,11 +1157,17 @@ class Database:
     async def purge_user(self, user_id: int) -> PurgeResult:
         """Remove every trace of a member from the database.
 
-        A member lives in three tables: their balances in ``bank``, one row in
-        ``lottery_entries`` while a draw is open, and one row in
-        ``jackpot_entries`` while a jackpot round is. All three go, in one
-        transaction, so a purge can never leave an entry behind that pays a pot
-        into an account that no longer exists.
+        A member lives in four tables: their balances in ``bank``, one row in
+        ``lottery_entries`` while a draw is open, one row in
+        ``jackpot_entries`` while a jackpot round is, and one row in ``escrow``
+        for each head-to-head match they are in the middle of. All of it goes,
+        in one transaction, so a purge can never leave an entry behind that
+        pays a pot into an account that no longer exists.
+
+        A match the purged member was playing is voided rather than forfeited,
+        and their opponent's stake goes back: the stake belongs to a member who
+        did nothing wrong, and there is no longer an account to award it
+        against.
 
         The lottery pot itself is untouched. Ticket money is redistributed
         rather than held per member, so refunding it here would mint the price
@@ -994,11 +1188,39 @@ class Database:
             removed = account.rowcount > 0
             entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
             antes = await db.execute("DELETE FROM jackpot_entries WHERE user = ?", (user_id,))
+
+            async with db.execute(
+                "SELECT id, game, first_user, second_user, stake FROM escrow "
+                "WHERE first_user = ? OR second_user = ?",
+                (user_id, user_id),
+            ) as cursor:
+                held = list(await cursor.fetchall())
+            for row in held:
+                hold = _escrow_from_row(row)
+                opponent = hold.second_user if hold.first_user == user_id else hold.first_user
+                await self.ensure_account(opponent)
+                await db.execute(
+                    "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (hold.stake, opponent)
+                )
+                await db.execute("DELETE FROM escrow WHERE id = ?", (hold.hold_id,))
+
             return PurgeResult(
                 account=removed,
                 lottery_entries=max(entries.rowcount, 0),
                 jackpot_entries=max(antes.rowcount, 0),
+                escrow_holds=len(held),
             )
+
+
+def _escrow_from_row(row: aiosqlite.Row) -> EscrowHold:
+    """Build a hold from a row of the ``escrow`` table."""
+    return EscrowHold(
+        hold_id=int(row["id"]),
+        game=str(row["game"]),
+        first_user=int(row["first_user"]),
+        second_user=int(row["second_user"]),
+        stake=int(row["stake"]),
+    )
 
 
 # ------------------------------------------------------------- migrations ----
@@ -1128,10 +1350,30 @@ async def _migration_5_jackpot(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_6_escrow(db: aiosqlite.Connection) -> None:
+    """Add the escrow that holds two stakes while a match is played.
+
+    The ``bank`` table is untouched. Ids are ``AUTOINCREMENT`` rather than
+    plain rowids so a settled hold's id is never handed to a later match: a
+    view still holding a stale id can then only fail to find its hold, never
+    settle somebody else's.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS escrow ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  game TEXT NOT NULL,"
+        "  first_user INTEGER NOT NULL,"
+        "  second_user INTEGER NOT NULL,"
+        "  stake INTEGER NOT NULL CHECK (stake > 0)"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
     3: _migration_3_lottery,
     4: _migration_4_market,
     5: _migration_5_jackpot,
+    6: _migration_6_escrow,
 }
