@@ -708,6 +708,30 @@ class TestLeaderboards:
         assert "$250" in values
         assert "2" in values
 
+    async def test_balance_shows_the_wallet_security_level(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await _buy_security(db, settings, ALICE, 2)
+
+        await cog.balance.callback(cog, ctx, None)
+
+        fields = {field.name: field.value for field in ctx.embeds[0].fields}
+        assert fields["Wallet Security:"] == "Level 2"
+
+    async def test_security_shares_a_row_with_the_miner_level(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+
+        await cog.balance.callback(cog, ctx, None)
+
+        # Discord lays consecutive inline fields out as columns of one row, the
+        # way Wallet and Bank are paired, and a non-inline field ends the row.
+        fields = ctx.embeds[0].fields
+        names = [field.name for field in fields]
+        miner = names.index("Miner Level:")
+        assert names[miner + 1] == "Wallet Security:"
+        assert fields[miner].inline is True
+        assert fields[miner + 1].inline is True
+        assert fields[miner - 1].inline is False
+
 
 class TestSlots:
     async def test_a_losing_spin_keeps_the_stake(self, db, settings, ctx):
