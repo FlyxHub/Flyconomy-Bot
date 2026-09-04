@@ -16,13 +16,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from flyconomy import blackjack, connect4, crash, economy, embeds, tictactoe
+from flyconomy import blackjack, crash, economy, embeds, tictactoe
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.errors import BetTooLargeError
 from flyconomy.views import (
     BlackjackView,
-    Connect4View,
     CrashView,
     JackpotView,
     MatchChallengeView,
@@ -55,7 +54,7 @@ class Gambling(BaseCog, name="Casino"):
         """Hand back every wager the last shutdown left in play.
 
         Money for a live game lives in the database while the thing that
-        decides it -- a jackpot's timer, a Connect 4 board -- lives in a view
+        decides it -- a jackpot's timer, a game board -- lives in a view
         in memory. Anything still open at startup therefore belongs to a game
         nobody is left to finish, so it all goes back.
         """
@@ -401,6 +400,7 @@ class Gambling(BaseCog, name="Casino"):
         game_name: str,
         title: str,
         lapses_in: float,
+        payout: Callable[[int], int],
         view_class: Callable[..., MatchView],
         new_game: Callable[[], object],
     ) -> None:
@@ -418,6 +418,7 @@ class Gambling(BaseCog, name="Casino"):
             game_name: Which game this is, recorded against the escrow.
             title: What to call the game in the embed.
             lapses_in: Seconds before an unanswered challenge lapses.
+            payout: This game's payout for a given pot, shown on the offer.
             view_class: The match view to build on acceptance.
             new_game: Builds the game's opening position.
         """
@@ -435,6 +436,7 @@ class Gambling(BaseCog, name="Casino"):
             rng=self.rng,
             game_name=game_name,
             title=title,
+            payout=payout,
             build_match=self._match_builder(view_class, new_game, bet),
             challenger=ctx.author,
             challenged=opponent,
@@ -464,34 +466,9 @@ class Gambling(BaseCog, name="Casino"):
             game_name="tictactoe",
             title="Tic-tac-toe",
             lapses_in=tictactoe.CHALLENGE_TIMEOUT_SECONDS,
+            payout=tictactoe.payout,
             view_class=TicTacToeView,
             new_game=tictactoe.Game.new,
-        )
-
-    @commands.hybrid_command(name="connect4", aliases=["c4"])  # type: ignore[arg-type]
-    @app_commands.describe(
-        opponent="Who to challenge. Leave it out to let anyone accept.",
-        bet="Dollars each of you stakes.",
-    )
-    async def connect4_command(
-        self,
-        ctx: commands.Context[FlyconomyBot],
-        opponent: discord.Member | None,
-        bet: commands.Range[int, 1],
-    ) -> None:
-        """Challenge someone to Connect 4. Leave the member out to let anyone accept."""
-        # `opponent` is optional in the prefix grammar too: discord.py rewinds
-        # the parser when an optional converter does not match, so `$c4 5000`
-        # reads the amount as the bet rather than as a member.
-        await self._offer_match(
-            ctx,
-            opponent=opponent,
-            bet=bet,
-            game_name="connect4",
-            title="Connect 4",
-            lapses_in=connect4.CHALLENGE_TIMEOUT_SECONDS,
-            view_class=Connect4View,
-            new_game=connect4.Game.new,
         )
 
     @commands.hybrid_command(name="war")  # type: ignore[arg-type]

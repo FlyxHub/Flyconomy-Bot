@@ -42,9 +42,10 @@ that would make that unsafe.
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
 buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings. The lottery adds two
 tables in migration 3, the jackpot two more in migration 5, and head-to-head matches one in
-migration 6; the `bank` table is still untouched. Connect 4 and tic-tac-toe share `MatchView`
-(escrow settlement) and `MatchChallengeView` (the offer) in `views.py`, so a third one is a rules
-module, a board view, and a command.
+migration 6; the `bank` table is still untouched. Head-to-head games share `MatchView` (escrow
+settlement) and `MatchChallengeView` (the offer) in `views.py`, which are deliberately game-blind:
+a second one is a rules module, a board view, and a command. Tic-tac-toe is the only one right
+now, so `tests/test_matches.py` covers that shared half against it.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
 
@@ -95,8 +96,10 @@ is lost. Keep that passing.
   `apply_*` coroutine that takes no `Interaction`, then redraws. **Discord caps an action row at
   five components**, and a select menu fills a row on its own — this is a hard API limit, not a
   discord.py one, and dropping the embed does not change it. Design a board to that number rather
-  than against it: Connect 4 is five columns wide so its buttons fit one row, and tic-tac-toe's
-  nine squares are three rows of three, where the wrap *is* the grid. That split is what lets
+  than against it: tic-tac-toe's nine squares are three rows of three, where the wrap *is* the
+  grid. A Connect 4 was built here and then removed over exactly this — seven columns wrapped two
+  buttons onto a second row, and narrowing the board to five to fit made it a worse game than the
+  one people expected. Check a board's controls against the five before designing the board. That split is what lets
   `tests/test_views.py` drive a whole hand against a real database with no gateway. A view that
   moves money must be idempotent — a click and a timeout can both reach it, so `BlackjackView.settle`
   guards with a `_settled` flag.

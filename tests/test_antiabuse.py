@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from flyconomy import connect4, crash, economy, jackpot, tictactoe
+from flyconomy import crash, economy, jackpot, tictactoe
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
@@ -35,7 +35,6 @@ WAGER_COMMANDS = [
     ("blackjack_command", ()),
     ("crash_command", ()),
     ("jackpot_command", ()),
-    ("connect4_command", (FakeUser(id=BOB),)),
     ("tictactoe_command", (FakeUser(id=BOB),)),
 ]
 
@@ -117,7 +116,7 @@ class TestNoGameIsProfitable:
         assert edge > 0, f"target {target}x gave the player an edge"
 
     @pytest.mark.parametrize("bet", [1, 100, 10_000, 1_000_000])
-    @pytest.mark.parametrize("game", [connect4, tictactoe])
+    @pytest.mark.parametrize("game", [tictactoe])
     def test_a_head_to_head_match_cannot_pay_out_more_than_was_staked(self, game, bet):
         """A match is zero-sum before the cut however well anybody plays: the
         two stakes are the whole pot, and the winner takes less than it. Skill
@@ -149,7 +148,6 @@ class TestNoGameIsProfitable:
             "jackpot": (jackpot.win_chance(10_000, 20_000) * jackpot.payout(20_000) - 10_000)
             / 10_000,
             # Two evenly matched players each win half the time.
-            "connect4": (0.5 * connect4.payout(20_000) - 10_000) / 10_000,
             "tictactoe": (0.5 * tictactoe.payout(20_000) - 10_000) / 10_000,
         }
         for name, edge in edges.items():

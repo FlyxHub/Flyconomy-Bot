@@ -545,7 +545,7 @@ class TestCommand:
 
 class TestChallengeIsShared:
     """The challenge flow is the same view for both head-to-head games, so the
-    rules it enforces are tested once in tests/test_connect4.py. These check
+    rules it enforces are tested once in tests/test_matches.py. These check
     that tic-tac-toe is wired into it rather than around it."""
 
     async def test_the_escrow_records_which_game_holds_the_stakes(self, db, settings, ctx):

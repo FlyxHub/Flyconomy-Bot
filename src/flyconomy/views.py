@@ -17,7 +17,7 @@ from collections.abc import Callable
 import discord
 from discord.ext import tasks
 
-from flyconomy import blackjack, connect4, crash, embeds, jackpot, tictactoe
+from flyconomy import blackjack, crash, embeds, jackpot, tictactoe
 from flyconomy.database import Database, JackpotState
 from flyconomy.errors import InsufficientFundsError
 from flyconomy.ratelimit import SlidingWindowLimiter
@@ -947,138 +947,6 @@ class MatchView(discord.ui.View):
             log.warning("Could not redraw a match", exc_info=True)
 
 
-class Connect4View(MatchView):
-    """A board of Connect 4 between two members, with a stake already held.
-
-    Attributes:
-        game: The board.
-    """
-
-    def __init__(self, *, game: connect4.Game, **kwargs: object) -> None:
-        """Build a view for a match whose stakes are already held.
-
-        Args:
-            game: The board, usually empty.
-            **kwargs: Passed through to :class:`MatchView`.
-        """
-        super().__init__(timeout=connect4.MOVE_TIMEOUT_SECONDS, **kwargs)  # type: ignore[arg-type]
-        self.game = game
-        for column in range(connect4.COLUMNS):
-            self.add_item(_ColumnButton(column))
-        self._refresh_buttons()
-
-    # ----------------------------------------------------------- rendering --
-
-    @property
-    def to_move(self) -> discord.abc.User:
-        """The player whose turn it is."""
-        return self.players[self.game.turn - 1]
-
-    def house_cut(self, pot: int) -> int:
-        """Return what the house keeps from a decided board."""
-        return connect4.house_cut(pot)
-
-    def embed(self) -> discord.Embed:
-        """Return the embed for the match as it currently stands."""
-        return embeds.connect4_embed(
-            self.game,
-            self.players,
-            self.timezone,
-            bet=self.bet,
-            winner=self.winner,
-            forfeited=self.forfeited,
-            voided=self.voided,
-            drawn=self.drawn,
-            paid=self.paid,
-        )
-
-    def _refresh_buttons(self) -> None:
-        """Match each button to the board: a full column cannot be played."""
-        for child in self.children:
-            if isinstance(child, _ColumnButton):
-                child.disabled = self.settled or not self.game.can_drop(child.column)
-            elif isinstance(child, discord.ui.Button):
-                child.disabled = self.settled
-
-    # ------------------------------------------------------------- actions --
-
-    async def apply_drop(self, user_id: int, column: int) -> str | None:
-        """Drop the moving player's disc, settling the match if that ends it.
-
-        Args:
-            user_id: The member pressing.
-            column: Column index, from zero on the left.
-
-        Returns:
-            ``None`` on success, or a message explaining the refusal.
-        """
-        if self.settled:
-            return "That match is already over."
-        if user_id != self.to_move.id:
-            return f"It is {self.to_move.display_name}'s turn."
-        if not self.game.can_drop(column):
-            return f"Column {column + 1} is full."
-
-        self.game.drop(column)
-        if self.game.finished:
-            winner = None if self.game.winner is None else self.players[self.game.winner - 1]
-            await self.settle(winner=winner)
-        self._refresh_buttons()
-        return None
-
-    # ------------------------------------------------------------- buttons --
-
-    @discord.ui.button(
-        label="Resign", style=discord.ButtonStyle.danger, custom_id="connect4:resign", row=1
-    )
-    async def resign(
-        self, interaction: discord.Interaction, _button: discord.ui.Button[Connect4View]
-    ) -> None:
-        """Concede the match."""
-        problem = await self.apply_resign(interaction.user.id)
-        if problem is not None:
-            await interaction.response.send_message(
-                embed=embeds.error_embed(problem), ephemeral=True
-            )
-            return
-        await interaction.response.edit_message(embed=self.embed(), view=self)
-
-
-class _ColumnButton(discord.ui.Button["Connect4View"]):
-    """One column of the Connect 4 board.
-
-    Near-identical decorated callbacks would say the same thing once per
-    column, so the column is carried on the button instead and the callback
-    stays as thin as the others: it calls an ``apply_*`` coroutine and redraws.
-    """
-
-    def __init__(self, column: int) -> None:
-        """Build the button for one column.
-
-        Args:
-            column: Column index, from zero on the left.
-        """
-        super().__init__(
-            label=str(column + 1),
-            style=discord.ButtonStyle.primary,
-            custom_id=f"connect4:drop:{column}",
-            row=0,
-        )
-        self.column = column
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        """Drop the pressing player's disc into this column."""
-        view = self.view
-        assert view is not None  # noqa: S101 - a button always has its view
-        problem = await view.apply_drop(interaction.user.id, self.column)
-        if problem is not None:
-            await interaction.response.send_message(
-                embed=embeds.error_embed(problem), ephemeral=True
-            )
-            return
-        await interaction.response.edit_message(embed=view.embed(), view=view)
-
-
 class TicTacToeView(MatchView):
     """A best-of-three tic-tac-toe match, played on the buttons themselves.
 
@@ -1277,6 +1145,7 @@ class MatchChallengeView(discord.ui.View):
         rng: random.Random,
         game_name: str,
         title: str,
+        payout: Callable[[int], int],
         build_match: Callable[[int, tuple[discord.abc.User, discord.abc.User]], MatchView],
         challenger: discord.abc.User,
         challenged: discord.abc.User | None = None,
@@ -1292,6 +1161,8 @@ class MatchChallengeView(discord.ui.View):
             rng: Random source, used to decide who moves first.
             game_name: Which game this is, recorded against the escrow.
             title: What to call the game in the embed.
+            payout: This game's payout for a given pot, used to show what the
+                winner stands to take.
             build_match: Builds the match view from the escrow's id and the
                 seated players. It closes over the stake and the payout
                 settings, so this view never needs to know them.
@@ -1311,6 +1182,7 @@ class MatchChallengeView(discord.ui.View):
         self.rng = rng
         self.game_name = game_name
         self.title = title
+        self.payout = payout
         self.build_match = build_match
         self.challenger = challenger
         self.challenged = challenged
@@ -1350,6 +1222,7 @@ class MatchChallengeView(discord.ui.View):
             self.challenged,
             self.bet,
             self.timezone,
+            winner_takes=self.payout(self.bet * 2),
             lapses_in=self.timeout or 0,
         )
 

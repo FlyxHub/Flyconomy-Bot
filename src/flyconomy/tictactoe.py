@@ -1,8 +1,9 @@
 """Tic-tac-toe rules.
 
-Like :mod:`flyconomy.connect4`, this module imports nothing from ``discord``,
-so the whole ruleset is unit tested without a gateway connection. It knows
-about one board; a match is several boards, and that lives with the view.
+Like :mod:`flyconomy.blackjack` and :mod:`flyconomy.jackpot`, this module
+imports nothing from ``discord``, so the whole ruleset is unit tested without a
+gateway connection. It knows about one board; a match is several boards, and
+that lives with the view.
 
 **A match is best-of-three boards, not one.** Tic-tac-toe between two people
 paying attention is a draw every time, and a single drawn board would refund
@@ -59,8 +60,8 @@ CHALLENGE_TIMEOUT_SECONDS: Final = 60
 #: How long a player has to move. discord.py restarts a view's timeout on every
 #: interaction, so this is per move rather than per match: a player who walks
 #: away forfeits, which is what stops a stalled match from holding two stakes
-#: in escrow forever. Shorter than Connect 4's, because a move here is a glance
-#: at nine cells rather than a plan.
+#: in escrow forever. Short, because a move here is a glance at nine squares
+#: rather than a plan.
 MOVE_TIMEOUT_SECONDS: Final = 90
 
 
