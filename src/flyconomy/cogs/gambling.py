@@ -352,32 +352,38 @@ class Gambling(BaseCog, name="Casino"):
 
     @commands.hybrid_command(name="connect4", aliases=["c4"])  # type: ignore[arg-type]
     @app_commands.describe(
-        opponent="The member you are challenging.", bet="Dollars each of you stakes."
+        opponent="Who to challenge. Leave it out to let anyone accept.",
+        bet="Dollars each of you stakes.",
     )
     async def connect4_command(
         self,
         ctx: commands.Context[FlyconomyBot],
-        opponent: discord.Member,
+        opponent: discord.Member | None,
         bet: commands.Range[int, 1],
     ) -> None:
-        """Challenge a member to Connect 4. You both stake, and the winner takes the pot."""
+        """Challenge someone to Connect 4. Leave the member out to let anyone accept."""
         # Nothing is staked here: both stakes are taken together when the
         # challenge is accepted, so a challenge nobody answers costs nothing
         # and there is no held money to refund. The limit is still checked
         # first, because the accept button stakes exactly this amount.
+        #
+        # `opponent` is optional in the prefix grammar too: discord.py rewinds
+        # the parser when an optional converter does not match, so `$c4 5000`
+        # reads the amount as the bet rather than as a member.
         self._check_limit(bet)
-        if opponent.id == ctx.author.id:
-            await ctx.send("You cannot play yourself.")
-            return
-        if opponent.bot:
-            await ctx.send("Bots do not play Connect 4.")
-            return
+        if opponent is not None:
+            if opponent.id == ctx.author.id:
+                await ctx.send("You cannot play yourself.")
+                return
+            if opponent.bot:
+                await ctx.send("Bots do not play Connect 4.")
+                return
 
         view = Connect4ChallengeView(
             db=self.db,
             rng=self.rng,
             challenger=ctx.author,
-            opponent=opponent,
+            challenged=opponent,
             bet=bet,
             timezone=self.timezone,
             rake=self.settings.lottery_rake,

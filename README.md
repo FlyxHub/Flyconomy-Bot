@@ -331,15 +331,22 @@ Every game stakes money from your wallet.
 | `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 | `jackpot <ante>` | Antes into a shared pot that anyone can join for 60 seconds. One entrant wins it all. Alias: `jp`. |
-| `connect4 <member> <bet>` | Challenges a member to Connect 4 for a matching stake. Winner takes the pot. Alias: `c4`. |
+| `connect4 [member] <bet>` | Challenges a member to Connect 4 for a matching stake, or leaves the offer open to anyone. Alias: `c4`. |
 
 ### Connect 4
 
-`connect4 @member <bet>` posts a challenge. Nothing is staked until they press
-**Accept**, at which point both stakes are taken together and the board
-replaces the challenge on the same message. Who moves first is drawn rather
-than given to whoever typed the command, because moving first is a real
-advantage.
+`connect4 @member <bet>` challenges one member. Leave the member out and
+`connect4 <bet>` posts an open challenge instead, which the first member to
+press **Accept** takes — useful when nobody in particular is around.
+
+Nothing is staked until somebody accepts, at which point both stakes are taken
+together and the board replaces the challenge on the same message. A challenge
+nobody answers lapses after 60 seconds, and the member who made it can withdraw
+it before then. You cannot accept your own challenge, and an open one is only
+the challenger's to withdraw.
+
+Who moves first is drawn rather than given to whoever typed the command,
+because moving first is a real advantage.
 
 Drop a disc with the numbered buttons. The winner takes both stakes less a 5%
 cut, a drawn board returns both stakes in full, and either player can **Resign**

@@ -8,6 +8,7 @@ what makes the view testable without a gateway connection.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import time
@@ -1029,12 +1030,21 @@ class _ColumnButton(discord.ui.Button["Connect4View"]):
 class Connect4ChallengeView(discord.ui.View):
     """Accept and decline buttons on a Connect 4 challenge.
 
-    Nothing is staked while this view is up: the two stakes are taken in one
-    transaction the moment the challenge is accepted, and the board replaces
-    this view on the same message. A challenge that lapses or is declined
-    therefore has nothing to refund.
+    A challenge is either aimed at one member or left open for whoever takes it
+    first. Nothing is staked while this view is up: both stakes are taken in
+    one transaction the moment it is accepted, and the board replaces this view
+    on the same message. A challenge that lapses or is turned down therefore
+    has nothing to refund.
+
+    An open challenge can be pressed by several members at once, so accepting
+    is serialized behind a lock. Without it two presses could both get past the
+    "still open" check while the first was still awaiting its escrow, and the
+    challenger would be staked twice for one seat.
 
     Attributes:
+        challenged: The member the challenge names, or ``None`` when anyone may
+            take it.
+        accepter: Whoever took it, once somebody has.
         message: The message the buttons live on, set by the caller after
             sending so the timeout can redraw it.
         match: The board's view, once the challenge has been accepted.
@@ -1046,7 +1056,7 @@ class Connect4ChallengeView(discord.ui.View):
         db: Database,
         rng: random.Random,
         challenger: discord.abc.User,
-        opponent: discord.abc.User,
+        challenged: discord.abc.User | None = None,
         bet: int,
         timezone: str,
         rake: float = 0.0,
@@ -1060,7 +1070,8 @@ class Connect4ChallengeView(discord.ui.View):
             db: Open database, used to take both stakes on acceptance.
             rng: Random source, used to decide who moves first.
             challenger: The member who called the match.
-            opponent: The member being challenged.
+            challenged: The member being challenged, or ``None`` to leave the
+                offer open to anyone.
             bet: Dollars each player stakes. The caller has already checked it
                 against the table limit.
             timezone: IANA timezone for the embed timestamp.
@@ -1077,7 +1088,7 @@ class Connect4ChallengeView(discord.ui.View):
         self.db = db
         self.rng = rng
         self.challenger = challenger
-        self.opponent = opponent
+        self.challenged = challenged
         self.bet = bet
         self.timezone = timezone
         self.rake = rake
@@ -1086,49 +1097,80 @@ class Connect4ChallengeView(discord.ui.View):
         self.limiter = limiter
         self.message: discord.Message | None = None
         self.match: Connect4View | None = None
+        self.accepter: discord.abc.User | None = None
         self.declined_by: discord.abc.User | None = None
         self._answered = False
+        self._lock = asyncio.Lock()
 
     # ----------------------------------------------------------- rendering --
+
+    @property
+    def is_open(self) -> bool:
+        """Whether anyone may take the challenge, rather than one named member."""
+        return self.challenged is None
+
+    def _describe(self) -> str:
+        """Name the challenge, for the messages that report how it ended."""
+        if self.challenged is None:
+            return f"{self.challenger.mention}'s open challenge for {embeds.money(self.bet)}"
+        return f"{self.challenger.mention}'s challenge to {self.challenged.mention}"
 
     def embed(self) -> discord.Embed:
         """Return the embed for the challenge as it currently stands."""
         if self.declined_by is not None:
             who = "withdrawn" if self.declined_by.id == self.challenger.id else "declined"
-            return embeds.error_embed(
-                f"{self.challenger.mention}'s challenge to {self.opponent.mention} "
-                f"for {embeds.money(self.bet)} was {who}. Nothing was staked."
-            )
-        if self._answered:
-            return embeds.error_embed(
-                f"{self.challenger.mention}'s challenge to {self.opponent.mention} "
-                f"lapsed. Nothing was staked."
-            )
+            return embeds.error_embed(f"{self._describe()} was {who}. Nothing was staked.")
+        if self._answered and self.match is None:
+            return embeds.error_embed(f"{self._describe()} lapsed. Nothing was staked.")
         return embeds.connect4_challenge_embed(
-            self.challenger, self.opponent, self.bet, self.timezone
+            self.challenger, self.challenged, self.bet, self.timezone
         )
 
     # ------------------------------------------------------------- actions --
 
-    async def apply_accept(self) -> str | None:
+    def may_accept(self, accepter: discord.abc.User) -> str | None:
+        """Return why a member cannot take this challenge, if they cannot.
+
+        Args:
+            accepter: The member trying to take it.
+
+        Returns:
+            ``None`` when they may, or a message explaining why not.
+        """
+        if accepter.id == self.challenger.id:
+            return "You cannot accept your own challenge."
+        challenged = self.challenged
+        if challenged is not None and accepter.id != challenged.id:
+            return f"That challenge is for {challenged.display_name}."
+        return None
+
+    async def apply_accept(self, accepter: discord.abc.User) -> str | None:
         """Take both stakes and start the match.
+
+        Args:
+            accepter: The member taking the challenge.
 
         Returns:
             ``None`` on success, or a message explaining why the match could
             not start. Neither stake is taken in that case.
         """
-        if self._answered:
-            return "That challenge is no longer open."
+        problem = self.may_accept(accepter)
+        if problem is not None:
+            return problem
 
-        try:
-            hold = await self.db.open_escrow(
-                "connect4", self.challenger.id, self.opponent.id, self.bet
-            )
-        except InsufficientFundsError:
-            return await self._describe_shortfall()
+        async with self._lock:
+            if self._answered:
+                return "That challenge is no longer open."
+            try:
+                hold = await self.db.open_escrow(
+                    "connect4", self.challenger.id, accepter.id, self.bet
+                )
+            except InsufficientFundsError:
+                return await self._describe_shortfall(accepter)
+            self._answered = True
+            self.accepter = accepter
 
-        self._answered = True
-        first, second = self._seat()
+        first, second = self._seat(accepter)
         self.match = Connect4View(
             db=self.db,
             game=connect4.Game.new(),
@@ -1143,33 +1185,47 @@ class Connect4ChallengeView(discord.ui.View):
         self.stop()
         return None
 
-    def apply_decline(self, user: discord.abc.User) -> None:
+    def apply_decline(self, user: discord.abc.User) -> str | None:
         """Close the challenge without staking anything.
 
+        An open challenge is nobody's to turn down but the member who made it,
+        so only they can withdraw one. A named challenge can be closed by
+        either side.
+
         Args:
-            user: Whoever turned it down, which may be the challenger
-                withdrawing their own offer.
+            user: Whoever is turning it down.
+
+        Returns:
+            ``None`` on success, or a message explaining the refusal.
         """
+        if self._answered:
+            return "That challenge is no longer open."
+        if user.id != self.challenger.id and (
+            self.challenged is None or user.id != self.challenged.id
+        ):
+            return "Only the member who opened that challenge can withdraw it."
+
         self._answered = True
         self.declined_by = user
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
         self.stop()
+        return None
 
-    def _seat(self) -> tuple[discord.abc.User, discord.abc.User]:
+    def _seat(self, accepter: discord.abc.User) -> tuple[discord.abc.User, discord.abc.User]:
         """Decide who moves first.
 
         Moving first is a real advantage at Connect 4, so it is drawn rather
         than handed to whoever typed the command.
         """
-        seated = [self.challenger, self.opponent]
+        seated = [self.challenger, accepter]
         self.rng.shuffle(seated)
         return seated[0], seated[1]
 
-    async def _describe_shortfall(self) -> str:
+    async def _describe_shortfall(self, accepter: discord.abc.User) -> str:
         """Name whichever player can no longer cover the stake."""
-        for player in (self.challenger, self.opponent):
+        for player in (self.challenger, accepter):
             account = await self.db.get_account(player.id)
             if account.wallet < self.bet:
                 return (
@@ -1198,8 +1254,20 @@ class Connect4ChallengeView(discord.ui.View):
     # -------------------------------------------------------------- events --
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Let only the two members involved answer the challenge."""
-        if interaction.user.id in (self.challenger.id, self.opponent.id):
+        """Let anyone press an open challenge, and only the two named answer one.
+
+        An open challenge has to reach every member who might take it, so the
+        rules about who may accept and who may withdraw are enforced in the
+        callbacks instead.
+
+        Args:
+            interaction: The button press.
+
+        Returns:
+            Whether the press should be handled.
+        """
+        challenged = self.challenged
+        if challenged is None or interaction.user.id in (self.challenger.id, challenged.id):
             return True
         await interaction.response.send_message(
             embed=embeds.error_embed("That challenge is not yours to answer."), ephemeral=True
@@ -1207,7 +1275,11 @@ class Connect4ChallengeView(discord.ui.View):
         return False
 
     async def on_timeout(self) -> None:
-        """Let the challenge lapse. Nothing was staked, so nothing goes back."""
+        """Withdraw the challenge once it has gone unanswered for long enough.
+
+        Nothing was staked, so nothing goes back; this only takes the live
+        button off a stale offer.
+        """
         if self._answered:
             return
         self._answered = True
@@ -1229,16 +1301,11 @@ class Connect4ChallengeView(discord.ui.View):
         self, interaction: discord.Interaction, _button: discord.ui.Button[Connect4ChallengeView]
     ) -> None:
         """Take both stakes and put the board up in place of the challenge."""
-        if interaction.user.id != self.opponent.id:
-            await interaction.response.send_message(
-                embed=embeds.error_embed("Only the challenged member can accept."),
-                ephemeral=True,
-            )
-            return
-
-        problem = self._spend_budget(interaction.user.id)
+        problem = self.may_accept(interaction.user)
         if problem is None:
-            problem = await self.apply_accept()
+            problem = self._spend_budget(interaction.user.id)
+        if problem is None:
+            problem = await self.apply_accept(interaction.user)
         if problem is not None:
             await interaction.response.send_message(
                 embed=embeds.error_embed(problem), ephemeral=True
@@ -1256,10 +1323,10 @@ class Connect4ChallengeView(discord.ui.View):
         self, interaction: discord.Interaction, _button: discord.ui.Button[Connect4ChallengeView]
     ) -> None:
         """Turn the challenge down, or withdraw it."""
-        if self._answered:
+        problem = self.apply_decline(interaction.user)
+        if problem is not None:
             await interaction.response.send_message(
-                embed=embeds.error_embed("That challenge is no longer open."), ephemeral=True
+                embed=embeds.error_embed(problem), ephemeral=True
             )
             return
-        self.apply_decline(interaction.user)
         await interaction.response.edit_message(embed=self.embed(), view=self)

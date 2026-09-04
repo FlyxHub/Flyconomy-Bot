@@ -8,6 +8,7 @@ taken, board played out, pot paid -- run without a gateway connection.
 
 from __future__ import annotations
 
+import asyncio
 import random
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -35,6 +36,10 @@ def alice() -> FakeUser:
 
 def bob() -> FakeUser:
     return FakeUser(id=BOB, display_name="Bob")
+
+
+def carol() -> FakeUser:
+    return FakeUser(id=CAROL, display_name="Carol")
 
 
 def play(*columns: int) -> connect4.Game:
@@ -120,15 +125,31 @@ def make_challenge(
     db: Database,
     *,
     bet: int = BET,
+    challenged: FakeUser | None = None,
     limiter: SlidingWindowLimiter | None = None,
     seed: int = 7,
 ) -> Connect4ChallengeView:
-    """Build a challenge from Alice to Bob."""
+    """Build a challenge from Alice, aimed at Bob unless told otherwise."""
     return Connect4ChallengeView(
         db=db,
         rng=random.Random(seed),
         challenger=alice(),
-        opponent=bob(),
+        challenged=challenged if challenged is not None else bob(),
+        bet=bet,
+        timezone="UTC",
+        limiter=limiter,
+    )
+
+
+def make_open_challenge(
+    db: Database, *, bet: int = BET, limiter: SlidingWindowLimiter | None = None, seed: int = 7
+) -> Connect4ChallengeView:
+    """Build a challenge from Alice that anyone may take."""
+    return Connect4ChallengeView(
+        db=db,
+        rng=random.Random(seed),
+        challenger=alice(),
+        challenged=None,
         bet=bet,
         timezone="UTC",
         limiter=limiter,
@@ -383,7 +404,7 @@ class TestChallenge:
         await db.add_wallet(BOB, 5_000)
         view = make_challenge(db)
 
-        assert await view.apply_accept() is None
+        assert await view.apply_accept(bob()) is None
 
         assert view.match is not None
         assert view.match.game.moves == 0
@@ -398,7 +419,7 @@ class TestChallenge:
             await db.add_wallet(ALICE, BET)
             await db.add_wallet(BOB, BET)
             view = make_challenge(db, seed=seed)
-            await view.apply_accept()
+            await view.apply_accept(bob())
             assert view.match is not None
             seats.add(view.match.players[0].id)
         assert seats == {ALICE, BOB}
@@ -408,12 +429,12 @@ class TestChallenge:
         await db.add_wallet(BOB, 5_000)
         view = make_challenge(db)
 
-        view.apply_decline(bob())
+        assert view.apply_decline(bob()) is None
 
         assert view.match is None
         assert (await db.get_account(ALICE)).wallet == 5_000
         assert (await db.get_account(BOB)).wallet == 5_000
-        assert await view.apply_accept() is not None
+        assert await view.apply_accept(bob()) is not None
 
     async def test_a_lapsed_challenge_stakes_nothing(self, db):
         await db.add_wallet(ALICE, 5_000)
@@ -429,13 +450,13 @@ class TestChallenge:
         await db.add_wallet(ALICE, 5_000)
         view = make_challenge(db)
 
-        problem = await view.apply_accept()
+        problem = await view.apply_accept(bob())
 
         assert problem is not None
         assert "Bob" in problem
         assert (await db.get_account(ALICE)).wallet == 5_000
 
-    async def test_only_the_challenged_member_can_accept(self, db):
+    async def test_a_challenger_cannot_accept_their_own_challenge(self, db):
         await db.add_wallet(ALICE, 5_000)
         await db.add_wallet(BOB, 5_000)
         view = make_challenge(db)
@@ -445,6 +466,43 @@ class TestChallenge:
 
         assert interaction.response.ephemeral
         assert view.match is None
+
+    async def test_a_named_challenge_refuses_anybody_else(self, db):
+        await db.add_wallet(ALICE, 5_000)
+        await db.add_wallet(CAROL, 5_000)
+        view = make_challenge(db)
+
+        problem = await view.apply_accept(carol())
+
+        assert problem is not None
+        assert "for Bob" in problem
+        assert view.match is None
+        assert (await db.get_account(CAROL)).wallet == 5_000
+
+    async def test_the_lapse_timer_is_a_minute(self, db):
+        assert connect4.CHALLENGE_TIMEOUT_SECONDS == 60
+        assert make_challenge(db).timeout == 60
+
+    async def test_a_withdrawn_challenge_says_so(self, db):
+        view = make_challenge(db)
+
+        assert view.apply_decline(alice()) is None
+
+        embed = view.embed()
+        assert embed.description is not None
+        assert "withdrawn" in embed.description
+
+    async def test_either_side_can_close_a_named_challenge(self, db):
+        assert make_challenge(db).apply_decline(alice()) is None
+        assert make_challenge(db).apply_decline(bob()) is None
+
+    async def test_an_outsider_cannot_close_a_challenge(self, db):
+        view = make_challenge(db)
+
+        problem = view.apply_decline(carol())
+
+        assert problem is not None
+        assert view.declined_by is None
 
     async def test_an_outsider_cannot_answer_the_challenge(self, db):
         view = make_challenge(db)
@@ -466,6 +524,81 @@ class TestChallenge:
         assert interaction.response.ephemeral, "a press past the budget was not refused"
         assert view.match is None
         assert (await db.get_account(BOB)).wallet == 5_000
+
+
+class TestOpenChallenge:
+    async def test_anyone_can_take_an_open_challenge(self, db):
+        await db.add_wallet(ALICE, 5_000)
+        await db.add_wallet(CAROL, 5_000)
+        view = make_open_challenge(db)
+
+        assert view.is_open is True
+        assert await view.apply_accept(carol()) is None
+
+        assert view.accepter is not None
+        assert view.accepter.id == CAROL
+        assert view.match is not None
+        assert {player.id for player in view.match.players} == {ALICE, CAROL}
+        assert (await db.get_account(ALICE)).wallet == 4_000
+        assert (await db.get_account(CAROL)).wallet == 4_000
+
+    async def test_the_challenger_cannot_take_their_own_open_challenge(self, db):
+        await db.add_wallet(ALICE, 5_000)
+        view = make_open_challenge(db)
+
+        problem = await view.apply_accept(alice())
+
+        assert problem is not None
+        assert "your own challenge" in problem
+        assert view.match is None
+        assert (await db.get_account(ALICE)).wallet == 5_000
+
+    async def test_only_one_of_two_simultaneous_takers_gets_the_match(self, db):
+        # Two members pressing at once must not stake the challenger twice for
+        # one seat, which is what the accept lock is there for.
+        await db.add_wallet(ALICE, 5_000)
+        await db.add_wallet(BOB, 5_000)
+        await db.add_wallet(CAROL, 5_000)
+        view = make_open_challenge(db)
+
+        results = await asyncio.gather(view.apply_accept(bob()), view.apply_accept(carol()))
+
+        assert results.count(None) == 1, "both takers got the match"
+        assert (await db.get_account(ALICE)).wallet == 4_000
+        taken = {BOB, CAROL} - {
+            user for user in (BOB, CAROL) if (await db.get_account(user)).wallet == 5_000
+        }
+        assert len(taken) == 1
+
+    async def test_only_the_challenger_can_withdraw_an_open_challenge(self, db):
+        view = make_open_challenge(db)
+
+        assert view.apply_decline(carol()) is not None
+        assert view.declined_by is None
+
+        assert view.apply_decline(alice()) is None
+        assert view.declined_by is not None
+
+    async def test_an_open_challenge_lets_everyone_press(self, db):
+        view = make_open_challenge(db)
+
+        assert await view.interaction_check(FakeInteraction(user=carol())) is True
+
+    async def test_an_open_challenge_says_anyone_can_accept(self, db):
+        embed = make_open_challenge(db).embed()
+
+        assert embed.description is not None
+        assert "Anyone can accept" in embed.description
+
+    async def test_a_lapsed_open_challenge_says_so(self, db):
+        view = make_open_challenge(db)
+
+        await view.on_timeout()
+
+        embed = view.embed()
+        assert embed.description is not None
+        assert "open challenge" in embed.description
+        assert "lapsed" in embed.description
 
 
 class TestMatch:
@@ -649,6 +782,16 @@ class TestCommand:
         assert ctx.views, "no challenge was posted"
         assert (await db.get_account(ALICE)).wallet == 5_000
         assert (await db.get_account(BOB)).wallet == 5_000
+
+    async def test_leaving_the_member_out_posts_an_open_challenge(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 5_000)
+
+        await cog.connect4_command.callback(cog, ctx, None, BET)
+
+        assert ctx.views
+        assert ctx.views[0].is_open is True
+        assert (await db.get_account(ALICE)).wallet == 5_000
 
     async def test_challenging_yourself_is_refused(self, db, settings, ctx):
         cog = Gambling(FakeBot(db, settings))

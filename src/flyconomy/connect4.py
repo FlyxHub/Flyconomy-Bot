@@ -40,8 +40,9 @@ SECOND: Final = 2
 HOUSE_CUT: Final = 0.05
 
 #: How long a challenge waits to be accepted before it lapses. Nothing is
-#: staked until it is accepted, so a lapsed challenge costs nobody anything.
-CHALLENGE_TIMEOUT_SECONDS: Final = 90
+#: staked until it is accepted, so a lapsed challenge costs nobody anything --
+#: it only stops a stale offer sitting in the channel with a live button on it.
+CHALLENGE_TIMEOUT_SECONDS: Final = 60
 
 #: How long a player has to move. discord.py restarts a view's timeout on every
 #: interaction, so this is per move rather than per match: a player who walks

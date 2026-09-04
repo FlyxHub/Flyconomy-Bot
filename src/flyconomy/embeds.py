@@ -477,30 +477,47 @@ def connect4_board(game: connect4.Game) -> str:
 
 
 def connect4_challenge_embed(
-    challenger: discord.abc.User, opponent: discord.abc.User, bet: int, timezone: str
+    challenger: discord.abc.User,
+    challenged: discord.abc.User | None,
+    bet: int,
+    timezone: str,
 ) -> discord.Embed:
     """Build the embed offering a match, before either stake is taken.
 
     Args:
         challenger: The member who called it.
-        opponent: The member being challenged.
+        challenged: The member being challenged, or ``None`` when the offer is
+            open to whoever takes it first.
         bet: Dollars each of them stakes.
         timezone: IANA timezone for the embed timestamp.
 
     Returns:
         A populated embed.
     """
+    takings = f"Winner takes **{money(connect4.payout(bet * 2))}**."
+    if challenged is None:
+        description = (
+            f"{challenger.mention} is looking for a game at **{money(bet)}** a side.\n\n"
+            f"Anyone can accept. {takings}"
+        )
+    else:
+        description = (
+            f"{challenger.mention} challenges {challenged.mention} for "
+            f"**{money(bet)}** each.\n\n{takings}"
+        )
+
     embed = discord.Embed(
         title="Connect 4 challenge",
-        description=(
-            f"{challenger.mention} challenges {opponent.mention} for "
-            f"**{money(bet)}** each.\n\nWinner takes "
-            f"**{money(connect4.payout(bet * 2))}**."
-        ),
+        description=description,
         color=BRAND_COLOR,
         timestamp=now(timezone),
     )
-    embed.set_footer(text="Nothing is staked until the challenge is accepted.")
+    embed.set_footer(
+        text=(
+            "Nothing is staked until the challenge is accepted. It lapses in "
+            f"{connect4.CHALLENGE_TIMEOUT_SECONDS} seconds."
+        )
+    )
     return embed
 
 

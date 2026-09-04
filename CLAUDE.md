@@ -161,7 +161,10 @@ Three further layers, all in place because they cover different failure modes:
   can *stop existing* are covered too: `Gambling.cog_load` refunds every hold at startup, and
   `purge_user` voids a match and refunds the opponent. A new game that holds money across turns
   needs all four paths, not three. Nothing is staked while a challenge is merely offered, which is
-  what makes an unanswered or declined challenge cost nothing.
+  what makes an unanswered or declined challenge cost nothing. An open challenge — one with no
+  named opponent — can be pressed by several members at once, so accepting is serialized behind a
+  lock in the view: without it two presses could both pass the "still open" check while the first
+  was still awaiting its escrow, and the challenger would be staked twice for one seat.
 
 `RateLimitedError` subclasses `commands.CheckFailure` on purpose. discord.py's `Bot.invoke` only
 dispatches `CommandError` subclasses to an error handler, so a plain exception raised from a cog
