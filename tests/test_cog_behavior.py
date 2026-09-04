@@ -332,6 +332,94 @@ class TestRob:
         assert alice.wallet > 0
 
 
+async def _buy_security(db, settings, user_id: int, levels: int) -> None:
+    """Buy ``levels`` of wallet security for a member, funding the bank first."""
+    cog = Economy(FakeBot(db, settings))
+    ctx = FakeContext(author=FakeUser(id=user_id))
+    await db.add_bank(user_id, sum(economy.SECURITY_COST.values()))
+    for _ in range(levels):
+        await cog.secure.callback(cog, ctx)
+
+
+class TestWalletSecurity:
+    async def test_buying_a_level_charges_the_bank_and_reports_the_new_odds(
+        self, db, settings, ctx
+    ):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000)
+
+        await cog.secure.callback(cog, ctx)
+
+        account = await db.get_account(ALICE)
+        assert account.security == 1
+        assert account.bank == economy.STARTING_BANK + 10_000 - economy.SECURITY_COST[0]
+        assert f"{economy.rob_success_percent(1)}%" in ctx.last
+
+    async def test_an_unaffordable_level_is_refused_and_costs_nothing(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+
+        await cog.secure.callback(cog, ctx)
+
+        account = await db.get_account(ALICE)
+        assert account.security == 0
+        assert account.bank == economy.STARTING_BANK
+        assert "only have" in ctx.last
+
+    async def test_a_maxed_wallet_cannot_buy_another_level(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, sum(economy.SECURITY_COST.values()))
+        for _ in economy.SECURITY_COST:
+            await cog.secure.callback(cog, ctx)
+        before = (await db.get_account(ALICE)).bank
+
+        await cog.secure.callback(cog, ctx)
+
+        account = await db.get_account(ALICE)
+        assert account.security == economy.MAX_SECURITY_LEVEL
+        assert account.bank == before
+        assert "maximum" in ctx.last
+
+    async def test_a_roll_that_robs_an_open_wallet_is_stopped_by_a_defended_one(
+        self, db, settings, ctx
+    ):
+        # A roll of 45 lands under level 0's 50% and over the top level's. The
+        # target, the roll, and the wallet are identical in both halves, so the
+        # only thing deciding the outcome is the security that was bought.
+        await db.add_wallet(BOB, 1_000)
+        cog = Economy(FakeBot(db, settings))
+        cog.rng = ScriptedRandom(randint=45)
+
+        await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
+        assert "robbed" in ctx.last
+        assert (await db.get_account(ALICE)).wallet == 45
+
+        await _buy_security(db, settings, BOB, economy.MAX_SECURITY_LEVEL)
+        await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
+
+        assert "failed" in ctx.last
+        assert (await db.get_account(ALICE)).wallet == 45
+
+    async def test_a_failed_robbery_names_the_defense_that_stopped_it(self, db, settings, ctx):
+        await db.add_wallet(BOB, 1_000)
+        await _buy_security(db, settings, BOB, 1)
+        cog = Economy(FakeBot(db, settings))
+        cog.rng = ScriptedRandom(randint=45)
+
+        await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
+
+        assert "security is at level 1" in ctx.last
+
+    async def test_a_failed_robbery_on_an_open_wallet_mentions_no_defense(self, db, settings, ctx):
+        await db.add_wallet(BOB, 1_000)
+        cog = Economy(FakeBot(db, settings))
+        cog.rng = ScriptedRandom(randint=99)
+
+        await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
+
+        assert "failed" in ctx.last
+        assert "security" not in ctx.last
+
+
 class TestMining:
     async def test_mining_without_a_miner_is_refused(self, db, settings, ctx):
         cog = Mining(FakeBot(db, settings))

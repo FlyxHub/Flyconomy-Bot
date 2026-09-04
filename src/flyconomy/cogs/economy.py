@@ -96,13 +96,45 @@ class Economy(BaseCog, name="Economy"):
             ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
             return
 
-        if self.rng.randint(1, economy.ROB_SUCCESS_ODDS) == 1:
-            await ctx.send("Robbery attempt failed. Try again in an hour.")
+        if not economy.roll_rob(victim.security, self.rng):
+            defended = (
+                f" Their wallet security is at level {victim.security}." if victim.security else ""
+            )
+            await ctx.send(f"Robbery attempt failed.{defended} Try again in an hour.")
             return
 
         amount = self.rng.randint(1, victim.wallet)
         await self.db.steal(ctx.author.id, member.id, amount)
         await ctx.send(f"You robbed {embeds.money(amount)} from {member.mention}")
+
+    @commands.hybrid_command(name="secure", aliases=["security"])  # type: ignore[arg-type]
+    async def secure(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Upgrade your wallet's security, paying from your bank balance."""
+        account = await self.db.get_account(ctx.author.id)
+        cost = economy.security_cost(account.security)
+        if cost is None:
+            await ctx.send("Your wallet security is already at the maximum level.")
+            return
+
+        if account.bank < cost:
+            await ctx.send(
+                f"Upgrading to security level {account.security + 1} costs "
+                f"{embeds.money(cost)} from your bank, but you only have "
+                f"{embeds.money(account.bank)}."
+            )
+            return
+
+        bought = await self.db.buy_security_upgrade(ctx.author.id)
+        if bought is None:  # pragma: no cover - only when two upgrades race
+            await ctx.send("Your wallet security is already at the maximum level.")
+            return
+
+        level, paid = bought
+        chance = economy.rob_success_percent(level)
+        await ctx.send(
+            f"Wallet security upgraded to level {level} for {embeds.money(paid)}! "
+            f"A robbery against you now succeeds {chance}% of the time."
+        )
 
     @commands.hybrid_command(name="leaderboard", aliases=["lb"])  # type: ignore[arg-type]
     async def leaderboard(self, ctx: commands.Context[FlyconomyBot]) -> None:

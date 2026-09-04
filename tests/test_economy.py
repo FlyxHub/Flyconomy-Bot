@@ -125,6 +125,56 @@ class TestMinerUpgrades:
             assert economy.mine_chance_percent(level + 1) > 0
 
 
+class TestWalletSecurity:
+    @pytest.mark.parametrize(
+        ("level", "cost"),
+        [(0, 2_500), (1, 15_000), (2, 60_000), (3, 250_000), (4, 1_000_000)],
+    )
+    def test_costs_match_the_documented_table(self, level, cost):
+        assert economy.security_cost(level) == cost
+
+    def test_max_level_cannot_upgrade(self):
+        assert economy.security_cost(economy.MAX_SECURITY_LEVEL) is None
+
+    def test_every_level_costs_more_than_the_one_below(self):
+        costs = [economy.SECURITY_COST[level] for level in sorted(economy.SECURITY_COST)]
+        assert costs == sorted(costs)
+        assert len(set(costs)) == len(costs)
+
+    def test_an_undefended_wallet_is_robbed_as_often_as_it_ever_was(self):
+        # 50% is what `rob` paid before security existed. Buying nothing must
+        # not make anyone safer than they were.
+        assert economy.rob_success_percent(0) == 50
+
+    def test_every_level_is_harder_to_rob_than_the_one_below(self):
+        chances = [
+            economy.rob_success_percent(level) for level in range(economy.MAX_SECURITY_LEVEL + 1)
+        ]
+        assert chances == sorted(chances, reverse=True)
+        assert len(set(chances)) == len(chances)
+
+    def test_no_level_makes_a_wallet_unrobbable(self):
+        # A wallet nobody can rob removes the reason to bank money at all.
+        assert all(
+            economy.rob_success_percent(level) > 0
+            for level in range(economy.MAX_SECURITY_LEVEL + 1)
+        )
+
+    @pytest.mark.parametrize("level", [-1, economy.MAX_SECURITY_LEVEL + 1, 999])
+    def test_a_level_off_the_table_is_clamped_onto_it(self, level):
+        assert economy.rob_success_percent(level) in economy.ROB_SUCCESS_PERCENT.values()
+
+    @pytest.mark.parametrize("level", sorted(economy.ROB_SUCCESS_PERCENT))
+    def test_the_roll_matches_the_advertised_percentage(self, level):
+        # A fixed seed keeps this deterministic; the tolerance covers sampling
+        # noise, not a difference in the underlying rate.
+        rng = random.Random(4321)
+        trials = 20_000
+        hits = sum(economy.roll_rob(level, rng) for _ in range(trials))
+        expected = economy.rob_success_percent(level)
+        assert abs(hits / trials * 100 - expected) < 1.0
+
+
 class TestMining:
     def test_no_miner_never_yields(self):
         rng = random.Random(0)

@@ -41,10 +41,13 @@ that would make that unsafe.
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
 buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings. The lottery adds two
-tables in migration 3, the jackpot two more in migration 5, and head-to-head matches one in
-migration 6; the `bank` table is still untouched. Head-to-head games share `MatchView` (escrow
-settlement) and `MatchChallengeView` (the offer) in `views.py`, which are deliberately game-blind:
-a second one is a rules module, a board view, and a command. Tic-tac-toe is the only one right
+tables in migration 3, the jackpot two more in migration 5, head-to-head matches one in
+migration 6, and wallet security one in migration 7; the `bank` table is still untouched. A
+member with no `security` row is level 0, so that migration writes no rows at all — a per-member
+level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
+Head-to-head games share `MatchView` (escrow settlement) and `MatchChallengeView` (the offer) in
+`views.py`, which are deliberately game-blind: a second one is a rules module, a board view, and
+a command. Tic-tac-toe is the only one right
 now, so `tests/test_matches.py` covers that shared half against it.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
@@ -117,6 +120,11 @@ claim, which leaves the rate untouched while the bank is small and turns growth 
 above that. Every other source — begging, mining, starting funds — is linear and cannot run away
 inside a fixed season.
 
+**A sink is the safe direction.** `secure` is the counterweight added when robbery was driving
+people away from the games: it buys down the odds a `rob` against you lands, costs bank money,
+and returns nothing. Because it only ever destroys money it needs no cap, which is why a
+defensive upgrade is a far cheaper thing to add than another faucet.
+
 **Before adding any income, ask whether it is a percentage of something that grows.** If it is, it
 compounds, and it needs a cap. That single question is what `tests/test_season.py` exists to enforce:
 it plays a full 365-day season on every commit and fails if the supply or the richest member leaves
@@ -181,6 +189,13 @@ Three further layers, all in place because they cover different failure modes:
   called off. Board counts stay odd so the first-move advantage is shared as evenly as it can be.
   Before adding a game with a common draw, work out how often two competent members would actually
   move money — a game that mostly refunds is a game nobody plays twice.
+- **A defense may never become an immunity.** Wallet security lowers `rob`'s success rate and
+  nothing else — the top level still lets one robbery in ten through, and `rob_success_percent`
+  clamps a level off the end of the table back onto it. A wallet that cannot be robbed removes
+  the reason to `deposit` at all, and casino stakes come out of the wallet, so the wallet has to
+  stay the risky place to keep money. Price a defense so it is a season-long goal (the whole
+  track is over a month of capped dailies, which `tests/test_antiabuse.py` asserts) and never
+  let one pay anything back.
 
 `RateLimitedError` subclasses `commands.CheckFailure` on purpose. discord.py's `Bot.invoke` only
 dispatches `CommandError` subclasses to an error handler, so a plain exception raised from a cog

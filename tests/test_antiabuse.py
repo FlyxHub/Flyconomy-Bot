@@ -325,6 +325,47 @@ class TestRefundedCooldownsCannotLoop:
             await cog.cog_check(ctx)
 
 
+class TestSecurityIsADefenseNotAnIncome:
+    """Wallet security is bought, never earned, and never absolute.
+
+    It is the one upgrade that pays nothing back, so the checks here are that
+    it stays a sink and that no amount of it ends the interaction it prices.
+    """
+
+    async def test_buying_every_level_only_destroys_money(self, db, settings, ctx):
+        from flyconomy.cogs.economy import Economy
+
+        cog = Economy(FakeBot(db, settings))
+        track = sum(economy.SECURITY_COST.values())
+        await db.add_bank(ALICE, track)
+        before = (await db.get_account(ALICE)).net_worth
+
+        for _ in economy.SECURITY_COST:
+            await cog.secure.callback(cog, ctx)
+
+        after = (await db.get_account(ALICE)).net_worth
+        assert after == before - track
+
+    def test_the_top_level_still_leaves_a_wallet_worth_robbing(self):
+        # A wallet nobody can rob is a wallet nobody ever banks, which removes
+        # the reason `deposit` exists.
+        assert economy.rob_success_percent(economy.MAX_SECURITY_LEVEL) > 0
+
+    def test_defense_gets_dearer_as_it_gets_better(self):
+        # Each level buys a smaller cut of the remaining risk for more money,
+        # so the track cannot be rushed early in a season.
+        for level, cost in economy.SECURITY_COST.items():
+            if level:
+                assert cost > economy.SECURITY_COST[level - 1]
+
+    def test_maxing_out_costs_more_than_a_month_of_capped_dailies(self):
+        # The whole track has to be a season-long goal. If it were affordable
+        # in a week, everyone would be undisturbed by robbery for most of the
+        # year and the wallet would stop being a real risk.
+        settings = Settings(discord_token="placeholder")
+        assert sum(economy.SECURITY_COST.values()) > settings.max_daily_payout * 30
+
+
 class TestGrindingIsNotProfitable:
     """The end-to-end property: playing a lot must not create money."""
 

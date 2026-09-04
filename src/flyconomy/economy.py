@@ -97,9 +97,35 @@ DAILY_PAYOUT_CAP: Final = 10_000
 BEG_MIN: Final = 1
 BEG_MAX: Final = 100
 
-#: One-in-N odds of ``beg`` and ``rob`` succeeding.
+#: One-in-N odds of a ``beg`` succeeding.
 BEG_SUCCESS_ODDS: Final = 2
-ROB_SUCCESS_ODDS: Final = 2
+
+# -------------------------------------------------------------- security ----
+
+#: Highest wallet security level reachable through the ``secure`` command.
+MAX_SECURITY_LEVEL: Final = 5
+
+#: Percent chance that a robbery succeeds against the keyed security level.
+#:
+#: Level 0 is 50%, which is exactly what ``rob`` paid before security existed,
+#: so an unprotected wallet is no safer than it ever was. The top level is
+#: deliberately not zero: a wallet nobody can ever rob removes the reason to
+#: bank money at all, and turns a defensive purchase into a permanent immunity
+#: that ends the interaction rather than pricing it.
+ROB_SUCCESS_PERCENT: Final[dict[int, int]] = {0: 50, 1: 40, 2: 30, 3: 22, 4: 15, 5: 10}
+
+#: Bank cost to advance wallet security from the keyed level to the next.
+#:
+#: Security only ever destroys money -- it is bought from the bank and pays
+#: nothing back -- so it is a sink, and the prices climb steeply enough that
+#: maxing it out is a season-long goal rather than an early purchase.
+SECURITY_COST: Final[dict[int, int]] = {
+    0: 2_500,
+    1: 15_000,
+    2: 60_000,
+    3: 250_000,
+    4: 1_000_000,
+}
 
 # ------------------------------------------------------------- cooldowns ----
 
@@ -297,6 +323,48 @@ def roll_mine(miner_level: int, rng: random.Random | None = None) -> int:
         return ADMIN_MINE_YIELD
     chance = mine_chance_percent(miner_level)
     return 1 if chance and source.randint(1, 100) <= chance else 0
+
+
+def security_cost(security_level: int) -> int | None:
+    """Return the bank cost to raise wallet security from ``security_level``.
+
+    Args:
+        security_level: The member's current security level.
+
+    Returns:
+        The cost in dollars, or ``None`` when security is already at
+        :data:`MAX_SECURITY_LEVEL` or above.
+    """
+    return SECURITY_COST.get(security_level)
+
+
+def rob_success_percent(security_level: int) -> int:
+    """Return the percent chance a robbery beats ``security_level``.
+
+    Args:
+        security_level: The victim's current security level. A level past the
+            top of the table is clamped to it, so a hand-edited row cannot make
+            a wallet unrobbable.
+
+    Returns:
+        The chance the theft succeeds, which is never zero.
+    """
+    clamped = min(max(security_level, 0), MAX_SECURITY_LEVEL)
+    return ROB_SUCCESS_PERCENT[clamped]
+
+
+def roll_rob(security_level: int, rng: random.Random | None = None) -> bool:
+    """Roll a robbery against a wallet defended at ``security_level``.
+
+    Args:
+        security_level: The victim's current security level.
+        rng: Random source, injectable for deterministic tests.
+
+    Returns:
+        Whether the robbery succeeds.
+    """
+    source = rng if rng is not None else _DEFAULT_RNG
+    return source.randint(1, 100) <= rob_success_percent(security_level)
 
 
 def next_flx_price(current: int, rng: random.Random | None = None) -> int:

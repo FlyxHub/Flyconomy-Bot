@@ -50,7 +50,12 @@ ADDED_COMMANDS = {
     "lottery": (),
 }
 
-ALL_MEMBER_COMMANDS = V1_MEMBER_COMMANDS | ADDED_COMMANDS
+#: Non-game commands added after version 1.
+ADDED_UTILITIES = {
+    "secure": ("security",),
+}
+
+ALL_MEMBER_COMMANDS = V1_MEMBER_COMMANDS | ADDED_COMMANDS | ADDED_UTILITIES
 
 
 @pytest.fixture
@@ -130,6 +135,24 @@ class TestAddedGames:
     async def test_the_new_games_have_no_cooldown(self, bot: FlyconomyBot, name: str):
         # Casino games are limited by the wallet, not by a timer.
         command = bot.get_command(name)
+        assert command is not None
+        assert command._buckets._cooldown is None
+
+
+class TestAddedUtilities:
+    @pytest.mark.parametrize(("name", "aliases"), sorted(ADDED_UTILITIES.items()))
+    async def test_they_are_registered_with_their_aliases(
+        self, bot: FlyconomyBot, name: str, aliases: tuple[str, ...]
+    ):
+        command = bot.get_command(name)
+        assert isinstance(command, commands.HybridCommand | commands.HybridGroup)
+        assert command.help, f"{name} has no docstring"
+        for alias in aliases:
+            assert bot.get_command(alias) is command
+
+    async def test_buying_security_is_not_rate_limited_by_a_cooldown(self, bot: FlyconomyBot):
+        # The bank balance is the limit on how much defense anyone can buy.
+        command = bot.get_command("secure")
         assert command is not None
         assert command._buckets._cooldown is None
 

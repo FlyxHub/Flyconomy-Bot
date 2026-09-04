@@ -35,6 +35,9 @@ classic prefix command, such as `$balance`.
   be stolen; banked cash cannot.
 - **Income.** Members beg for small amounts, collect a daily payout worth 10% of
   their bank balance, or rob another member's wallet.
+- **Wallet security.** Members buy levels of security to make a robbery against
+  them less likely to land, so playing the casino out of a wallet does not mean
+  leaving it undefended.
 - **Flyxcoin.** Members buy a miner, upgrade it to improve their odds, mine
   hourly, and buy, sell, or send coins. The price moves on its own every 5
   minutes on a bounded random walk, and the bot's status shows it live as a
@@ -293,12 +296,13 @@ mentioning the bot works as a prefix too.
 
 | Command | Description |
 | --- | --- |
-| `balance [member]` | Shows wallet, bank, Flyxcoin, miner level, and net worth. Defaults to you. Alias: `bal`. |
+| `balance [member]` | Shows wallet, bank, Flyxcoin, miner level, wallet security, and net worth. Defaults to you. Alias: `bal`. |
 | `deposit [amount]` | Moves money from your wallet to your bank. Defaults to your whole wallet. Alias: `dep`. |
 | `withdraw [amount]` | Moves money from your bank to your wallet. Defaults to your whole bank balance. |
 | `beg` | Pays $1 to $100 half the time. Cooldown: 60 seconds. |
 | `daily` | Pays 10% of your bank balance. Cooldown: 24 hours. |
-| `rob <member>` | Takes a random share of a member's wallet, half the time. Cooldown: 1 hour. |
+| `rob <member>` | Takes a random share of a member's wallet. Lands half the time against an undefended wallet, less against a secured one. Cooldown: 1 hour. |
+| `secure` | Raises your wallet security one level, paid from your bank balance. Alias: `security`. |
 | `leaderboard` | Ranks the top 10 members by net worth. Alias: `lb`. |
 | `wallets` | Ranks the top 10 undeposited wallets, which are the best robbery targets. |
 | `resetme` | Deletes your own account, resetting you to a new player. |
@@ -447,6 +451,30 @@ runs once per hour.
 | 5 | Maximum | 20% |
 | 999 | Owner only | Always mines 10 coins |
 
+### Wallet security levels
+
+`secure` pays from your bank balance and raises your wallet security one level.
+Security only changes how often a `rob` against you lands; it never changes how
+much a successful one takes, and it never makes a wallet unrobbable.
+
+| Level | Upgrade cost | A robbery against you succeeds |
+| --- | --- | --- |
+| 0 | $2,500 | 50% of the time |
+| 1 | $15,000 | 40% of the time |
+| 2 | $60,000 | 30% of the time |
+| 3 | $250,000 | 22% of the time |
+| 4 | $1,000,000 | 15% of the time |
+| 5 | Maximum | 10% of the time |
+
+Level 0 is exactly the rate `rob` always paid, so nobody is worse off than
+before security existed. The whole track costs $1,327,500 and returns nothing,
+which makes it the only upgrade that is a pure money sink.
+
+Wallet security is not a substitute for `deposit`. Banked money cannot be
+stolen at all, and the top level still lets one robbery in ten through. What it
+buys is the ability to keep a bankroll in the wallet — where every wager is
+staked from — without handing it to the first member who runs `wallets`.
+
 ### Casino payouts
 
 Each game debits your stake when you place the bet, then credits the return
@@ -501,6 +529,11 @@ mispriced game could do before anyone notices. Bets above it are refused with a
 message naming the limit; nothing is silently clamped, and a refused bet costs
 nothing. Doubling down in blackjack can take a hand to twice the limit, which is
 deliberate and matches how a real table works.
+
+**Defenses are bought, not earned.** `secure` is the one upgrade that pays
+nothing back: every dollar it costs leaves the economy, and no level of it ever
+makes a wallet unrobbable. A defense that could be farmed, or that ended
+robbery outright, would be a worse problem than the one it was added to solve.
 
 A doubling strategy will still end most short sessions slightly ahead. That is
 true of any fair game and cannot be designed away without making the games

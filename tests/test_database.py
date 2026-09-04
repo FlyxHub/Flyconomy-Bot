@@ -338,6 +338,64 @@ class TestMinerUpgrades:
         assert (await db.get_account(ALICE)).miner == economy.ADMIN_MINER_LEVEL
 
 
+class TestSecurityUpgrades:
+    async def test_a_new_account_is_undefended(self, db: Database):
+        assert (await db.get_account(ALICE)).security == 0
+
+    async def test_upgrading_charges_the_bank_and_raises_the_level(self, db: Database):
+        await db.add_bank(ALICE, 10_000)
+
+        bought = await db.buy_security_upgrade(ALICE)
+
+        assert bought == (1, economy.SECURITY_COST[0])
+        account = await db.get_account(ALICE)
+        assert account.security == 1
+        assert account.bank == economy.STARTING_BANK + 10_000 - economy.SECURITY_COST[0]
+
+    async def test_each_level_is_priced_from_the_level_actually_held(self, db: Database):
+        await db.add_bank(ALICE, sum(economy.SECURITY_COST.values()))
+
+        for level in sorted(economy.SECURITY_COST):
+            assert await db.buy_security_upgrade(ALICE) == (level + 1, economy.SECURITY_COST[level])
+
+        assert (await db.get_account(ALICE)).security == economy.MAX_SECURITY_LEVEL
+
+    async def test_an_unaffordable_upgrade_changes_nothing(self, db: Database):
+        with pytest.raises(InsufficientFundsError):
+            await db.buy_security_upgrade(ALICE)
+
+        account = await db.get_account(ALICE)
+        assert account.security == 0
+        assert account.bank == economy.STARTING_BANK
+
+    async def test_a_maxed_wallet_is_not_charged(self, db: Database):
+        await db.add_bank(ALICE, sum(economy.SECURITY_COST.values()) + 1_000_000)
+        for _ in economy.SECURITY_COST:
+            await db.buy_security_upgrade(ALICE)
+        before = (await db.get_account(ALICE)).bank
+
+        assert await db.buy_security_upgrade(ALICE) is None
+
+        account = await db.get_account(ALICE)
+        assert account.security == economy.MAX_SECURITY_LEVEL
+        assert account.bank == before
+
+    async def test_a_purge_takes_the_security_level_with_the_account(self, db: Database):
+        await db.add_bank(ALICE, 10_000)
+        await db.buy_security_upgrade(ALICE)
+
+        await db.purge_user(ALICE)
+
+        # The account is recreated as a brand new player, undefended.
+        assert (await db.get_account(ALICE)).security == 0
+
+    async def test_one_members_security_does_not_defend_another(self, db: Database):
+        await db.add_bank(ALICE, 10_000)
+        await db.buy_security_upgrade(ALICE)
+
+        assert (await db.get_account(BOB)).security == 0
+
+
 class TestLeaderboards:
     async def test_net_worth_ranking_is_highest_first(self, db: Database):
         await db.add_wallet(ALICE, 100)

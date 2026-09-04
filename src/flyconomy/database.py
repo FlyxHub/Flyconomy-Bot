@@ -30,7 +30,7 @@ from flyconomy.errors import InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 6
+SCHEMA_VERSION: Final = 7
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -50,6 +50,8 @@ class Account:
         bank: Deposited cash, which is safe from theft.
         crypto: Flyxcoin held.
         miner: Miner level, where ``0`` means the member owns no miner.
+        security: Wallet security level, where ``0`` means the wallet is
+            undefended. Higher levels lower the odds a ``rob`` against it lands.
         flx_price: The live Flyxcoin price at the moment this account was read.
     """
 
@@ -58,6 +60,7 @@ class Account:
     bank: int
     crypto: int
     miner: int
+    security: int
     flx_price: int
 
     @property
@@ -321,8 +324,11 @@ class Database:
     async def find_account(self, user_id: int) -> Account | None:
         """Return a member's account, or ``None`` when they have never played."""
         async with self._reader.execute(
-            "SELECT b.wallet, b.bank, b.crypto, b.miner, m.price AS flx_price "
-            "FROM bank b, market m WHERE b.user = ? AND m.id = 1",
+            "SELECT b.wallet, b.bank, b.crypto, b.miner, m.price AS flx_price, "
+            "COALESCE(s.level, 0) AS security "
+            "FROM bank b JOIN market m ON m.id = 1 "
+            "LEFT JOIN security s ON s.user = b.user "
+            "WHERE b.user = ?",
             (user_id,),
         ) as cursor:
             row = await cursor.fetchone()
@@ -334,6 +340,7 @@ class Database:
             bank=row["bank"],
             crypto=row["crypto"],
             miner=row["miner"],
+            security=row["security"],
             flx_price=row["flx_price"],
         )
 
@@ -630,6 +637,56 @@ class Database:
             if cursor.rowcount == 0:
                 raise InsufficientFundsError(await self._read_column(db, user_id, "bank"), cost)
             return await self._read_column(db, user_id, "miner")
+
+    async def buy_security_upgrade(self, user_id: int) -> tuple[int, int] | None:
+        """Charge a member's bank balance and raise their wallet security a level.
+
+        The price is looked up inside the transaction, from the level the row
+        actually holds, rather than taken from the caller. Two upgrades racing
+        each other therefore pay one level's price each instead of both paying
+        the cheaper one, the same way ``buy_crypto`` quotes the Flyxcoin price
+        at commit time rather than at the moment the command was typed.
+
+        Args:
+            user_id: The member's Discord snowflake.
+
+        Returns:
+            The new level and the dollars charged, or ``None`` when security is
+            already at :data:`economy.MAX_SECURITY_LEVEL`. Nothing is charged in
+            that case.
+
+        Raises:
+            InsufficientFundsError: If the bank balance is too small.
+        """
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            level = await self._read_security_level(db, user_id)
+            cost = economy.security_cost(level)
+            if cost is None:
+                return None
+
+            cursor = await db.execute(
+                "UPDATE bank SET bank = bank - ? WHERE user = ? AND bank >= ?",
+                (cost, user_id, cost),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(await self._read_column(db, user_id, "bank"), cost)
+
+            # The insert path is only reached at level 0, so the seeded 1 and
+            # the incremented level are the same number by two routes.
+            await db.execute(
+                "INSERT INTO security (user, level) VALUES (?, 1) "
+                "ON CONFLICT(user) DO UPDATE SET level = level + 1",
+                (user_id,),
+            )
+            return level + 1, cost
+
+    @staticmethod
+    async def _read_security_level(db: aiosqlite.Connection, user_id: int) -> int:
+        """Return a member's wallet security level, where no row means zero."""
+        async with db.execute("SELECT level FROM security WHERE user = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+        return int(row["level"]) if row is not None else 0
 
     async def buy_crypto(self, user_id: int, amount: int) -> int:
         """Exchange bank dollars for Flyxcoin at the live market price.
@@ -1157,12 +1214,15 @@ class Database:
     async def purge_user(self, user_id: int) -> PurgeResult:
         """Remove every trace of a member from the database.
 
-        A member lives in four tables: their balances in ``bank``, one row in
-        ``lottery_entries`` while a draw is open, one row in
-        ``jackpot_entries`` while a jackpot round is, and one row in ``escrow``
-        for each head-to-head match they are in the middle of. All of it goes,
-        in one transaction, so a purge can never leave an entry behind that
-        pays a pot into an account that no longer exists.
+        A member lives in five tables: their balances in ``bank``, their wallet
+        security level in ``security``, one row in ``lottery_entries`` while a
+        draw is open, one row in ``jackpot_entries`` while a jackpot round is,
+        and one row in ``escrow`` for each head-to-head match they are in the
+        middle of. All of it goes, in one transaction, so a purge can never
+        leave an entry behind that pays a pot into an account that no longer
+        exists. The security row is not counted in the result: it holds no
+        money, and a member who resets themselves should come back undefended
+        rather than keep a level they no longer paid for.
 
         A match the purged member was playing is voided rather than forfeited,
         and their opponent's stake goes back: the stake belongs to a member who
@@ -1186,6 +1246,7 @@ class Database:
         async with self._transaction() as db:
             account = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
             removed = account.rowcount > 0
+            await db.execute("DELETE FROM security WHERE user = ?", (user_id,))
             entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
             antes = await db.execute("DELETE FROM jackpot_entries WHERE user = ?", (user_id,))
 
@@ -1369,6 +1430,25 @@ async def _migration_6_escrow(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_7_security(db: aiosqlite.Connection) -> None:
+    """Add the wallet security level that defends against ``rob``.
+
+    The ``bank`` table is untouched. The level lives here rather than beside
+    ``miner`` because that table is inherited verbatim from version 1, and
+    because a season reset should be able to clear everyone's defenses along
+    with the balances they were protecting by emptying one table.
+
+    A member with no row is level 0, so this migration writes no rows: every
+    existing account is already correctly undefended.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS security ("
+        "  user INTEGER PRIMARY KEY,"
+        "  level INTEGER NOT NULL DEFAULT 0 CHECK (level >= 0)"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -1376,4 +1456,5 @@ _MIGRATIONS: Final = {
     4: _migration_4_market,
     5: _migration_5_jackpot,
     6: _migration_6_escrow,
+    7: _migration_7_security,
 }

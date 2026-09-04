@@ -60,6 +60,7 @@ def balance_embed(user: discord.abc.User, account: Account, timezone: str) -> di
     embed.add_field(name="Bank:", value=money(account.bank), inline=True)
     embed.add_field(name="Flyxcoin:", value=coins(account.crypto), inline=False)
     embed.add_field(name="Miner Level:", value=f"Level {account.miner}", inline=True)
+    embed.add_field(name="Wallet Security:", value=f"Level {account.security}", inline=True)
     embed.add_field(name="Total Net Worth", value=money(account.net_worth), inline=False)
     return embed
 

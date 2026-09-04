@@ -46,6 +46,20 @@ async def test_the_bank_table_keeps_its_original_columns(db_path):
     assert columns == ["wallet", "bank", "crypto", "miner", "user"]
 
 
+async def test_a_version_1_database_gains_undefended_wallets(db_path):
+    # Security lives in its own table, so an upgraded database has no rows in
+    # it at all. Every inherited account must still read as level 0 rather
+    # than as a missing value.
+    make_v1_database(db_path, [(250, 9_000, 3, 2, ALICE)])
+
+    database = await Database.connect(db_path)
+    try:
+        assert (await database.get_account(ALICE)).security == 0
+        assert (await database.get_account(BOB)).security == 0
+    finally:
+        await database.close()
+
+
 async def test_migrating_records_the_schema_version(db_path):
     make_v1_database(db_path, [])
     database = await Database.connect(db_path)
