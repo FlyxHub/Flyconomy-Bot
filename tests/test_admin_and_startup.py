@@ -200,11 +200,22 @@ class TestLogging:
         configure_logging("INFO")
         assert len(logging.getLogger().handlers) == 1
 
-    def test_discord_gateway_logs_stay_quiet_at_debug(self):
+    def test_the_discord_gateway_log_stays_quiet_at_debug(self):
         configure_logging("DEBUG")
         try:
             assert logging.getLogger("discord").level >= logging.INFO
-            assert logging.getLogger("discord.http").level == logging.WARNING
+        finally:
+            configure_logging("INFO")
+
+    def test_the_http_log_is_capped_until_the_root_level_asks_for_debug(self):
+        # discord.py logs its proactive rate-limit waits on this logger, which
+        # is noise at INFO but the whole point of turning DEBUG on.
+        configure_logging("INFO")
+        assert logging.getLogger("discord.http").level == logging.WARNING
+
+        configure_logging("DEBUG")
+        try:
+            assert logging.getLogger("discord.http").level == logging.DEBUG
         finally:
             configure_logging("INFO")
 

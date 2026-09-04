@@ -32,4 +32,6 @@ def configure_logging(level: str = "INFO") -> None:
     # discord.py's HTTP client logs its proactive rate-limit waits at DEBUG too --
     # cap that at WARNING in normal operation, but let a DEBUG root level through
     # so a rate-limit stall is visible instead of silently eating command time.
-    logging.getLogger("discord.http").setLevel(logging.WARNING if root.level > logging.DEBUG else logging.DEBUG)
+    logging.getLogger("discord.http").setLevel(
+        logging.WARNING if root.level > logging.DEBUG else logging.DEBUG
+    )

@@ -408,11 +408,11 @@ class TestLifecycle:
         # that connection's single background thread is doing -- a write, or
         # an occasional WAL checkpoint -- no matter how fast the read itself
         # is. A dedicated connection is what lets it skip that queue.
-        assert db._reader is not db._db  # type: ignore[attr-defined]
+        assert db._reader is not db._db
 
     async def test_closing_closes_the_reader_connection_too(self, db_path):
         database = await Database.connect(db_path)
-        reader = database._reader  # type: ignore[attr-defined]
+        reader = database._reader
         await database.close()
         with pytest.raises(ValueError):
             await reader.execute("SELECT 1")
