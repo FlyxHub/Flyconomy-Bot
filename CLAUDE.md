@@ -41,7 +41,8 @@ that would make that unsafe.
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
 buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings. The lottery adds two
-tables in migration 3; the `bank` table is still untouched.
+tables in migration 3 and the jackpot two more in migration 5; the `bank` table is still
+untouched.
 
 Three invariants hold the design together. Breaking one is how this codebase regresses:
 
@@ -145,7 +146,14 @@ Three further layers, all in place because they cover different failure modes:
   primary key, not by application code.
 - **A table limit,** `settings.max_bet`, enforced in `Gambling._stake`. Every wager debits through
   that one method, so a new game cannot forget the cap. Check the limit *before* debiting, so a
-  refused bet costs nothing.
+  refused bet costs nothing. The jackpot is the one wager that cannot use `_stake`, because its
+  ante and its entry have to move in one transaction; it calls `_check_limit` directly instead, and
+  its Join button antes the opener's already-checked amount rather than taking a new one.
+- **Player-funded pots pay out less than they take in.** The jackpot has no house bankroll behind
+  it: the pot is only ever the sum of its entries, and the winner takes it less
+  `jackpot.HOUSE_CUT`, so a round can only shrink the supply. Weighting the odds by ante is safe
+  *here* precisely because the entrants fund the pot themselves — the lottery forbids buying odds
+  because its pot is fed by the house's rake instead. Don't carry either rule across to the other.
 
 `RateLimitedError` subclasses `commands.CheckFailure` on purpose. discord.py's `Bot.invoke` only
 dispatches `CommandError` subclasses to an error handler, so a plain exception raised from a cog

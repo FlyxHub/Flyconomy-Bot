@@ -121,6 +121,7 @@ module = [
     "tests.test_views",
     "tests.test_antiabuse",
     "tests.test_lottery",
+    "tests.test_jackpot",
 ]
 disable_error_code = [
     "arg-type",

@@ -39,9 +39,12 @@ classic prefix command, such as `$balance`.
   hourly, and buy, sell, or send coins. The price moves on its own every 5
   minutes on a bounded random walk, and the bot's status shows it live as a
   `FLX: $10,340 ▲2.1%` stock ticker.
-- **Casino.** Blackjack with hit, stand, and double-down buttons, plus a slot
-  machine, card war, coin flip, rock paper scissors, dice, and American
-  roulette.
+- **Casino.** Blackjack with hit, stand, and double-down buttons, a crash
+  multiplier to cash out of, plus a slot machine, card war, coin flip, rock
+  paper scissors, dice, and American roulette.
+- **Jackpot.** A player-funded pot anyone can ante into for a minute, then one
+  entrant wins the lot. Odds are the share of the pot you paid for, so a bigger
+  ante wins more often at exactly the same edge.
 - **Lottery.** A pot fed by entry fees and a share of the casino's winnings,
   drawn on a schedule. One entry each, so everyone has the same chance.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
@@ -324,6 +327,31 @@ Every game stakes money from your wallet.
 | `crash <bet>` | A multiplier climbs from 1.00x. Press Cash Out before it crashes to lock in the payout. |
 | `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
+| `jackpot <ante>` | Antes into a shared pot that anyone can join for 60 seconds. One entrant wins it all. Alias: `jp`. |
+
+### Jackpot
+
+`jackpot <ante>` opens a round and antes you into it. For the next 60 seconds
+anyone else can join, either with the **Join** button, which antes the same
+amount the round opened at, or with their own `jackpot <ante>` for a different
+amount. When the timer runs out one entrant is drawn and takes the pot, less a
+5% cut to the house.
+
+The draw is weighted by ante: put in a quarter of the pot and you win a quarter
+of the time. That makes every entrant's expected return the same 95% of what
+they anted, whether they anted $100 or $100,000, so a bigger ante buys a bigger
+share of the pot rather than better value.
+
+Two rules keep it honest:
+
+- **A round with only one entrant is refunded in full.** No cut is taken for a
+  game nobody else showed up to.
+- **One ante per member per round.** A second `jackpot` in the same round is
+  refused rather than added to your first, which is what stops a member from
+  stepping past the table limit one top-up at a time.
+
+Antes live in the database while a round runs, so a restart mid-round hands
+every ante back rather than losing it.
 
 ### Lottery
 
@@ -393,6 +421,7 @@ below if you win. The profit column is what you gain overall.
 | Rock paper scissors | 1 in 3 | 3x stake | 2x stake | 0% |
 | Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.4% to 15.8% |
 | Crash | Depends on when you cash out | Whatever multiplier you cash out at | Multiplier minus 1, times stake | 3%, flat at every cash-out target |
+| Jackpot | Your share of the pot | 95% of the pot | Pot less your ante and the cut | 5%, flat at every ante size |
 
 House edge is the share of each staked dollar the bot keeps on average. **No
 game pays players more than its odds justify**, which is enforced by a test: if

@@ -7,12 +7,14 @@ a cog that fails to register is caught here rather than at startup.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 from discord.ext import commands
 
 from flyconomy.bot import EXTENSIONS, FlyconomyBot
 from flyconomy.config import Settings
+from flyconomy.database import Database
 
 #: Commands version 1 offered to everyone, with the aliases it accepted.
 V1_MEMBER_COMMANDS = {
@@ -42,6 +44,8 @@ ADDED_COMMANDS = {
     "blackjack": ("bj",),
     "slots": ("slot",),
     "war": (),
+    "crash": (),
+    "jackpot": ("jp",),
     "lottery": (),
 }
 
@@ -49,9 +53,13 @@ ALL_MEMBER_COMMANDS = V1_MEMBER_COMMANDS | ADDED_COMMANDS
 
 
 @pytest.fixture
-async def bot() -> AsyncIterator[FlyconomyBot]:
+async def bot(tmp_path: Path) -> AsyncIterator[FlyconomyBot]:
     """Build a bot with every extension loaded, without connecting to Discord."""
     client = FlyconomyBot(Settings(discord_token="placeholder"))
+    # setup_hook opens the database before loading extensions, because a cog
+    # may need it as it loads -- the casino refunds an interrupted jackpot
+    # round there. Loading them without one would not be the real startup.
+    client.db = await Database.connect(tmp_path / "bot.db")
     for extension in EXTENSIONS:
         await client.load_extension(extension)
     try:

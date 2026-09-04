@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from flyconomy import crash, economy
+from flyconomy import crash, economy, jackpot
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
@@ -34,6 +34,7 @@ WAGER_COMMANDS = [
     ("war", ()),
     ("blackjack_command", ()),
     ("crash_command", ()),
+    ("jackpot_command", ()),
 ]
 
 
@@ -113,6 +114,20 @@ class TestNoGameIsProfitable:
         edge = (staked - returned) / staked
         assert edge > 0, f"target {target}x gave the player an edge"
 
+    @pytest.mark.parametrize(
+        "antes", [(100, 100), (100, 900), (1, 1_000_000), (500, 300, 200), (10_000,) * 8]
+    )
+    def test_the_jackpot_is_negative_for_every_entrant(self, antes):
+        """A player-funded pot is the one game where the players are each
+        other's opposition, so it cannot print money however the pot is split:
+        the payout is always smaller than the antes that made it. Weighting the
+        odds by ante keeps every entrant on the same edge as well as below
+        zero -- tests/test_jackpot.py makes that argument in full."""
+        pot = sum(antes)
+        for ante in antes:
+            profit = jackpot.win_chance(ante, pot) * jackpot.payout(pot) - ante
+            assert profit <= 0, f"an ante of {ante} in a pot of {pot} profits {profit:+.2f}"
+
     def test_no_game_pays_more_than_it_takes(self):
         """The property that actually matters: nothing has a positive edge."""
         edges = {
@@ -121,6 +136,8 @@ class TestNoGameIsProfitable:
             "rps": (1 / 3) * (economy.RPS_RETURN - 1)
             + (1 / 3) * (economy.RPS_TIE_RETURN - 1)
             + (1 / 3) * -1,
+            "jackpot": (jackpot.win_chance(10_000, 20_000) * jackpot.payout(20_000) - 10_000)
+            / 10_000,
         }
         for name, edge in edges.items():
             assert edge <= 1e-9, f"{name} pays players {edge:+.4f} per unit staked"

@@ -106,6 +106,10 @@ class Admin(BaseCog, name="Admin"):
             removed.append("1 lottery entry")
         elif result.lottery_entries:
             removed.append(f"{result.lottery_entries} lottery entries")
+        if result.jackpot_entries == 1:
+            removed.append("1 jackpot ante")
+        elif result.jackpot_entries:
+            removed.append(f"{result.jackpot_entries} jackpot antes")
         await ctx.send(f"Purged `{user_id}`, removing {' and '.join(removed)}.")
 
     @commands.command(name="sync")

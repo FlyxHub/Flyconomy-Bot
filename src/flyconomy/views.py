@@ -9,15 +9,17 @@ what makes the view testable without a gateway connection.
 from __future__ import annotations
 
 import logging
+import random
 import time
 from collections.abc import Callable
 
 import discord
 from discord.ext import tasks
 
-from flyconomy import blackjack, crash, embeds
-from flyconomy.database import Database
+from flyconomy import blackjack, crash, embeds, jackpot
+from flyconomy.database import Database, JackpotState
 from flyconomy.errors import InsufficientFundsError
+from flyconomy.ratelimit import SlidingWindowLimiter
 
 log = logging.getLogger(__name__)
 
@@ -445,3 +447,281 @@ class CrashView(discord.ui.View):
             )
             return
         await self._redraw(interaction)
+
+
+class JackpotView(discord.ui.View):
+    """A Join button on a live, player-funded jackpot round.
+
+    Unlike the blackjack and crash views, this one belongs to everybody: any
+    member may press Join, because the game is the other entrants rather than
+    the house. The round closes on elapsed wall-clock time read through the
+    injectable ``now`` callable, so a throttled or skipped redraw can neither
+    extend nor shorten the window in which an ante still counts.
+
+    Attributes:
+        state: The round as last read from the database.
+        message: The message the button lives on, set by the caller after
+            sending so the tick loop and the timeout can redraw it.
+    """
+
+    def __init__(
+        self,
+        *,
+        db: Database,
+        rng: random.Random,
+        state: JackpotState,
+        ante: int,
+        timezone: str,
+        rake: float = 0.0,
+        creator_tax_rate: float = 0.0,
+        creator_tax_user_id: int | None = None,
+        limiter: SlidingWindowLimiter | None = None,
+        now: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """Build a view for a round that already holds its opening ante.
+
+        Args:
+            db: Open database, used to take antes and pay the pot out.
+            rng: Random source for the draw, injectable for deterministic tests.
+            state: The round as it stands, already holding the opener's ante.
+            ante: The opening ante, which is what the Join button costs. The
+                command that opened the round has already checked it against
+                the table limit, so a press cannot stake past that limit.
+            timezone: IANA timezone for the embed timestamp.
+            rake: Share of the house's cut to send to the lottery pot.
+            creator_tax_rate: Share of the house's cut to send to
+                ``creator_tax_user_id``. Ignored when that user ID is unset.
+            creator_tax_user_id: Bank account credited with the creator tax,
+                or ``None`` to disable it outright.
+            limiter: The shared action budget. A button press does not pass
+                through ``BaseCog.cog_check``, so joining spends budget here
+                instead; ``None`` disables that, which is what tests want.
+            now: Clock used to measure elapsed time, injectable so tests can
+                run a round without waiting out its timer.
+        """
+        super().__init__(timeout=jackpot.DECISION_TIMEOUT_SECONDS)
+        self.db = db
+        self.rng = rng
+        self.state = state
+        self.ante = ante
+        self.timezone = timezone
+        self.rake = rake
+        self.creator_tax_rate = creator_tax_rate
+        self.creator_tax_user_id = creator_tax_user_id
+        self.limiter = limiter
+        self.now = now
+        self.started_at = self.now()
+        self.message: discord.Message | None = None
+        self.winner_id: int | None = None
+        self.paid = 0
+        self.refunded = False
+        self._settled = False
+
+    # ----------------------------------------------------------- rendering --
+
+    def elapsed(self) -> float:
+        """Seconds since the round opened, per the injected clock."""
+        return self.now() - self.started_at
+
+    def seconds_left(self) -> float:
+        """Seconds until the round stops taking antes, never below zero."""
+        return max(0.0, jackpot.ROUND_SECONDS - self.elapsed())
+
+    def is_open(self) -> bool:
+        """Whether the round is still taking antes."""
+        return not self._settled and self.seconds_left() > 0
+
+    def embed(self) -> discord.Embed:
+        """Return the embed for the round as it currently stands."""
+        return embeds.jackpot_embed(
+            self.state,
+            self.timezone,
+            ante=self.ante,
+            seconds_left=self.seconds_left(),
+            winner_id=self.winner_id,
+            paid=self.paid,
+            refunded=self.refunded,
+            finished=self._settled,
+        )
+
+    def _refresh_buttons(self) -> None:
+        """Disable the button once the round is settled."""
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = self._settled
+
+    # ------------------------------------------------------------- actions --
+
+    async def refresh(self) -> None:
+        """Re-read the round, so the embed shows every ante taken so far."""
+        self.state = await self.db.jackpot_state()
+
+    async def apply_join(self, user_id: int, amount: int) -> str | None:
+        """Ante a member into the round.
+
+        Args:
+            user_id: The member joining.
+            amount: Dollars to ante. The caller is responsible for checking
+                this against the table limit.
+
+        Returns:
+            ``None`` on success, or a message explaining the refusal.
+        """
+        if not self.is_open():
+            return "That round has already closed. Start a new one with `jackpot`."
+
+        try:
+            entered = await self.db.enter_jackpot(user_id, amount)
+        except InsufficientFundsError as exc:
+            return (
+                f"An ante of {embeds.money(amount)} is more than your wallet holds "
+                f"({embeds.money(exc.available)})."
+            )
+        if not entered:
+            return "You are already in this round. Everyone antes once."
+
+        await self.refresh()
+        return None
+
+    async def settle(self) -> None:
+        """Close the round, draw a winner, and pay the pot out.
+
+        Safe to call more than once: only the first call moves money, so the
+        closing tick racing the safety-net timeout can never pay twice.
+
+        A round that closes below ``jackpot.MIN_ENTRANTS`` is refunded in full
+        rather than drawn, so nobody is charged a cut for a game that had no
+        opponent in it.
+        """
+        if self._settled:
+            return
+        self._settled = True
+
+        # Read once more before anything moves: a join landing in the same
+        # moment the round closes is either in this pot or in none.
+        await self.refresh()
+
+        if self.state.entrants < jackpot.MIN_ENTRANTS:
+            await self.db.refund_jackpot()
+            self.refunded = True
+        else:
+            cut = jackpot.house_cut(self.state.pot)
+            self.winner_id = jackpot.draw_winner(self.state.entries, self.rng)
+            self.paid = await self.db.award_jackpot(self.winner_id, cut=cut)
+
+            share = int(cut * self.rake)
+            if share > 0:
+                await self.db.add_to_pot(share)
+            if self.creator_tax_user_id is not None:
+                tax = int(cut * self.creator_tax_rate)
+                if tax > 0:
+                    await self.db.add_bank(self.creator_tax_user_id, tax)
+
+        self._refresh_buttons()
+        self.stop()
+
+    def start_ticking(self) -> None:
+        """Begin the live redraw loop.
+
+        Call only after :attr:`message` is set, since the first tick may need
+        to edit it.
+        """
+        self._tick.start()
+
+    def cancel(self) -> None:
+        """Drop the round without settling it, for a clean shutdown.
+
+        The antes stay in the database, which is exactly where the startup
+        refund expects to find a round nobody is left to draw.
+        """
+        if self._tick.is_running():
+            self._tick.cancel()
+        self.stop()
+
+    @tasks.loop(seconds=jackpot.TICK_SECONDS)
+    async def _tick(self) -> None:
+        """Redraw the countdown, or settle and stop once the round closes.
+
+        Best-effort: a throttled or failed edit is logged and skipped rather
+        than retried, since when the round closes never depends on whether
+        this redraw lands.
+        """
+        if self._settled:
+            self._tick.stop()
+            return
+
+        if self.seconds_left() <= 0:
+            await self.settle()
+            self._tick.stop()
+        else:
+            await self.refresh()
+
+        if self.message is None:
+            return
+        try:
+            await self.message.edit(embed=self.embed(), view=self)
+        except discord.HTTPException:
+            log.warning("Could not redraw a live jackpot round", exc_info=True)
+
+    # -------------------------------------------------------------- events --
+
+    async def on_timeout(self) -> None:
+        """Draw the round so a stalled tick loop still pays the pot out.
+
+        A safety net only: the tick loop settles a closed round well before
+        this fires, so this only matters if that loop stopped running. Leaving
+        it unsettled would strand every ante in the database until a restart
+        refunded them.
+        """
+        if self._tick.is_running():
+            self._tick.stop()
+        if self._settled:
+            return
+        await self.settle()
+        await self.redraw()
+
+    async def redraw(self) -> None:
+        """Edit the round's message in place, best effort."""
+        if self.message is None:
+            return
+        try:
+            await self.message.edit(embed=self.embed(), view=self)
+        except discord.HTTPException:
+            log.warning("Could not redraw a jackpot round", exc_info=True)
+
+    def _spend_budget(self, user_id: int) -> str | None:
+        """Charge a button press against the shared action budget.
+
+        A press never passes through ``BaseCog.cog_check``, so without this a
+        member could join every round on the server as fast as they can click.
+
+        Args:
+            user_id: The member pressing.
+
+        Returns:
+            ``None`` when the press is allowed, or a message telling them how
+            long to wait.
+        """
+        if self.limiter is None:
+            return None
+        wait = self.limiter.acquire(user_id)
+        if wait:
+            return f"You are acting too quickly. Try again in {max(1, round(wait))} seconds."
+        return None
+
+    # ------------------------------------------------------------- buttons --
+
+    @discord.ui.button(label="Join", style=discord.ButtonStyle.success, custom_id="jackpot:join")
+    async def join(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[JackpotView]
+    ) -> None:
+        """Ante the round's opening amount into the pot."""
+        problem = self._spend_budget(interaction.user.id)
+        if problem is None:
+            problem = await self.apply_join(interaction.user.id, self.ante)
+        if problem is not None:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(problem), ephemeral=True
+            )
+            return
+        await interaction.response.edit_message(embed=self.embed(), view=self)

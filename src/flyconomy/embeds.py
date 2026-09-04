@@ -12,8 +12,8 @@ from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import blackjack, crash, economy
-from flyconomy.database import Account, LeaderboardEntry
+from flyconomy import blackjack, crash, economy, jackpot
+from flyconomy.database import Account, JackpotState, LeaderboardEntry
 from flyconomy.economy import Card
 
 #: The bot's brand color, carried over from version 1.
@@ -321,4 +321,107 @@ def crash_embed(
         )
     else:
         embed.set_footer(text="Cash out before it crashes.")
+    return embed
+
+
+#: Entrants listed in full on a jackpot embed before the rest are summarized.
+_JACKPOT_ENTRANTS_SHOWN = 15
+
+
+def jackpot_entrants(state: JackpotState) -> str:
+    """Render a jackpot round's entrants, each with the odds their ante bought.
+
+    Args:
+        state: The round to render.
+
+    Returns:
+        One line per entrant, or a prompt when nobody has anted yet.
+    """
+    if not state.entries:
+        return "Nobody has anted yet."
+
+    pot = state.pot
+    lines = [
+        f"<@{entry.user_id}> - {money(entry.amount)} ({jackpot.win_chance(entry.amount, pot):.0%})"
+        for entry in state.entries[:_JACKPOT_ENTRANTS_SHOWN]
+    ]
+    hidden = len(state.entries) - _JACKPOT_ENTRANTS_SHOWN
+    if hidden > 0:
+        lines.append(f"...and {hidden:,} more")
+    return "\n".join(lines)
+
+
+def jackpot_result_line(
+    state: JackpotState, *, winner_id: int | None, paid: int, refunded: bool
+) -> str:
+    """Describe how a jackpot round ended.
+
+    Args:
+        state: The round as it stood when it closed.
+        winner_id: The member who took the pot, or ``None`` if nobody did.
+        paid: Dollars paid to the winner, after the house's cut.
+        refunded: Whether every ante was handed back instead.
+
+    Returns:
+        One line for the embed's result field.
+    """
+    if refunded:
+        return "Not enough entrants, so nothing was drawn. Every ante was returned in full."
+    if winner_id is None:  # pragma: no cover - a decided round always has one
+        return "Nobody entered."
+    return f"<@{winner_id}> wins {money(paid)} from a pot of {money(state.pot)}!"
+
+
+def jackpot_embed(
+    state: JackpotState,
+    timezone: str,
+    *,
+    ante: int,
+    seconds_left: float,
+    winner_id: int | None = None,
+    paid: int = 0,
+    refunded: bool = False,
+    finished: bool = False,
+) -> discord.Embed:
+    """Build the embed for a jackpot round, live or decided.
+
+    Args:
+        state: The round, as last read.
+        timezone: IANA timezone for the embed timestamp.
+        ante: The opening ante, which is what the Join button costs.
+        seconds_left: Seconds until the round closes.
+        winner_id: The member who took the pot, once decided.
+        paid: Dollars paid to the winner, after the house's cut.
+        refunded: Whether the round closed too small to draw and was refunded.
+        finished: Whether the round has closed.
+
+    Returns:
+        A populated embed.
+    """
+    colour = ERROR_COLOR if refunded else BRAND_COLOR
+    embed = discord.Embed(
+        title=f"Jackpot round #{state.round_number}",
+        color=colour,
+        timestamp=now(timezone),
+    )
+    embed.add_field(name="Pot", value=money(state.pot), inline=True)
+    embed.add_field(name="Entrants", value=f"{state.entrants:,}", inline=True)
+    if not finished:
+        embed.add_field(name="Closes in", value=f"{max(0, round(seconds_left))}s", inline=True)
+
+    embed.add_field(name="In the pot", value=jackpot_entrants(state), inline=False)
+
+    if finished:
+        embed.add_field(
+            name="Result",
+            value=jackpot_result_line(state, winner_id=winner_id, paid=paid, refunded=refunded),
+            inline=False,
+        )
+    else:
+        embed.set_footer(
+            text=(
+                f"Join antes {money(ante)}. A bigger ante is a bigger share of the "
+                f"pot and better odds with it."
+            )
+        )
     return embed

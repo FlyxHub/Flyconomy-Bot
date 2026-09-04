@@ -8,6 +8,9 @@ they fire two commands at once.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from discord import app_commands
 from discord.ext import commands
 
@@ -15,7 +18,9 @@ from flyconomy import blackjack, crash, economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.errors import BetTooLargeError
-from flyconomy.views import BlackjackView, CrashView
+from flyconomy.views import BlackjackView, CrashView, JackpotView
+
+log = logging.getLogger(__name__)
 
 _ROULETTE_HELP = (
     "Bet on `red`, `black`, or a single pocket (`0`, `00`, or `1`-`36`). "
@@ -25,6 +30,33 @@ _ROULETTE_HELP = (
 
 class Gambling(BaseCog, name="Casino"):
     """Wager wallet money on games of chance."""
+
+    def __init__(self, bot: FlyconomyBot) -> None:
+        """Bind the cog and start with no jackpot round in play."""
+        super().__init__(bot)
+        # One jackpot round at a time, server-wide, the same way there is one
+        # lottery draw. The lock covers the read-then-open sequence below, so
+        # two members racing to start a round cannot end up with two live views
+        # drawing from the same pot.
+        self._live_jackpot: JackpotView | None = None
+        self._jackpot_lock = asyncio.Lock()
+
+    async def cog_load(self) -> None:
+        """Refund any jackpot round the last shutdown left open.
+
+        Antes live in the database while a round runs, but the timer that draws
+        them lives in a view in memory. Anything still open at startup is a
+        round nobody is left to draw, so the money goes back.
+        """
+        refunded = await self.db.refund_jackpot()
+        if refunded:
+            log.info("Refunded %d jackpot ante(s) left open by a restart", len(refunded))
+
+    async def cog_unload(self) -> None:
+        """Drop a live jackpot round, leaving its antes for the startup refund."""
+        if self._live_jackpot is not None:
+            self._live_jackpot.cancel()
+            self._live_jackpot = None
 
     def _check_limit(self, bet: int) -> None:
         """Refuse a wager above the table limit.
@@ -239,6 +271,78 @@ class Gambling(BaseCog, name="Casino"):
 
         view.message = await ctx.send(embed=view.embed(), view=view)
         view.start_ticking()
+
+    @commands.hybrid_command(name="jackpot", aliases=["jp"])  # type: ignore[arg-type]
+    @app_commands.describe(ante="Dollars to ante into the pot.")
+    async def jackpot_command(
+        self, ctx: commands.Context[FlyconomyBot], ante: commands.Range[int, 1]
+    ) -> None:
+        """Ante into a shared pot. One entrant wins it all, and a bigger ante wins more often."""
+        # Not routed through _stake: the ante and the entry have to move in one
+        # transaction, so the debit happens inside enter_jackpot instead. The
+        # table limit still has to be checked here, before anything is charged.
+        self._check_limit(ante)
+
+        async with self._jackpot_lock:
+            live = self._live_jackpot
+            if live is not None and not live.is_finished():
+                await self._join_jackpot(ctx, live, ante)
+                return
+            await self._open_jackpot(ctx, ante)
+
+    async def _join_jackpot(
+        self, ctx: commands.Context[FlyconomyBot], live: JackpotView, ante: int
+    ) -> None:
+        """Ante into the round already running, and redraw it.
+
+        Args:
+            ctx: Invocation context, used to identify the player.
+            live: The round in play.
+            ante: Dollars to ante, already checked against the table limit.
+        """
+        problem = await live.apply_join(ctx.author.id, ante)
+        if problem is not None:
+            await ctx.send(problem)
+            return
+
+        await live.redraw()
+        await ctx.send(
+            f"You anted {embeds.money(ante)} into round #{live.state.round_number}. "
+            f"The pot is {embeds.money(live.state.pot)} across "
+            f"{live.state.entrants:,} entrants."
+        )
+
+    async def _open_jackpot(self, ctx: commands.Context[FlyconomyBot], ante: int) -> None:
+        """Open a round on this member's ante and start its countdown.
+
+        Args:
+            ctx: Invocation context, used to identify the player.
+            ante: The opening ante, already checked against the table limit.
+                It is also what the Join button costs everyone else, which is
+                what keeps a press inside the table limit too.
+        """
+        # An open round with no live view can only be one a restart or a
+        # cancelled loop left behind, so hand those antes back rather than
+        # letting a new round inherit them.
+        if (await self.db.jackpot_state()).entries:
+            refunded = await self.db.refund_jackpot()
+            log.warning("Refunded %d orphaned jackpot ante(s)", len(refunded))
+
+        await self.db.enter_jackpot(ctx.author.id, ante)
+        view = JackpotView(
+            db=self.db,
+            rng=self.rng,
+            state=await self.db.jackpot_state(),
+            ante=ante,
+            timezone=self.timezone,
+            rake=self.settings.lottery_rake,
+            creator_tax_rate=self.settings.creator_tax_rate,
+            creator_tax_user_id=self.settings.creator_tax_user_id,
+            limiter=self.limiter,
+        )
+        view.message = await ctx.send(embed=view.embed(), view=view)
+        view.start_ticking()
+        self._live_jackpot = view
 
     @commands.hybrid_command(name="war")  # type: ignore[arg-type]
     @app_commands.describe(bet="Dollars to stake.")

@@ -24,13 +24,13 @@ from typing import Final, Self
 
 import aiosqlite
 
-from flyconomy import economy
+from flyconomy import economy, jackpot
 from flyconomy.errors import InsufficientFundsError
 
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 4
+SCHEMA_VERSION: Final = 5
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -82,6 +82,33 @@ class LotteryState:
 
 
 @dataclass(frozen=True, slots=True)
+class JackpotState:
+    """The open jackpot round as it currently stands.
+
+    The pot is derived from the entries rather than stored beside them, so the
+    two can never drift apart: every dollar in the pot is one an entrant is
+    still recorded as having anted.
+
+    Attributes:
+        round_number: The round now accepting antes, counting from one.
+        entries: Everyone in the round, in the order they entered.
+    """
+
+    round_number: int
+    entries: tuple[jackpot.Entry, ...]
+
+    @property
+    def pot(self) -> int:
+        """Dollars anted into the round so far."""
+        return jackpot.total_pot(self.entries)
+
+    @property
+    def entrants(self) -> int:
+        """How many members are in the round."""
+        return len(self.entries)
+
+
+@dataclass(frozen=True, slots=True)
 class LeaderboardEntry:
     """One row of a ranked listing.
 
@@ -101,15 +128,17 @@ class PurgeResult:
     Attributes:
         account: Whether a ``bank`` row was removed.
         lottery_entries: How many open-draw entries were removed.
+        jackpot_entries: How many open-round jackpot antes were removed.
     """
 
     account: bool
     lottery_entries: int
+    jackpot_entries: int = 0
 
     @property
     def found(self) -> bool:
         """Whether the member existed anywhere in the database."""
-        return self.account or self.lottery_entries > 0
+        return self.account or self.lottery_entries > 0 or self.jackpot_entries > 0
 
 
 class Database:
@@ -773,6 +802,159 @@ class Database:
             await db.execute("UPDATE lottery SET draw = draw + 1 WHERE id = 1")
             return int(row["pot"]) if row else 0
 
+    # ------------------------------------------------------------- jackpot --
+
+    async def jackpot_state(self) -> JackpotState:
+        """Return the open round and everyone who has anted into it."""
+        async with self._reader.execute("SELECT round FROM jackpot WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+        if row is None:  # pragma: no cover - migration 5 guarantees the row
+            return JackpotState(round_number=1, entries=())
+
+        round_number = int(row["round"])
+        async with self._reader.execute(
+            "SELECT user, amount FROM jackpot_entries WHERE round = ? ORDER BY rowid",
+            (round_number,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return JackpotState(
+            round_number=round_number,
+            entries=tuple(jackpot.Entry(int(r["user"]), int(r["amount"])) for r in rows),
+        )
+
+    async def enter_jackpot(self, user_id: int, amount: int) -> bool:
+        """Ante this member into the open round.
+
+        The debit and the entry move in one transaction, so a member cannot be
+        charged without being entered, and the pot is always exactly the sum of
+        what its entrants paid in.
+
+        One ante per member per round, enforced by the entries table's primary
+        key. Topping an ante up would let a member stake past the table limit
+        one command at a time, so a second ante is refused rather than added.
+
+        Args:
+            user_id: The member entering.
+            amount: Dollars to ante, charged to the wallet. Must be positive.
+
+        Returns:
+            ``True`` if the ante was recorded, ``False`` if the member was
+            already in this round.
+
+        Raises:
+            InsufficientFundsError: If the wallet cannot cover the ante.
+            ValueError: If ``amount`` is not positive.
+        """
+        if amount <= 0:
+            msg = "an ante must be positive"
+            raise ValueError(msg)
+
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            round_number = await self._read_jackpot_round(db)
+
+            async with db.execute(
+                "SELECT 1 FROM jackpot_entries WHERE round = ? AND user = ?",
+                (round_number, user_id),
+            ) as cursor:
+                if await cursor.fetchone() is not None:
+                    return False
+
+            cursor = await db.execute(
+                "UPDATE bank SET wallet = wallet - ? WHERE user = ? AND wallet >= ?",
+                (amount, user_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(await self._read_column(db, user_id, "wallet"), amount)
+
+            await db.execute(
+                "INSERT INTO jackpot_entries (round, user, amount) VALUES (?, ?, ?)",
+                (round_number, user_id, amount),
+            )
+            return True
+
+    async def award_jackpot(self, winner_id: int, *, cut: int) -> int:
+        """Pay the pot to a winner and open the next round.
+
+        The pot is re-read inside the transaction rather than trusted from the
+        caller, so the payout is exactly what the entries hold. The caller must
+        have closed the round to further antes first; see
+        :data:`flyconomy.jackpot.HOUSE_CUT` for how ``cut`` is priced.
+
+        Args:
+            winner_id: The member who won.
+            cut: Dollars the house keeps, withheld from the payout.
+
+        Returns:
+            The dollars paid, credited to the winner's wallet.
+
+        Raises:
+            ValueError: If ``cut`` is negative or larger than the pot.
+        """
+        async with self._transaction() as db:
+            round_number = await self._read_jackpot_round(db)
+            pot = await self._read_jackpot_pot(db, round_number)
+            if not 0 <= cut <= pot:
+                msg = f"a cut of {cut} does not fit a pot of {pot}"
+                raise ValueError(msg)
+
+            paid = pot - cut
+            await self.ensure_account(winner_id)
+            if paid:
+                await db.execute(
+                    "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (paid, winner_id)
+                )
+            await db.execute("DELETE FROM jackpot_entries WHERE round = ?", (round_number,))
+            await db.execute("UPDATE jackpot SET round = round + 1 WHERE id = 1")
+            return paid
+
+    async def refund_jackpot(self) -> list[jackpot.Entry]:
+        """Hand every ante in the open round back and open the next one.
+
+        Used both for a round that closed without enough entrants to draw and
+        on startup, where an open round can only be one a restart interrupted:
+        the money is real, but the timer that would have drawn it is gone.
+
+        Returns:
+            What was refunded, empty when there was no open round.
+        """
+        async with self._transaction() as db:
+            round_number = await self._read_jackpot_round(db)
+            async with db.execute(
+                "SELECT user, amount FROM jackpot_entries WHERE round = ? ORDER BY rowid",
+                (round_number,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            if not rows:
+                return []
+
+            entries = [jackpot.Entry(int(row["user"]), int(row["amount"])) for row in rows]
+            for entry in entries:
+                await db.execute(
+                    "UPDATE bank SET wallet = wallet + ? WHERE user = ?",
+                    (entry.amount, entry.user_id),
+                )
+            await db.execute("DELETE FROM jackpot_entries WHERE round = ?", (round_number,))
+            await db.execute("UPDATE jackpot SET round = round + 1 WHERE id = 1")
+            return entries
+
+    @staticmethod
+    async def _read_jackpot_round(db: aiosqlite.Connection) -> int:
+        """Read the open round number on the given connection."""
+        async with db.execute("SELECT round FROM jackpot WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+        return int(row["round"]) if row else 1
+
+    @staticmethod
+    async def _read_jackpot_pot(db: aiosqlite.Connection, round_number: int) -> int:
+        """Read what a round's entries add up to, on the given connection."""
+        async with db.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS pot FROM jackpot_entries WHERE round = ?",
+            (round_number,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row["pot"]) if row else 0
+
     async def delete_account(self, user_id: int) -> bool:
         """Delete a member's account.
 
@@ -787,14 +969,18 @@ class Database:
     async def purge_user(self, user_id: int) -> PurgeResult:
         """Remove every trace of a member from the database.
 
-        A member lives in two tables: their balances in ``bank`` and, while a
-        draw is open, one row in ``lottery_entries``. Both go, in one
-        transaction, so a purge can never leave a ticket behind that pays a
-        pot into an account that no longer exists.
+        A member lives in three tables: their balances in ``bank``, one row in
+        ``lottery_entries`` while a draw is open, and one row in
+        ``jackpot_entries`` while a jackpot round is. All three go, in one
+        transaction, so a purge can never leave an entry behind that pays a pot
+        into an account that no longer exists.
 
-        The pot itself is untouched. Ticket money is redistributed rather than
-        held per member, so refunding it here would mint the price of a ticket
-        back out of the jackpot.
+        The lottery pot itself is untouched. Ticket money is redistributed
+        rather than held per member, so refunding it here would mint the price
+        of a ticket back out of the pot. A jackpot ante is the opposite: that
+        pot is only ever the sum of its entries, so dropping the row takes the
+        ante out of the pot along with the account that paid it, which is what
+        happens to every other balance a purge deletes.
 
         Args:
             user_id: The member's Discord snowflake. Not validated as a real
@@ -807,7 +993,12 @@ class Database:
             account = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
             removed = account.rowcount > 0
             entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
-            return PurgeResult(account=removed, lottery_entries=max(entries.rowcount, 0))
+            antes = await db.execute("DELETE FROM jackpot_entries WHERE user = ?", (user_id,))
+            return PurgeResult(
+                account=removed,
+                lottery_entries=max(entries.rowcount, 0),
+                jackpot_entries=max(antes.rowcount, 0),
+            )
 
 
 # ------------------------------------------------------------- migrations ----
@@ -908,9 +1099,39 @@ async def _migration_4_market(db: aiosqlite.Connection) -> None:
     await db.execute("INSERT OR IGNORE INTO market (id, price) VALUES (1, ?)", (economy.FLX_PRICE,))
 
 
+async def _migration_5_jackpot(db: aiosqlite.Connection) -> None:
+    """Add the player-funded jackpot round and its antes.
+
+    The ``bank`` table is untouched. There is deliberately no pot column: a
+    round's pot is the sum of its entries, so the money in play and the entries
+    that own it cannot drift apart. A season reset can empty both tables
+    without disturbing any balance.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS jackpot ("
+        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+        "  round INTEGER NOT NULL DEFAULT 1"
+        ")"
+    )
+    # One row, always. The CHECK above makes a second row impossible.
+    await db.execute("INSERT OR IGNORE INTO jackpot (id, round) VALUES (1, 1)")
+
+    # This primary key is what enforces one ante per member per round, so the
+    # table limit cannot be stepped past one top-up at a time.
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS jackpot_entries ("
+        "  round INTEGER NOT NULL,"
+        "  user INTEGER NOT NULL,"
+        "  amount INTEGER NOT NULL CHECK (amount > 0),"
+        "  PRIMARY KEY (round, user)"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
     3: _migration_3_lottery,
     4: _migration_4_market,
+    5: _migration_5_jackpot,
 }
