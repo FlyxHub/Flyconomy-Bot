@@ -41,6 +41,10 @@ flyconomy-bot = "flyconomy.__main__:main"
 Repository = "https://github.com/JakeHochstatter/Flyconomy-Bot"
 
 [tool.hatch.build.targets.wheel]
+# Ships every file under the package, not just the Python: the economy
+# guide in src/flyconomy/data is read at runtime and the Docker image
+# installs this wheel, so a .gitignore rule matching that directory would
+# drop the guide from the image without failing the build.
 packages = ["src/flyconomy"]
 
 # ---------------------------------------------------------------- tooling ---

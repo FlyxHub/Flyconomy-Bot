@@ -146,6 +146,49 @@ class Admin(BaseCog, name="Admin"):
             return
         await ctx.send(f"<@{winner}> won {embeds.money(amount)}!")
 
+    @commands.command(name="guide")
+    async def guide(self, ctx: commands.Context[FlyconomyBot], action: str | None = None) -> None:
+        """Publish the economy guide now, instead of waiting for a restart.
+
+        Bare, this does what startup does: post anything missing and edit any
+        section whose text has changed. ``$guide repost`` deletes the existing
+        messages and sends them again, which is how you move the guide to the
+        bottom of a channel that has scrolled past it.
+
+        Args:
+            ctx: Invocation context.
+            action: ``repost`` to re-send rather than edit. Anything else is
+                rejected, so a typo cannot silently do the milder thing.
+
+        Raises:
+            commands.BadArgument: If ``action`` is neither omitted nor ``repost``.
+        """
+        if action is not None and action.lower() != "repost":
+            raise commands.BadArgument(f"{action!r} is not an action. Use `repost`, or nothing.")
+
+        cog = self.bot.get_cog("Guide")
+        if cog is None:  # pragma: no cover - the extension is always loaded
+            await ctx.send("The guide is not loaded.")
+            return
+
+        async with ctx.typing():
+            outcome = await cog.publish(repost=action is not None)  # type: ignore[attr-defined]
+
+        if outcome.problem:
+            await ctx.send(f"Did not publish the guide: {outcome.problem}.")
+            return
+        if not outcome.changed:
+            await ctx.send(f"The guide is already current across {outcome.unchanged} messages.")
+            return
+
+        parts = [
+            f"{outcome.posted} posted" if outcome.posted else "",
+            f"{outcome.edited} edited" if outcome.edited else "",
+            f"{outcome.unchanged} unchanged" if outcome.unchanged else "",
+            f"{outcome.removed} removed" if outcome.removed else "",
+        ]
+        await ctx.send(f"Published the guide: {', '.join(part for part in parts if part)}.")
+
 
 async def setup(bot: FlyconomyBot) -> None:
     """Register the cog with the bot."""

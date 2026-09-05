@@ -60,6 +60,44 @@ async def test_a_version_1_database_gains_undefended_wallets(db_path):
         await database.close()
 
 
+async def test_a_version_1_database_gains_an_empty_guide_table(db_path):
+    # Migration 8 writes no rows: a database that predates the guide has
+    # published nothing, which is exactly what an empty table means.
+    make_v1_database(db_path, [(500, 9_000, 2, 3, ALICE)])
+
+    database = await Database.connect(db_path)
+    try:
+        account = await database.get_account(ALICE)
+        posts = await database.guide_posts()
+    finally:
+        await database.close()
+
+    assert posts == ()
+    assert (account.wallet, account.bank, account.crypto, account.miner) == (500, 9_000, 2, 3)
+
+
+async def test_published_guide_messages_survive_a_reopen(db_path):
+    # The bot edits messages it posted before the last restart, so the rows
+    # tracking them have to outlive the process that wrote them.
+    make_v1_database(db_path, [])
+    database = await Database.connect(db_path)
+    try:
+        await database.replace_guide_posts(
+            [database_module.GuidePost(position=0, channel_id=42, message_id=99, checksum="abc")]
+        )
+    finally:
+        await database.close()
+
+    database = await Database.connect(db_path)
+    try:
+        posts = await database.guide_posts()
+    finally:
+        await database.close()
+
+    assert len(posts) == 1
+    assert (posts[0].message_id, posts[0].checksum) == (99, "abc")
+
+
 async def test_migrating_records_the_schema_version(db_path):
     make_v1_database(db_path, [])
     database = await Database.connect(db_path)

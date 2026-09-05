@@ -1,7 +1,12 @@
-Post this in your server as six messages, in order. Discord caps a message at
-2,000 characters, so each block below is sized to fit on its own. Copy
-everything between the separator lines; don't paste the separator lines
-themselves.
+The bot publishes this file itself. Set `FLYCONOMY_GUIDE_CHANNEL_ID` and it
+posts these sections to that channel on startup, then edits those same messages
+in place whenever this file changes — so editing here and redeploying is the
+whole workflow. Nothing above the first separator line is ever posted.
+
+Each block between the separator lines becomes one Discord message and has to
+stay under 2,000 characters; `tests/test_guide.py` fails the build if one
+doesn't. Section numbering in the separators is decorative — the bot goes by
+order, not by the numbers, so renumbering by hand is never required.
 
 Every number here comes from `README.md`. If you retune the economy, retune
 this too — a guide that lies about the odds is worse than no guide.
@@ -42,6 +47,7 @@ playing at all means leaving money where `/rob` can reach it.
 
 - `/deposit` — wallet ➜ bank. Do this before you log off.
 - `/withdraw` — bank ➜ wallet.
+- `/pay @someone <amount>` — sends bank money to another member, minus a 5% tax. $100 minimum. Alias `/transfer`.
 - `/rob @someone` — takes a random slice of their wallet. One attempt per hour.
 - `/wallets` — the ten fattest unbanked wallets in the server. It is a target list, and you are on it.
 
@@ -106,6 +112,14 @@ The price starts at $10,000 and moves every 5 minutes, up to 3% at a time. It
 is pulled gently back toward $10,000 and can never leave the $5,000–$20,000
 band, so it swings but it cannot moon and cannot go to zero. Buy the dips if
 you like — just know the floor and ceiling are real.
+
+## Sending money to people
+
+- **`/pay` costs 5%.** The only option under about $10,000 — coins move in whole units, and one costs more than that.
+- **`/flx send` is free.** Buy coins, send them, let them sell. Nothing is withheld.
+
+Move anything large as Flyxcoin. The only cost is the price drifting between
+the buy and the sell, and it drifts both ways.
 
 -# Flyxcoin can't be robbed — only cash can. Coins are the safest place to park a fortune, as long as you can stomach the price moving.
 
@@ -201,7 +215,7 @@ builds something worth showing up for.
 - **The season resets each January.** Everything you build is for the year.
 
 ```
-BANKING     /balance  /deposit  /withdraw  /leaderboard  /wallets
+BANKING     /balance  /deposit  /withdraw  /pay  /leaderboard  /wallets
 INCOME      /daily  /beg  /mine  /upgrade
 DEFENCE     /secure
 ROBBERY     /rob @member

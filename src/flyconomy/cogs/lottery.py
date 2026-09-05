@@ -80,16 +80,8 @@ class Lottery(BaseCog, name="Lottery"):
         if channel_id is None:
             return
 
-        channel = self.bot.get_channel(channel_id)
+        channel = await self.resolve_channel(channel_id)
         if channel is None:
-            try:
-                channel = await self.bot.fetch_channel(channel_id)
-            except discord.HTTPException:
-                log.warning("Lottery announce channel %d is not reachable", channel_id)
-                return
-
-        if not isinstance(channel, discord.abc.Messageable):
-            log.warning("Lottery announce channel %d cannot receive messages", channel_id)
             return
 
         embed = embeds.lottery_winner_embed(winner, amount, draw, self.timezone)

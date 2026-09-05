@@ -40,9 +40,11 @@ that would make that unsafe.
 
 `src/flyconomy/` — `__main__` (entry point) → `bot.py` (client) → `cogs/` (commands) over
 `database.py`, with `economy.py` and `blackjack.py` holding the rules, `views.py` the interactive
-buttons, `ratelimit.py` the abuse throttle, and `config.py` the settings. The lottery adds two
+buttons, `ratelimit.py` the abuse throttle, `guide.py` the member guide's text, and `config.py`
+the settings. The lottery adds two
 tables in migration 3, the jackpot two more in migration 5, head-to-head matches one in
-migration 6, and wallet security one in migration 7; the `bank` table is still untouched. A
+migration 6, wallet security one in migration 7, and the published guide one in migration 8;
+the `bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
 Head-to-head games share `MatchView` (escrow settlement) and `MatchChallengeView` (the offer) in
@@ -85,6 +87,37 @@ database; it merges duplicate `user` rows before adding the unique index.
 
 `tests/test_migrations.py` builds a genuine v1 database with `make_v1_database()` and asserts nothing
 is lost. Keep that passing.
+
+## The member guide
+
+`data/economy-guide.md` inside the package is the guide members read, and `cogs/guide.py`
+publishes it: posted to `settings.guide_channel_id` on startup, then edited in place whenever the
+text changes. Four things about it are load-bearing.
+
+**It ships as package data, not in `docs/`.** The Dockerfile copies only `pyproject.toml`,
+`README.md`, and `src/`, and installs the wheel — a guide kept in `docs/` could be edited forever
+without the running bot ever seeing it. This bit once: `.gitignore` had an unanchored `data/` for
+the runtime database directory, which also matched `src/flyconomy/data/`, and because hatchling
+honours VCS ignore rules the guide was silently dropped from the wheel while every test passed.
+The rule is anchored to `/data/` now. Verify a packaging change by building the wheel and looking
+inside it, because no test can see this.
+
+**An unchanged section costs no API call.** Each posted message is stored with a checksum of its
+text in the `guide` table, so a restart that finds the guide current does nothing at all. Without
+that, a crash-restart loop would rewrite the channel on every boot.
+
+**Order beats efficiency.** A new Discord message lands at the bottom of the channel, so anything
+that would leave the sections out of reading order — a section added or removed, a message
+deleted, the channel changed — reposts the guide whole rather than patching the one that differs.
+`_is_reusable` is the single place that decision is made; editing in place is only safe when the
+stored rows line up exactly with the sections that exist now.
+
+**The guide is prose, so only a test stops it lying.** `tests/test_guide.py` fails if a member
+command exists that the guide never names, or if a tuned figure (security and miner prices, max
+bet, daily cap, ticket price, starting bank, transfer tax) no longer appears in the text. Retuning
+the economy therefore fails the build until the guide is retuned too, which is the point — a stale
+guide tells members the wrong odds and nothing else notices. Adding a member-facing command means
+adding it to the guide in the same commit.
 
 ## Conventions
 

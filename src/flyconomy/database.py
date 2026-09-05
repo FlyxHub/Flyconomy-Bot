@@ -30,7 +30,7 @@ from flyconomy.errors import InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 7
+SCHEMA_VERSION: Final = 8
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -82,6 +82,25 @@ class LotteryState:
     pot: int
     draw: int
     entrants: int
+
+
+@dataclass(frozen=True, slots=True)
+class GuidePost:
+    """One published guide message, as the bot last left it.
+
+    Attributes:
+        position: Zero-based index of the section, which is also its order in
+            the channel.
+        channel_id: Channel the message was posted to.
+        message_id: The message to edit when the section changes.
+        checksum: Fingerprint of the text the message was last given, so an
+            unchanged section costs no API call at all.
+    """
+
+    position: int
+    channel_id: int
+    message_id: int
+    checksum: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -665,6 +684,68 @@ class Database:
                     "UPDATE bank SET bank = bank + ? WHERE user = ?",
                     (split.creator_share, creator_id),
                 )
+
+    # --------------------------------------------------------------- guide --
+
+    async def guide_posts(self) -> tuple[GuidePost, ...]:
+        """Return the published guide messages, in channel order.
+
+        Returns:
+            One row per section the bot has posted, ordered by position.
+        """
+        async with self._reader.execute(
+            "SELECT position, channel, message, checksum FROM guide ORDER BY position"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return tuple(
+            GuidePost(
+                position=int(row["position"]),
+                channel_id=int(row["channel"]),
+                message_id=int(row["message"]),
+                checksum=str(row["checksum"]),
+            )
+            for row in rows
+        )
+
+    async def record_guide_post(self, post: GuidePost) -> None:
+        """Remember one published section, replacing any row at that position.
+
+        Args:
+            post: The message that was just sent or edited.
+        """
+        async with self._transaction() as db:
+            await db.execute(
+                "INSERT INTO guide (position, channel, message, checksum) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(position) DO UPDATE SET "
+                "channel = excluded.channel, message = excluded.message, "
+                "checksum = excluded.checksum",
+                (post.position, post.channel_id, post.message_id, post.checksum),
+            )
+
+    async def replace_guide_posts(self, posts: Sequence[GuidePost]) -> None:
+        """Record a freshly posted guide, forgetting whatever preceded it.
+
+        One transaction, so a crash midway cannot leave the bot tracking half
+        of an old posting and half of a new one -- which would orphan messages
+        it could no longer edit or clean up.
+
+        Args:
+            posts: Every section of the guide as it was just published.
+        """
+        async with self._transaction() as db:
+            await db.execute("DELETE FROM guide")
+            await db.executemany(
+                "INSERT INTO guide (position, channel, message, checksum) VALUES (?, ?, ?, ?)",
+                [
+                    (post.position, post.channel_id, post.message_id, post.checksum)
+                    for post in posts
+                ],
+            )
+
+    async def clear_guide_posts(self) -> None:
+        """Forget every published guide message, without deleting any."""
+        async with self._transaction() as db:
+            await db.execute("DELETE FROM guide")
 
     async def buy_miner_upgrade(self, user_id: int, cost: int) -> int:
         """Charge a member's bank balance and raise their miner one level.
@@ -1500,6 +1581,27 @@ async def _migration_7_security(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_8_guide(db: aiosqlite.Connection) -> None:
+    """Add the table that tracks the guide messages the bot has published.
+
+    The ``bank`` table is untouched. Position is the primary key rather than
+    the message id because position is what the bot looks a row up by, and
+    because a section can outlive the message that carried it: a deleted
+    message is replaced at the same position.
+
+    An empty table means nothing has been posted yet, which is exactly the
+    state a fresh install is in, so this migration writes no rows.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS guide ("
+        "  position INTEGER PRIMARY KEY,"
+        "  channel INTEGER NOT NULL,"
+        "  message INTEGER NOT NULL,"
+        "  checksum TEXT NOT NULL"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -1508,4 +1610,5 @@ _MIGRATIONS: Final = {
     5: _migration_5_jackpot,
     6: _migration_6_escrow,
     7: _migration_7_security,
+    8: _migration_8_guide,
 }

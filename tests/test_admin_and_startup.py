@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from flyconomy import __main__ as entrypoint
 from flyconomy import economy
 from flyconomy.cogs.admin import Admin
+from flyconomy.cogs.guide import GuideOutcome
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.logging_config import configure_logging
@@ -26,11 +27,22 @@ from tests.test_cog_behavior import FakeContext, FakeUser
 class FakeAdminBot:
     """The bot surface the admin cog reads."""
 
-    def __init__(self, db: Database, settings: Settings, *, owner: bool = True) -> None:
+    def __init__(
+        self,
+        db: Database,
+        settings: Settings,
+        *,
+        owner: bool = True,
+        cogs: dict[str, object] | None = None,
+    ) -> None:
         self.db = db
         self.settings = settings
         self._owner = owner
         self.synced = 0
+        self._cogs = cogs or {}
+
+    def get_cog(self, name: str) -> object | None:
+        return self._cogs.get(name)
 
     async def is_owner(self, _user: object) -> bool:
         return self._owner
@@ -183,6 +195,74 @@ class TestAdminCommands:
         await cog.sync.callback(cog, ctx)
 
         assert "1234" in ctx.last
+
+
+class FakeGuideCog:
+    """Stands in for the guide cog the `$guide` command drives."""
+
+    def __init__(self, outcome: GuideOutcome) -> None:
+        self.outcome = outcome
+        self.calls: list[bool] = []
+
+    async def publish(self, *, repost: bool = False) -> GuideOutcome:
+        self.calls.append(repost)
+        return self.outcome
+
+
+class TestGuideCommand:
+    @staticmethod
+    def _cog(db, settings, outcome: GuideOutcome) -> tuple[Admin, FakeGuideCog]:
+        guide_cog = FakeGuideCog(outcome)
+        return Admin(FakeAdminBot(db, settings, cogs={"Guide": guide_cog})), guide_cog
+
+    async def test_a_bare_call_edits_rather_than_reposts(self, db, settings, ctx):
+        admin, guide_cog = self._cog(db, settings, GuideOutcome(edited=2, unchanged=4))
+
+        await admin.guide.callback(admin, ctx, None)
+
+        assert guide_cog.calls == [False]
+        assert "2 edited" in ctx.last
+        assert "4 unchanged" in ctx.last
+
+    async def test_repost_asks_for_a_repost(self, db, settings, ctx):
+        admin, guide_cog = self._cog(db, settings, GuideOutcome(posted=6, removed=6))
+
+        await admin.guide.callback(admin, ctx, "repost")
+
+        assert guide_cog.calls == [True]
+        assert "6 posted" in ctx.last
+
+    async def test_the_action_is_case_insensitive(self, db, settings, ctx):
+        admin, guide_cog = self._cog(db, settings, GuideOutcome(posted=6))
+
+        await admin.guide.callback(admin, ctx, "REPOST")
+
+        assert guide_cog.calls == [True]
+
+    async def test_an_unknown_action_is_refused_rather_than_treated_as_bare(
+        self, db, settings, ctx
+    ):
+        # A typo must not quietly do the milder thing and report success.
+        admin, guide_cog = self._cog(db, settings, GuideOutcome())
+
+        with pytest.raises(commands.BadArgument):
+            await admin.guide.callback(admin, ctx, "repsot")
+
+        assert guide_cog.calls == []
+
+    async def test_an_unchanged_guide_says_so(self, db, settings, ctx):
+        admin, _ = self._cog(db, settings, GuideOutcome(unchanged=6))
+
+        await admin.guide.callback(admin, ctx, None)
+
+        assert "already current" in ctx.last
+
+    async def test_a_problem_is_reported_to_the_owner(self, db, settings, ctx):
+        admin, _ = self._cog(db, settings, GuideOutcome(problem="the channel is on fire"))
+
+        await admin.guide.callback(admin, ctx, None)
+
+        assert "the channel is on fire" in ctx.last
 
 
 class TestLogging:

@@ -17,6 +17,7 @@ classic prefix command, such as `$balance`.
 - [Upgrade from version 1](#upgrade-from-version-1)
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
+- [The member guide](#the-member-guide)
 - [Economy reference](#economy-reference)
   - [Keeping the economy honest](#keeping-the-economy-honest)
   - [Surviving a season](#surviving-a-season)
@@ -280,6 +281,7 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
 | `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | Bank account credited with the creator tax. Unset disables the tax outright, regardless of the rate. |
 | `FLYCONOMY_TRANSFER_TAX_RATE` | No | `0.05` | Share of a `pay` transfer withheld as tax. Half feeds the lottery pot, half goes to `FLYCONOMY_CREATOR_TAX_USER_ID`. Capped at `0.5`. |
+| `FLYCONOMY_GUIDE_CHANNEL_ID` | No | None | Channel the bot posts the member guide to and keeps updated. Unset publishes nothing. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
 | `FLYCONOMY_RATE_LIMIT_ACTIONS` | No | `6` | Game commands a member may run per window. |
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
@@ -425,6 +427,50 @@ which is the wrong place to advertise a command nobody else can run.
 | `$purge <id>` | Deletes a user id from every table, taking the id itself or a mention. Use this for a row whose id no longer resolves to a member, which `$reset` cannot take. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
+| `$guide [repost]` | Publishes the member guide now instead of at the next restart. `repost` re-sends it, moving it to the bottom of the channel. |
+
+## The member guide
+
+`src/flyconomy/data/economy-guide.md` is written for the people playing, not for
+whoever runs the bot. Set `FLYCONOMY_GUIDE_CHANNEL_ID` and the bot posts it to
+that channel on startup, then keeps it current on its own.
+
+**Editing the file is the whole workflow.** Change the text, redeploy, and the
+bot edits the messages it already posted. Nothing is copied and pasted, and the
+channel is never a stale snapshot of an older economy.
+
+- The file is split into one Discord message per block, on the `═══ n of n ═══`
+  separator lines. The numbering in those lines is decorative — sections are
+  published in file order, so inserting one never means renumbering the rest.
+- Everything above the first separator is a note to whoever edits the file. It
+  is never posted.
+- Each block has to fit Discord's 2,000-character limit. `tests/test_guide.py`
+  fails the build if one doesn't, so this is caught before a deploy rather than
+  by a rejected message.
+
+**An unchanged guide costs nothing.** Every posted message is stored with a
+checksum of its text, so a restart that finds the guide already correct makes no
+API calls at all — restarting the bot repeatedly cannot spam or churn the
+channel.
+
+**Order is never sacrificed to save an edit.** A new Discord message always
+lands at the bottom of a channel, so anything that would leave the sections out
+of order — a section added or removed, a message somebody deleted, a changed
+channel — reposts the whole guide instead of patching it. Editing in place only
+happens when the sections still line up exactly.
+
+Run `$guide` to publish without restarting, or `$guide repost` to delete and
+re-send it, which is how you move the guide back to the bottom of a channel that
+has scrolled past it.
+
+### Keeping the guide honest
+
+A guide that lies about the odds is worse than no guide, and it lies silently.
+`tests/test_guide.py` fails if a command exists that the guide never mentions,
+or if the security prices, miner prices, maximum bet, daily cap, ticket price,
+starting balance, or transfer tax in the code no longer appear in the text. Add
+a command or retune a number and the build tells you the guide needs the same
+edit.
 
 ## Economy reference
 
@@ -840,11 +886,13 @@ src/flyconomy/
 ├── blackjack.py      The blackjack ruleset, also free of any discord import
 ├── crash.py          The crash ruleset, also free of any discord import
 ├── economy.py        Every tunable number and the pure rules that use them
+├── guide.py          Splits the member guide into messages, free of any discord import
 ├── embeds.py         Message and embed builders
 ├── errors.py         Exceptions the bot raises deliberately
 ├── logging_config.py Logging setup
 ├── ratelimit.py      A sliding window limiter, with an injectable clock
 ├── views.py          Interactive buttons: the blackjack table and the crash round
+├── data/             Package data: the member guide the bot publishes
 └── cogs/             One module per command group
 ```
 

@@ -76,6 +76,14 @@ class Settings(BaseSettings):
             "the draw itself is unaffected either way."
         ),
     )
+    guide_channel_id: Annotated[int, Field(gt=0)] | None = Field(
+        default=None,
+        description=(
+            "Channel the bot posts the member-facing economy guide to, then "
+            "edits in place whenever the guide's text changes. Unset publishes "
+            "nothing, and the bot is otherwise unaffected."
+        ),
+    )
     creator_tax_rate: Annotated[float, Field(ge=0, le=1)] = Field(
         default=0.05,
         description=(
@@ -137,7 +145,11 @@ class Settings(BaseSettings):
     )
 
     @field_validator(
-        "dev_guild_id", "creator_tax_user_id", "lottery_announce_channel_id", mode="before"
+        "dev_guild_id",
+        "creator_tax_user_id",
+        "lottery_announce_channel_id",
+        "guide_channel_id",
+        mode="before",
     )
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:

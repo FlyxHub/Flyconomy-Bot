@@ -29,6 +29,7 @@ EXTENSIONS: Final[tuple[str, ...]] = (
     "flyconomy.cogs.market",
     "flyconomy.cogs.gambling",
     "flyconomy.cogs.lottery",
+    "flyconomy.cogs.guide",
     "flyconomy.cogs.admin",
 )
 

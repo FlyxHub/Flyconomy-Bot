@@ -170,6 +170,18 @@ class TestImmutability:
         assert settings.dev_guild_id is None
         assert settings.always_mine_user_ids == frozenset()
 
+    def test_the_example_file_documents_every_setting(self):
+        # A setting added without a line here is invisible to anyone setting the
+        # bot up: the reference they are told to copy simply does not mention it.
+        example = Path(__file__).resolve().parents[1] / ".env.example"
+        content = example.read_text(encoding="utf-8")
+        undocumented = sorted(
+            f"FLYCONOMY_{name.upper()}"
+            for name in Settings.model_fields
+            if f"FLYCONOMY_{name.upper()}" not in content
+        )
+        assert not undocumented, f".env.example never mentions: {', '.join(undocumented)}"
+
     def test_a_dev_guild_id_must_be_positive(self, monkeypatch):
         monkeypatch.setenv("FLYCONOMY_DISCORD_TOKEN", _TOKEN)
         monkeypatch.setenv("FLYCONOMY_DEV_GUILD_ID", "0")

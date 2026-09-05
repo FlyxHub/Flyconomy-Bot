@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import random
 import time
 from typing import TYPE_CHECKING
 
+import discord
 from discord.ext import commands
 
 from flyconomy.errors import RateLimitedError
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from flyconomy.bot import FlyconomyBot
@@ -50,6 +54,34 @@ class BaseCog(commands.Cog):
     def limiter(self) -> SlidingWindowLimiter:
         """The shared per-member action budget."""
         return self.bot.limiter
+
+    async def resolve_channel(self, channel_id: int) -> discord.abc.Messageable | None:
+        """Look up a channel the bot posts to on its own, without a command.
+
+        Best effort by design: every caller is a background job whose real work
+        has already happened -- a paid-out draw, a guide the database already
+        records -- so an unreachable channel is logged and skipped rather than
+        raised. There is no invocation left to report an error to.
+
+        Args:
+            channel_id: The channel's Discord snowflake.
+
+        Returns:
+            The channel, or ``None`` if it cannot be reached or cannot be
+            posted to.
+        """
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except (discord.HTTPException, discord.InvalidData):
+                log.warning("Channel %d is not reachable", channel_id)
+                return None
+
+        if not isinstance(channel, discord.abc.Messageable):
+            log.warning("Channel %d cannot receive messages", channel_id)
+            return None
+        return channel
 
     async def rake(self, house_take: int) -> None:
         """Split the house's take between the lottery pot and the creator tax.

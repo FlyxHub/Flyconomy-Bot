@@ -7,7 +7,11 @@
 *.db
 *.db-wal
 *.db-shm
-data/
+# Anchored: this is the runtime database directory at the repository root. An
+# unanchored `data/` also matches `src/flyconomy/data/`, and because the build
+# backend honours these rules that silently drops the packaged economy guide
+# out of the wheel.
+/data/
 
 # Python
 __pycache__/

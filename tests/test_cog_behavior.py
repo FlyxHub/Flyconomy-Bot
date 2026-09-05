@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import discord
 import pytest
 
 from flyconomy import economy
@@ -115,6 +116,11 @@ class FakeBot:
 
     def get_channel(self, channel_id: int) -> Any:
         return self._channels.get(channel_id)
+
+    async def fetch_channel(self, channel_id: int) -> Any:
+        # The gateway fallback in BaseCog.resolve_channel. Nothing here is
+        # reachable over a network, so a cache miss is a miss for good.
+        raise discord.InvalidData(f"no channel {channel_id}")
 
 
 @pytest.fixture
