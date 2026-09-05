@@ -318,6 +318,67 @@ class TestPeerTransfers:
             await db.transfer_crypto(ALICE, BOB, amount)
 
 
+class TestTaxedTransfers:
+    async def test_the_recipient_is_credited_net_of_the_tax(self, db: Database):
+        await db.add_bank(ALICE, 10_000)
+        split = economy.split_transfer(1_000)
+        await db.pay(ALICE, BOB, split, creator_id=CAROL)
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK + 9_000
+        assert (await db.get_account(BOB)).bank == economy.STARTING_BANK + 950
+
+    async def test_the_pot_and_the_creator_split_the_tax(self, db: Database):
+        await db.add_bank(ALICE, 10_000)
+        before = (await db.lottery_state()).pot
+        split = economy.split_transfer(1_000)
+        await db.pay(ALICE, BOB, split, creator_id=CAROL)
+        assert (await db.lottery_state()).pot == before + 25
+        assert (await db.get_account(CAROL)).bank == economy.STARTING_BANK + 25
+
+    async def test_an_unconfigured_creator_destroys_that_half(self, db: Database):
+        await db.add_bank(ALICE, 10_000)
+        split = economy.split_transfer(1_000)
+        await db.pay(ALICE, BOB, split, creator_id=None)
+        # The pot still takes its half; the creator's simply stops existing.
+        assert (await db.lottery_state()).pot == 25
+        moved = (await db.get_account(BOB)).bank - economy.STARTING_BANK
+        assert moved == 950
+
+    async def test_paying_more_than_the_bank_holds_moves_nothing(self, db: Database):
+        split = economy.split_transfer(economy.STARTING_BANK + 1_000)
+        with pytest.raises(InsufficientFundsError):
+            await db.pay(ALICE, BOB, split, creator_id=CAROL)
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK
+        assert await db.find_account(BOB) is None
+        assert (await db.lottery_state()).pot == 0
+
+    async def test_a_refused_transfer_does_not_pay_the_creator(self, db: Database):
+        # The tax must not be collectable on a transfer that never happened.
+        await db.add_bank(CAROL, 0)
+        split = economy.split_transfer(economy.STARTING_BANK + 1_000)
+        with pytest.raises(InsufficientFundsError):
+            await db.pay(ALICE, BOB, split, creator_id=CAROL)
+        assert (await db.get_account(CAROL)).bank == economy.STARTING_BANK
+
+    async def test_a_creator_who_sends_still_ends_poorer(self, db: Database):
+        # Getting half the tax back is not a refund: the pot's half is gone.
+        await db.add_bank(ALICE, 10_000)
+        before = (await db.get_account(ALICE)).bank
+        split = economy.split_transfer(1_000)
+        await db.pay(ALICE, BOB, split, creator_id=ALICE)
+        assert (await db.get_account(ALICE)).bank == before - 1_000 + 25
+
+    async def test_concurrent_transfers_cannot_overdraw_the_sender(self, db: Database):
+        await db.add_bank(ALICE, 2_000)  # 3_000 total: exactly three transfers
+        split = economy.split_transfer(1_000)
+        results = await asyncio.gather(
+            *(db.pay(ALICE, BOB, split, creator_id=CAROL) for _ in range(10)),
+            return_exceptions=True,
+        )
+        assert sum(1 for result in results if result is None) == 3
+        assert (await db.get_account(ALICE)).bank == 0
+        assert (await db.get_account(BOB)).bank == economy.STARTING_BANK + 3 * 950
+
+
 class TestMinerUpgrades:
     async def test_upgrading_charges_the_bank_and_raises_the_level(self, db: Database):
         level = await db.buy_miner_upgrade(ALICE, 100)

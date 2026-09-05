@@ -615,6 +615,57 @@ class Database:
                 "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (amount, thief_id)
             )
 
+    async def pay(
+        self,
+        sender_id: int,
+        recipient_id: int,
+        split: economy.TransferSplit,
+        *,
+        creator_id: int | None = None,
+    ) -> None:
+        """Move taxed bank cash from one member to another in one transaction.
+
+        All four legs -- the debit, the credit, the pot, and the creator's cut
+        -- settle together, so the tax can never be collected on a transfer that
+        was refused, and the recipient can never be paid without it.
+
+        Args:
+            sender_id: Member sending the money.
+            recipient_id: Member receiving it.
+            split: How the transfer divides, from
+                :func:`flyconomy.economy.split_transfer`.
+            creator_id: Bank account credited with the creator's half of the
+                tax. ``None`` destroys that half instead, which is how the
+                casino's creator tax already behaves when it is unconfigured.
+
+        Raises:
+            InsufficientFundsError: If the sender's bank balance is too small.
+        """
+        async with self._transaction() as db:
+            await self.ensure_account(sender_id)
+            await self.ensure_account(recipient_id)
+            cursor = await db.execute(
+                "UPDATE bank SET bank = bank - ? WHERE user = ? AND bank >= ?",
+                (split.amount, sender_id, split.amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(
+                    await self._read_column(db, sender_id, "bank"), split.amount
+                )
+            await db.execute(
+                "UPDATE bank SET bank = bank + ? WHERE user = ?", (split.net, recipient_id)
+            )
+            if split.pot_share > 0:
+                await db.execute(
+                    "UPDATE lottery SET pot = pot + ? WHERE id = 1", (split.pot_share,)
+                )
+            if creator_id is not None and split.creator_share > 0:
+                await self.ensure_account(creator_id)
+                await db.execute(
+                    "UPDATE bank SET bank = bank + ? WHERE user = ?",
+                    (split.creator_share, creator_id),
+                )
+
     async def buy_miner_upgrade(self, user_id: int, cost: int) -> int:
         """Charge a member's bank balance and raise their miner one level.
 

@@ -106,6 +106,52 @@ class TestDailyPayout:
         assert economy.daily_payout(bank) == expected
 
 
+class TestTransferSplit:
+    def test_the_recipient_and_the_tax_add_back_up_to_the_amount(self):
+        split = economy.split_transfer(1_000)
+        assert split.net + split.tax == split.amount
+
+    def test_the_two_halves_add_back_up_to_the_tax(self):
+        split = economy.split_transfer(1_000)
+        assert split.pot_share + split.creator_share == split.tax
+
+    def test_the_default_rate_takes_a_twentieth(self):
+        split = economy.split_transfer(1_000)
+        assert split.tax == 50
+        assert split.net == 950
+
+    def test_the_tax_rounds_up_so_no_transfer_is_free(self):
+        # 100 * 0.05 is exactly 5, so pick an amount whose tax has a remainder.
+        split = economy.split_transfer(101)
+        assert split.tax == 6
+
+    @pytest.mark.parametrize("amount", [100, 101, 999, 1_000, 12_345, 1_000_000])
+    def test_a_transfer_never_conjures_or_loses_a_dollar(self, amount):
+        split = economy.split_transfer(amount)
+        assert split.net + split.pot_share + split.creator_share == amount
+
+    def test_the_odd_dollar_leans_to_the_creator_so_it_is_destroyed_when_unset(self):
+        # An odd tax cannot halve evenly. The extra dollar has to fall on one
+        # side; the creator's is the side that is destroyed when unconfigured.
+        split = economy.split_transfer(100)
+        assert split.tax == 5
+        assert (split.pot_share, split.creator_share) == (2, 3)
+
+    @pytest.mark.parametrize("amount", [0, 1, 99, -100])
+    def test_a_transfer_under_the_floor_is_refused(self, amount):
+        with pytest.raises(ValueError, match="at least"):
+            economy.split_transfer(amount)
+
+    def test_the_floor_leaves_the_recipient_something_at_any_allowed_rate(self):
+        # The settings bound the rate at 0.5; the floor has to survive that.
+        split = economy.split_transfer(economy.MIN_TRANSFER, rate=0.5)
+        assert split.net > 0
+
+    def test_a_rate_of_zero_delivers_the_whole_amount(self):
+        split = economy.split_transfer(1_000, rate=0)
+        assert (split.net, split.tax) == (1_000, 0)
+
+
 class TestMinerUpgrades:
     @pytest.mark.parametrize(
         ("level", "cost"),

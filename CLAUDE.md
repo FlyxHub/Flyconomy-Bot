@@ -125,6 +125,11 @@ people away from the games: it buys down the odds a `rob` against you lands, cos
 and returns nothing. Because it only ever destroys money it needs no cap, which is why a
 defensive upgrade is a far cheaper thing to add than another faucet.
 
+**A redistribution is the next safest, and `pay` is one, not a sink.** Its tax is paid back into the
+economy rather than destroyed, so it does not shrink the supply the way `secure` does. It needs no
+cap for a different reason than `secure` does: a transfer cannot create money either. Don't file it
+under sinks.
+
 **Before adding any income, ask whether it is a percentage of something that grows.** If it is, it
 compounds, and it needs a cap. That single question is what `tests/test_season.py` exists to enforce:
 it plays a full 365-day season on every commit and fails if the supply or the richest member leaves
@@ -150,8 +155,8 @@ Three further layers, all in place because they cover different failure modes:
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
   commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on
   an empty wallet), which would otherwise loop for free.
-- **The lottery pot only ever grows from house wins.** `BaseCog.rake` is handed the signed
-  `stake - returned` on every wager, but `Database.add_to_pot` ignores non-positive amounts, so a
+- **The lottery pot only ever grows.** `BaseCog.rake` is handed the signed `stake - returned` on
+  every wager, but `Database.add_to_pot` ignores non-positive amounts, so a
   player win contributes nothing and is never clawed back out of the pot — a lost hand can no longer
   cancel out an earlier win elsewhere. This is a deliberate, accepted departure from the stricter
   "net take" design: gross losses on a fair game are in principle farmable by churning it, since the
@@ -160,7 +165,9 @@ Three further layers, all in place because they cover different failure modes:
   that narrow farming risk. Every game calls `Gambling._settle` exactly once per wager, *including on
   a loss with a multiplier of zero*, so the rake sees wins and losses both. Blackjack settles in
   `BlackjackView.settle` instead and rakes there. One entry per member per draw is enforced by a
-  primary key, not by application code.
+  primary key, not by application code. The casino is no longer the pot's only source — half of
+  every `pay` transfer's tax feeds it too — but the property that matters is unchanged: nothing
+  ever takes money back out except a draw.
 - **A table limit,** `settings.max_bet`, enforced in `Gambling._stake`. Every wager debits through
   that one method, so a new game cannot forget the cap. Check the limit *before* debiting, so a
   refused bet costs nothing. The jackpot is the one wager that cannot use `_stake`, because its
@@ -189,6 +196,19 @@ Three further layers, all in place because they cover different failure modes:
   called off. Board counts stay odd so the first-move advantage is shared as evenly as it can be.
   Before adding a game with a common draw, work out how often two competent members would actually
   move money — a game that mostly refunds is a game nobody plays twice.
+- **A transfer redistributes; it must never mint.** `pay` is the one taxed flow whose tax is *not*
+  destroyed: half goes to the lottery pot and half to `creator_tax_user_id` (destroyed while that
+  is unset). That is only safe because a transfer creates nothing on the way in, so the supply can
+  fall but never rise. The exploit to check for is a colluding pair, and the bound is that the most
+  they can recover is the creator's half — so every pass costs them at least the pot's half, which
+  `tests/test_antiabuse.py` pins for the worst case where one of the pair *is* the creator. All
+  four legs (debit, credit, pot, creator) settle in one `_transaction()`, so the tax cannot be
+  collected on a transfer that was refused. Note what the tax does not buy: it is not a brake on
+  funnelling money into an alt, because `flx send` was already free before `pay` existed —
+  `flx_cost` quotes one price to buyer and seller alike, so a round trip through coins costs
+  nothing. Any rate above zero sends large transfers down that rail; what actually splits the two
+  rails is that coins move in whole units, so Flyxcoin cannot carry less than one coin's price.
+  Raising the rate steers nothing — reprice it only to change what the small rail costs.
 - **A defense may never become an immunity.** Wallet security lowers `rob`'s success rate and
   nothing else — the top level still lets one robbery in ten through, and `rob_success_percent`
   clamps a level off the end of the table back onto it. A wallet that cannot be robbed removes

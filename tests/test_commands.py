@@ -53,6 +53,7 @@ ADDED_COMMANDS = {
 #: Non-game commands added after version 1.
 ADDED_UTILITIES = {
     "secure": ("security",),
+    "pay": ("transfer",),
 }
 
 ALL_MEMBER_COMMANDS = V1_MEMBER_COMMANDS | ADDED_COMMANDS | ADDED_UTILITIES

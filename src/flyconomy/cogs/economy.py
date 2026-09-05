@@ -58,6 +58,34 @@ class Economy(BaseCog, name="Economy"):
         await self.db.transfer(ctx.author.id, source="bank", destination="wallet", amount=amount)
         await ctx.send(f"Successfully withdrawn {embeds.money(amount)}")
 
+    @commands.hybrid_command(name="pay", aliases=["transfer"])  # type: ignore[arg-type]
+    @app_commands.describe(
+        member="Who receives the money.",
+        amount="Dollars to send from your bank. A transfer tax is withheld.",
+    )
+    async def pay(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        member: discord.Member,
+        amount: commands.Range[int, economy.MIN_TRANSFER],
+    ) -> None:
+        """Send money from your bank to another member's, minus a transfer tax."""
+        if member.id == ctx.author.id:
+            await ctx.send("You cannot pay yourself.")
+            return
+
+        split = economy.split_transfer(amount, self.settings.transfer_tax_rate)
+        await self.db.pay(
+            ctx.author.id,
+            member.id,
+            split,
+            creator_id=self.settings.creator_tax_user_id,
+        )
+        await ctx.send(
+            f"You sent {embeds.money(split.net)} to {member.mention}. "
+            f"{embeds.money(split.tax)} was withheld as transfer tax."
+        )
+
     @commands.hybrid_command(name="beg")  # type: ignore[arg-type]
     @commands.cooldown(1, economy.BEG_COOLDOWN_SECONDS, commands.BucketType.user)
     async def beg(self, ctx: commands.Context[FlyconomyBot]) -> None:

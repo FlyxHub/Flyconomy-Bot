@@ -22,7 +22,7 @@ from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import InsufficientFundsError
 from flyconomy.ratelimit import SlidingWindowLimiter
-from tests.conftest import ALICE, BOB
+from tests.conftest import ALICE, BOB, CAROL
 
 
 @dataclass
@@ -234,6 +234,63 @@ class TestBanking:
         account = await db.get_account(ALICE)
         assert account.bank == 0
         assert account.wallet == economy.STARTING_BANK
+
+
+class TestPay:
+    async def test_paying_credits_the_recipient_net_of_the_tax(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000)
+
+        await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
+
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK + 9_000
+        assert (await db.get_account(BOB)).bank == economy.STARTING_BANK + 950
+
+    async def test_the_reply_names_both_the_amount_sent_and_the_tax(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000)
+
+        await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
+
+        assert "$950" in ctx.last
+        assert "$50" in ctx.last
+
+    async def test_paying_yourself_is_refused(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000)
+
+        await cog.pay.callback(cog, ctx, FakeUser(id=ALICE), 1_000)
+
+        assert "yourself" in ctx.last.lower()
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK + 10_000
+
+    async def test_paying_more_than_your_bank_holds_is_refused(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+
+        with pytest.raises(InsufficientFundsError):
+            await cog.pay.callback(cog, ctx, FakeUser(id=BOB), economy.STARTING_BANK + 100)
+
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK
+        assert await db.find_account(BOB) is None
+
+    async def test_the_rate_comes_from_settings(self, db, ctx):
+        settings = Settings(discord_token="placeholder", transfer_tax_rate=0.5)
+        cog = Economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000)
+
+        await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
+
+        assert (await db.get_account(BOB)).bank == economy.STARTING_BANK + 500
+
+    async def test_the_creator_receives_half_the_tax_when_configured(self, db, ctx):
+        settings = Settings(discord_token="placeholder", creator_tax_user_id=CAROL)
+        cog = Economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000)
+
+        await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
+
+        assert (await db.get_account(CAROL)).bank == economy.STARTING_BANK + 25
+        assert (await db.lottery_state()).pot == 25
 
 
 class TestResetMe:

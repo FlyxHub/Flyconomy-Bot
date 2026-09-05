@@ -20,6 +20,7 @@ classic prefix command, such as `$balance`.
 - [Economy reference](#economy-reference)
   - [Keeping the economy honest](#keeping-the-economy-honest)
   - [Surviving a season](#surviving-a-season)
+  - [Transfers](#transfers)
   - [The lottery](#the-lottery)
   - [Blackjack](#blackjack)
   - [Crash](#crash)
@@ -278,6 +279,7 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` | No | None | Channel to announce each draw's winner in. Unset skips the announcement. |
 | `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
 | `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | Bank account credited with the creator tax. Unset disables the tax outright, regardless of the rate. |
+| `FLYCONOMY_TRANSFER_TAX_RATE` | No | `0.05` | Share of a `pay` transfer withheld as tax. Half feeds the lottery pot, half goes to `FLYCONOMY_CREATOR_TAX_USER_ID`. Capped at `0.5`. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
 | `FLYCONOMY_RATE_LIMIT_ACTIONS` | No | `6` | Game commands a member may run per window. |
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
@@ -302,6 +304,7 @@ mentioning the bot works as a prefix too.
 | `beg` | Pays $1 to $100 half the time. Cooldown: 60 seconds. |
 | `daily` | Pays 10% of your bank balance. Cooldown: 24 hours. |
 | `rob <member>` | Takes a random share of a member's wallet. Lands half the time against an undefended wallet, less against a secured one. Cooldown: 1 hour. |
+| `pay <member> <amount>` | Sends bank money to another member, minus a 5% transfer tax. Minimum $100. Alias: `transfer`. |
 | `secure` | Raises your wallet security one level, paid from your bank balance. Alias: `security`. |
 | `leaderboard` | Ranks the top 10 members by net worth. Alias: `lb`. |
 | `wallets` | Ranks the top 10 undeposited wallets, which are the best robbery targets. |
@@ -535,6 +538,11 @@ nothing back: every dollar it costs leaves the economy, and no level of it ever
 makes a wallet unrobbable. A defense that could be farmed, or that ended
 robbery outright, would be a worse problem than the one it was added to solve.
 
+**Transfers move money without making any.** `pay` is taxed and the tax is
+paid back into the economy rather than destroyed, so a transfer is a pure
+redistribution: the supply never rises, and no pair of members can churn
+transfers into a profit. See [Transfers](#transfers).
+
 A doubling strategy will still end most short sessions slightly ahead. That is
 true of any fair game and cannot be designed away without making the games
 unfair. What matters is the average, which is now zero or negative everywhere.
@@ -565,6 +573,44 @@ the richest member leaves sane bounds, or if growth stops looking linear.
 
 To make a season shorter or longer, move the cap: it is very close to the only
 number that decides how big the endgame gets.
+
+### Transfers
+
+`pay <member> <amount>` moves money from your bank to theirs and withholds 5% on
+the way. `flx send` moves Flyxcoin and withholds nothing. Two rails, and which
+one is worth using depends entirely on the size of the transfer.
+
+**The Flyxcoin rail is free, and that is deliberate.** Buying and selling quote
+the same price, so a sender who buys coins and a recipient who sells them lands
+the whole amount, minus whatever the price drifted in between. The walk reverts
+toward its anchor, so that drift averages out to nothing. Anyone moving a large
+sum should use it.
+
+**The cash rail owns the small end, because Flyxcoin cannot reach it.** Coins
+move in whole units, so Flyxcoin cannot carry anything smaller than one coin's
+price — between $5,000 and $20,000, depending on the market. Below that, `pay` is
+the only way to move money at all, and the 5% is the price of that convenience.
+
+This means the tax rate does not steer anything. Any rate above zero already
+sends large transfers to Flyxcoin, because the alternative there is free;
+raising it to 25% would send exactly the same transfers to exactly the same
+place. What splits the two rails is the coin price, not the rate.
+
+**The tax is redistributed, not destroyed.** Half of it is added to the lottery
+pot and half is credited to the creator's bank, so unlike `secure` a transfer
+removes nothing from the economy — it only moves money around, and creates
+none. Two members passing money back and forth lose 5% on every pass, and even
+a pair that includes the creator's own account cannot get back more than half
+of what each pass costs them. When `FLYCONOMY_CREATOR_TAX_USER_ID` is unset,
+that half is destroyed instead and the pot's half is unaffected, exactly as the
+casino's creator tax already behaves.
+
+One thing the tax does **not** do is stop money being funnelled into a second
+account, because the Flyxcoin rail was already free before `pay` existed. That
+matters because `daily` is capped per account rather than per person, so a
+seeded second account is a straightforward multiplier on the only faucet that
+compounds. It is a Discord-level problem rather than an economy-level one, and
+no transfer tax is the tool that fixes it.
 
 ### The lottery
 
@@ -630,6 +676,10 @@ takes from the loser or how much the pot receives — it only redirects part of
 what would otherwise be destroyed. It follows the same wins-contribute-nothing
 rule as the lottery rake: a player win never pays it, and there is nothing to
 claw back.
+
+The same account also receives half of every `pay` transfer's tax, which is a
+separate flow with its own rate — see [Transfers](#transfers). The casino cut
+and the transfer cut share only the account they are paid into.
 
 Off by default in the sense that matters: `FLYCONOMY_CREATOR_TAX_USER_ID` is
 unset, so no account is credited regardless of `FLYCONOMY_CREATOR_TAX_RATE`.

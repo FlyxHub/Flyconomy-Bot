@@ -8,6 +8,7 @@ touching command-handling code.
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -126,6 +127,55 @@ SECURITY_COST: Final[dict[int, int]] = {
     3: 250_000,
     4: 1_000_000,
 }
+
+# -------------------------------------------------------------- transfers ---
+
+#: Share of a member-to-member cash transfer withheld as tax.
+#:
+#: Any rate above zero is enough to send large transfers down the Flyxcoin rail
+#: instead, because :func:`flx_cost` quotes one price to a buyer and a seller
+#: alike, so a round trip through coins costs nothing but the drift between the
+#: buy and the sell. What actually splits the two rails is granularity: coins
+#: move in whole units, so Flyxcoin cannot carry anything smaller than one
+#: coin's price. This rate therefore prices the convenience of the small rail
+#: rather than steering the large one, and raising it steers nothing.
+TRANSFER_TAX_RATE: Final = 0.05
+
+#: Share of the tax that feeds the lottery pot, with the remainder going to the
+#: creator's bank. The two halves are the whole tax, so a transfer is a pure
+#: redistribution rather than a sink -- unlike ``secure``, it destroys nothing.
+#: That is safe only because a transfer creates nothing either: the pair always
+#: ends poorer by the half they cannot recover, which is what
+#: ``tests/test_antiabuse.py`` pins down.
+TRANSFER_POT_SHARE: Final = 0.5
+
+#: Smallest transfer ``pay`` accepts.
+#:
+#: The tax rounds up, so a one dollar transfer would be taxed a dollar and
+#: deliver nothing. A floor keeps every transfer worth more to the recipient
+#: than the tax takes, at any rate the settings allow.
+MIN_TRANSFER: Final = 100
+
+
+@dataclass(frozen=True, slots=True)
+class TransferSplit:
+    """How one taxed transfer divides up.
+
+    Attributes:
+        amount: Debited from the sender.
+        tax: Withheld from ``amount``.
+        net: Credited to the recipient.
+        pot_share: Added to the lottery pot.
+        creator_share: Credited to the creator's bank, or destroyed when no
+            creator is configured.
+    """
+
+    amount: int
+    tax: int
+    net: int
+    pot_share: int
+    creator_share: int
+
 
 # ------------------------------------------------------------- cooldowns ----
 
@@ -284,6 +334,41 @@ def daily_payout(bank: int, cap: int | None = None) -> int:
     """
     ceiling = DAILY_PAYOUT_CAP if cap is None else cap
     return min(int(bank * DAILY_PAYOUT_RATE), ceiling)
+
+
+def split_transfer(amount: int, rate: float = TRANSFER_TAX_RATE) -> TransferSplit:
+    """Divide a transfer into the recipient's share and the tax's two halves.
+
+    The tax rounds up, so no transfer is ever free. The halves round in the
+    creator's favour, which means the odd dollar is destroyed rather than
+    recycled whenever no creator is configured -- the safe direction for a
+    rounding rule to lean.
+
+    Args:
+        amount: Dollars the sender is debited. Must be at least
+            :data:`MIN_TRANSFER`.
+        rate: Share withheld as tax. Must leave the recipient something, which
+            the settings enforce by bounding it well below 1.
+
+    Returns:
+        The split, whose ``net`` and ``tax`` always add back up to ``amount``.
+
+    Raises:
+        ValueError: If ``amount`` is below :data:`MIN_TRANSFER`.
+    """
+    if amount < MIN_TRANSFER:
+        msg = f"transfer must be at least {MIN_TRANSFER}, got {amount}"
+        raise ValueError(msg)
+
+    tax = math.ceil(amount * rate)
+    pot_share = int(tax * TRANSFER_POT_SHARE)
+    return TransferSplit(
+        amount=amount,
+        tax=tax,
+        net=amount - tax,
+        pot_share=pot_share,
+        creator_share=tax - pot_share,
+    )
 
 
 def upgrade_cost(miner_level: int) -> int | None:

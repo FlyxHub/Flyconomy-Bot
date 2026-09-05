@@ -22,7 +22,7 @@ from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import BetTooLargeError, RateLimitedError
 from flyconomy.ratelimit import SlidingWindowLimiter
-from tests.conftest import ALICE, BOB
+from tests.conftest import ALICE, BOB, CAROL
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
 
 #: Every wagering command, as (name, arguments before the stake).
@@ -364,6 +364,75 @@ class TestSecurityIsADefenseNotAnIncome:
         # year and the wallet would stop being a real risk.
         settings = Settings(discord_token="placeholder")
         assert sum(economy.SECURITY_COST.values()) > settings.max_daily_payout * 30
+
+
+class TestTransfersOnlyMoveMoney:
+    """A taxed transfer redistributes; it must never mint or be farmed.
+
+    Unlike ``secure``, the transfer tax is not a sink -- both halves are paid
+    back into the economy. That is only safe because a transfer creates nothing
+    on the way in, so the checks here are that the supply never rises and that
+    no pair of members, including one holding the creator account, can churn
+    transfers into a profit.
+    """
+
+    @staticmethod
+    async def _supply(db: Database, *users: int) -> int:
+        """Total the banks under test plus the pot, which the tax also feeds."""
+        balances = [(await db.get_account(user)).bank for user in users]
+        return sum(balances) + (await db.lottery_state()).pot
+
+    @pytest.mark.parametrize("amount", [100, 1_000, 100_000, 5_000_000])
+    async def test_a_transfer_never_raises_the_money_supply(self, db, amount):
+        await db.add_bank(ALICE, amount)
+        before = await self._supply(db, ALICE, BOB, CAROL)
+        await db.pay(ALICE, BOB, economy.split_transfer(amount), creator_id=CAROL)
+        assert await self._supply(db, ALICE, BOB, CAROL) <= before
+
+    async def test_churning_a_transfer_back_and_forth_drains_the_pair(self, db):
+        # The funnel that matters: two accounts passing money between them.
+        # Each leg is taxed, so the pair strictly loses on every pass.
+        await db.add_bank(ALICE, 100_000)
+        previous = (await db.get_account(ALICE)).bank + (await db.get_account(BOB)).bank
+
+        sender, recipient = ALICE, BOB
+        for _ in range(20):
+            amount = (await db.get_account(sender)).bank
+            await db.pay(sender, recipient, economy.split_transfer(amount), creator_id=CAROL)
+            held = (await db.get_account(ALICE)).bank + (await db.get_account(BOB)).bank
+            assert held < previous
+            previous = held
+            sender, recipient = recipient, sender
+
+    async def test_the_creator_cannot_churn_their_own_tax_into_a_profit(self, db):
+        # The creator recovers half the tax, so the worst case is a pair where
+        # one of them is the creator. The pot's half is still gone for good.
+        await db.add_bank(ALICE, 100_000)
+        before = (await db.get_account(ALICE)).bank + (await db.get_account(BOB)).bank
+
+        sender, recipient = ALICE, BOB
+        for _ in range(20):
+            amount = (await db.get_account(sender)).bank
+            await db.pay(sender, recipient, economy.split_transfer(amount), creator_id=ALICE)
+            sender, recipient = recipient, sender
+
+        after = (await db.get_account(ALICE)).bank + (await db.get_account(BOB)).bank
+        assert after < before
+
+    @pytest.mark.parametrize("amount", [100, 1_000, 100_000, 5_000_000])
+    def test_at_least_the_pot_half_is_unrecoverable(self, amount):
+        # Pumping the pot to win it back is the other way round to farm this.
+        # It costs the whole tax to move half of it into the pot, so a pump is
+        # underwater before the draw is even rolled.
+        split = economy.split_transfer(amount)
+        assert 0 < split.pot_share <= split.tax - split.pot_share
+
+    def test_the_tax_leaves_the_recipient_the_larger_share(self):
+        # A tax that took more than it delivered would make `pay` a trap rather
+        # than a rail, whatever the configured rate.
+        settings = Settings(discord_token="placeholder")
+        split = economy.split_transfer(economy.MIN_TRANSFER, settings.transfer_tax_rate)
+        assert split.net > split.tax
 
 
 class TestGrindingIsNotProfitable:

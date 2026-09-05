@@ -92,6 +92,17 @@ class Settings(BaseSettings):
             "Unset disables the tax outright, regardless of the configured rate."
         ),
     )
+    transfer_tax_rate: Annotated[float, Field(ge=0, le=0.5)] = Field(
+        default=0.05,
+        description=(
+            "Share of a `pay` transfer withheld as tax, mirroring "
+            "economy.TRANSFER_TAX_RATE. Half feeds the lottery pot and half goes "
+            "to creator_tax_user_id, so the money is redistributed rather than "
+            "destroyed; the creator's half is destroyed instead while that "
+            "setting is unset. Bounded well below 1 so a transfer always "
+            "delivers more than it is taxed."
+        ),
+    )
     max_bet: Annotated[int, Field(gt=0)] = Field(
         default=100_000,
         description=(
