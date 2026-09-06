@@ -172,41 +172,68 @@ def lottery_winner_embed(winner_id: int, amount: int, draw: int, timezone: str) 
 _LOTTERY_ENTRANTS_SHOWN = 40
 
 
-def lottery_entrants_embed(
-    entrants: Sequence[int], state: LotteryState, timezone: str
+def lottery_embed(
+    entrants: Sequence[int],
+    state: LotteryState,
+    ticket_price: int,
+    viewer_id: int,
+    timezone: str,
 ) -> discord.Embed:
-    """Build the embed listing who is in the current draw.
+    """Build the embed ``/lottery info`` posts: the draw, and everyone in it.
 
-    Every entrant holds exactly one entry, so this is a flat list rather than a
+    The entrant list and the pot summary are one embed rather than two commands
+    because they answer the same question -- whether this draw is worth
+    entering -- and a separate list command only made a member ask twice.
+
+    Every entrant holds exactly one entry, so the list is flat rather than a
     ranking: the order carries no meaning and nobody's odds differ.
 
     Args:
         entrants: The members entered, as user IDs.
         state: The draw they are entered in.
+        ticket_price: What entering costs, quoted for members not yet in.
+        viewer_id: Who asked, so their own standing can be called out.
         timezone: IANA timezone for the embed timestamp.
 
     Returns:
         A populated embed, or one saying the draw is still empty.
     """
     embed = discord.Embed(
-        title=f"Lottery draw #{state.draw} entrants",
+        title=f"Lottery draw #{state.draw}",
         color=BRAND_COLOR,
         timestamp=now(timezone),
     )
+    embed.add_field(name="Pot", value=money(state.pot), inline=True)
+    embed.add_field(name="Entrants", value=f"{len(entrants):,}", inline=True)
+    embed.add_field(name="Ticket", value=money(ticket_price), inline=True)
+
     if not entrants:
         embed.description = "Nobody has entered this draw yet."
+        embed.add_field(name="You", value="Enter first and the pot is yours alone.", inline=False)
         embed.set_footer(text="Enter with /lottery enter.")
         return embed
 
-    lines = [f"<@{user_id}>" for user_id in entrants[:_LOTTERY_ENTRANTS_SHOWN]]
+    entered = viewer_id in entrants
+    shown = [
+        f"<@{user_id}>{' (you)' if user_id == viewer_id else ''}"
+        for user_id in entrants[:_LOTTERY_ENTRANTS_SHOWN]
+    ]
     hidden = len(entrants) - _LOTTERY_ENTRANTS_SHOWN
     if hidden > 0:
-        lines.append(f"...and {hidden:,} more")
-    embed.description = "\n".join(lines)
+        shown.append(f"...and {hidden:,} more")
+    embed.description = "\n".join(shown)
 
-    embed.add_field(name="Pot", value=money(state.pot), inline=True)
-    embed.add_field(name="Entrants", value=f"{len(entrants):,}", inline=True)
-    embed.add_field(name="Odds each", value=f"1 in {len(entrants):,}", inline=True)
+    # Entering adds one more name to the draw, so a member who is not in it yet
+    # is quoted the odds they would actually get rather than today's.
+    embed.add_field(
+        name="You",
+        value=(
+            f"Entered. Your odds are 1 in {len(entrants):,}."
+            if entered
+            else f"Not entered. Entering now would give you 1 in {len(entrants) + 1:,}."
+        ),
+        inline=False,
+    )
     embed.set_footer(text="One entry each. Everyone entered has the same chance.")
     return embed
 

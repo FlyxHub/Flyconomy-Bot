@@ -195,9 +195,8 @@ three boards draw is called off with both stakes returned.
 One ticket per member per draw, $10,000, drawn once a day. Every entrant has
 exactly one entry — **odds cannot be bought here**, unlike the jackpot.
 
-- `/lottery info` — the current pot and how many are in. Plain `$lottery` works too.
+- `/lottery info` — the pot, everyone who's in, and the odds a ticket buys you. Plain `$lottery` works too.
 - `/lottery enter` — buy your ticket.
-- `/lottery entrants` — who's in.
 
 The pot is fed by ticket sales *and* by a quarter of everything the casino
 wins. Nobody enters, nobody wins, and the pot rolls over — so a quiet week

@@ -408,9 +408,8 @@ every ante back rather than losing it.
 
 | Command | Description |
 | --- | --- |
-| `lottery` | Shows the pot, the entrants, and whether you are in. |
+| `lottery` | Shows the pot, everyone entered, the ticket price, and the odds a ticket would buy you. |
 | `lottery enter` | Enters the current draw. One entry per member, paid from your bank. |
-| `lottery entrants` | Lists who is in the current draw. |
 
 As a slash command, the bare `lottery` form is `/lottery info`.
 

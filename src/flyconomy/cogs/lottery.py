@@ -117,25 +117,18 @@ class Lottery(BaseCog, name="Lottery"):
 
     @commands.hybrid_group(name="lottery", fallback="info", invoke_without_command=True)  # type: ignore[arg-type]
     async def lottery(self, ctx: commands.Context[FlyconomyBot]) -> None:
-        """Show the lottery pot and how to enter."""
+        """Show the lottery pot, who is in the draw, and how to enter."""
         state = await self.db.lottery_state()
-        entered = await self.db.has_entered(ctx.author.id)
-
-        embed = discord.Embed(
-            title=f"Lottery draw #{state.draw}",
-            color=embeds.BRAND_COLOR,
-            timestamp=embeds.now(self.timezone),
+        entrants = await self.db.lottery_entrants()
+        await ctx.send(
+            embed=embeds.lottery_embed(
+                entrants,
+                state,
+                self.settings.lottery_ticket_price,
+                ctx.author.id,
+                self.timezone,
+            )
         )
-        embed.add_field(name="Pot", value=embeds.money(state.pot), inline=True)
-        embed.add_field(name="Entrants", value=f"{state.entrants:,}", inline=True)
-        embed.add_field(
-            name="Ticket", value=embeds.money(self.settings.lottery_ticket_price), inline=True
-        )
-        odds = "-" if state.entrants == 0 else f"1 in {state.entrants:,}"
-        embed.add_field(name="Your odds if you enter now", value=odds, inline=False)
-        embed.add_field(name="You", value="Entered" if entered else "Not entered", inline=False)
-        embed.set_footer(text="One entry each. Everyone entered has the same chance.")
-        await ctx.send(embed=embed)
 
     @lottery.command(name="enter")  # type: ignore[arg-type]
     async def lottery_enter(self, ctx: commands.Context[FlyconomyBot]) -> None:
@@ -151,13 +144,6 @@ class Lottery(BaseCog, name="Lottery"):
             f"You are in draw #{state.draw} for {embeds.money(price)}. "
             f"The pot is {embeds.money(state.pot)} across {state.entrants:,} entrants."
         )
-
-    @lottery.command(name="entrants")  # type: ignore[arg-type]
-    async def lottery_entrants(self, ctx: commands.Context[FlyconomyBot]) -> None:
-        """List who is in the current draw."""
-        entrants = await self.db.lottery_entrants()
-        state = await self.db.lottery_state()
-        await ctx.send(embed=embeds.lottery_entrants_embed(entrants, state, self.timezone))
 
 
 async def setup(bot: FlyconomyBot) -> None:

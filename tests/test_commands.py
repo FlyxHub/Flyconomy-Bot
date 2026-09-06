@@ -123,9 +123,13 @@ class TestAddedGames:
         for alias in aliases:
             assert bot.get_command(alias) is command
 
-    @pytest.mark.parametrize("action", ["enter", "entrants"])
-    async def test_the_lottery_actions_are_subcommands(self, bot: FlyconomyBot, action: str):
-        assert bot.get_command(f"lottery {action}") is not None
+    async def test_entering_the_lottery_is_a_subcommand(self, bot: FlyconomyBot):
+        assert bot.get_command("lottery enter") is not None
+
+    async def test_the_lottery_has_no_separate_entrant_list(self, bot: FlyconomyBot):
+        # `lottery info` lists them, so a second command only made a member
+        # ask the same question twice.
+        assert bot.get_command("lottery entrants") is None
 
     async def test_the_draw_is_owner_only(self, bot: FlyconomyBot):
         published = {c.qualified_name for c in bot.tree.walk_commands()}

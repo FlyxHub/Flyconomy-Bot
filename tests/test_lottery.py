@@ -421,24 +421,69 @@ class TestCommands:
         with pytest.raises(InsufficientFundsError):
             await cog.lottery_enter.callback(cog, ctx)
 
-    async def test_an_empty_entrant_list_says_so(self, db, settings, ctx):
+    async def test_an_empty_draw_says_so(self, db, settings, ctx):
         cog = make_cog(db, settings)
-        await cog.lottery_entrants.callback(cog, ctx)
+        await cog.lottery.callback(cog, ctx)
         assert "Nobody has entered" in ctx.embeds[0].description
 
-    async def test_entrants_are_mentioned_in_an_embed(self, db, settings, ctx):
+    async def test_info_lists_the_entrants(self, db, settings, ctx):
+        # The whole reason `lottery entrants` is gone: one command answers
+        # "is this draw worth entering" without a member asking twice.
         cog = make_cog(db, settings)
-        await db.add_bank(ALICE, 100_000)
-        await cog.lottery_enter.callback(cog, ctx)
+        for user in (ALICE, BOB):
+            await db.add_bank(user, 100_000)
+            await db.enter_lottery(user, settings.lottery_ticket_price)
 
-        await cog.lottery_entrants.callback(cog, ctx)
+        await cog.lottery.callback(cog, ctx)
 
         embed = ctx.embeds[0]
         assert f"<@{ALICE}>" in embed.description
+        assert f"<@{BOB}>" in embed.description
         assert "draw #1" in embed.title
-        assert "1 in 1" in [f.value for f in embed.fields]
 
-    async def test_the_entrant_list_summarizes_a_long_draw(self, db, settings, ctx):
+    async def test_info_marks_the_caller_in_the_list(self, db, settings, ctx):
+        cog = make_cog(db, settings)
+        for user in (ALICE, BOB):
+            await db.add_bank(user, 100_000)
+            await db.enter_lottery(user, settings.lottery_ticket_price)
+
+        await cog.lottery.callback(cog, ctx)
+
+        description = ctx.embeds[0].description
+        assert f"<@{ALICE}> (you)" in description
+        assert f"<@{BOB}> (you)" not in description
+
+    async def test_an_entrant_is_quoted_the_odds_they_hold(self, db, settings, ctx):
+        cog = make_cog(db, settings)
+        for user in (ALICE, BOB):
+            await db.add_bank(user, 100_000)
+            await db.enter_lottery(user, settings.lottery_ticket_price)
+
+        await cog.lottery.callback(cog, ctx)
+
+        assert any(f.value == "Entered. Your odds are 1 in 2." for f in ctx.embeds[0].fields)
+
+    async def test_someone_not_entered_is_quoted_the_odds_entering_would_give(
+        self, db, settings, ctx
+    ):
+        # Entering adds a name, so today's 1-in-2 becomes their 1-in-3. Quoting
+        # the current figure would overstate what a ticket actually buys.
+        cog = make_cog(db, settings)
+        for user in (BOB, CAROL):
+            await db.add_bank(user, 100_000)
+            await db.enter_lottery(user, settings.lottery_ticket_price)
+
+        await cog.lottery.callback(cog, ctx)
+
+        values = [f.value for f in ctx.embeds[0].fields]
+        assert "Not entered. Entering now would give you 1 in 3." in values
+
+    async def test_info_quotes_the_ticket_price(self, db, settings, ctx):
+        cog = make_cog(db, settings)
+        await cog.lottery.callback(cog, ctx)
+        assert f"${settings.lottery_ticket_price:,}" in [f.value for f in ctx.embeds[0].fields]
+
+    async def test_info_summarizes_a_long_draw(self, db, settings, ctx):
         # Every mention would otherwise overrun the embed's description limit.
         cog = make_cog(db, settings)
         shown = embeds._LOTTERY_ENTRANTS_SHOWN
@@ -446,7 +491,7 @@ class TestCommands:
             await db.add_bank(user, 100_000)
             await db.enter_lottery(user, settings.lottery_ticket_price)
 
-        await cog.lottery_entrants.callback(cog, ctx)
+        await cog.lottery.callback(cog, ctx)
 
         embed = ctx.embeds[0]
         assert embed.description.count("<@") == shown
