@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import discord
 
 from flyconomy import blackjack, crash, economy, jackpot, tictactoe
-from flyconomy.database import Account, JackpotState, LeaderboardEntry
+from flyconomy.database import Account, JackpotState, LeaderboardEntry, LotteryState
 from flyconomy.economy import Card
 
 #: The bot's brand color, carried over from version 1.
@@ -163,6 +163,51 @@ def lottery_winner_embed(winner_id: int, amount: int, draw: int, timezone: str) 
         color=BRAND_COLOR,
         timestamp=now(timezone),
     )
+    return embed
+
+
+#: Entrants named in full on the lottery's entrant list before the rest are
+#: summarized. An embed description is capped at 4,096 characters, and a
+#: mention is about 23 of them, so this leaves room for the heading above it.
+_LOTTERY_ENTRANTS_SHOWN = 40
+
+
+def lottery_entrants_embed(
+    entrants: Sequence[int], state: LotteryState, timezone: str
+) -> discord.Embed:
+    """Build the embed listing who is in the current draw.
+
+    Every entrant holds exactly one entry, so this is a flat list rather than a
+    ranking: the order carries no meaning and nobody's odds differ.
+
+    Args:
+        entrants: The members entered, as user IDs.
+        state: The draw they are entered in.
+        timezone: IANA timezone for the embed timestamp.
+
+    Returns:
+        A populated embed, or one saying the draw is still empty.
+    """
+    embed = discord.Embed(
+        title=f"Lottery draw #{state.draw} entrants",
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+    if not entrants:
+        embed.description = "Nobody has entered this draw yet."
+        embed.set_footer(text="Enter with /lottery enter.")
+        return embed
+
+    lines = [f"<@{user_id}>" for user_id in entrants[:_LOTTERY_ENTRANTS_SHOWN]]
+    hidden = len(entrants) - _LOTTERY_ENTRANTS_SHOWN
+    if hidden > 0:
+        lines.append(f"...and {hidden:,} more")
+    embed.description = "\n".join(lines)
+
+    embed.add_field(name="Pot", value=money(state.pot), inline=True)
+    embed.add_field(name="Entrants", value=f"{len(entrants):,}", inline=True)
+    embed.add_field(name="Odds each", value=f"1 in {len(entrants):,}", inline=True)
+    embed.set_footer(text="One entry each. Everyone entered has the same chance.")
     return embed
 
 

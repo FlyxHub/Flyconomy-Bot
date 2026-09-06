@@ -156,13 +156,8 @@ class Lottery(BaseCog, name="Lottery"):
     async def lottery_entrants(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """List who is in the current draw."""
         entrants = await self.db.lottery_entrants()
-        if not entrants:
-            await ctx.send("Nobody has entered this draw yet.")
-            return
-
-        shown = ", ".join(f"<@{user_id}>" for user_id in entrants[:25])
-        more = f" and {len(entrants) - 25:,} more" if len(entrants) > 25 else ""
-        await ctx.send(f"{len(entrants):,} entered: {shown}{more}")
+        state = await self.db.lottery_state()
+        await ctx.send(embed=embeds.lottery_entrants_embed(entrants, state, self.timezone))
 
 
 async def setup(bot: FlyconomyBot) -> None:

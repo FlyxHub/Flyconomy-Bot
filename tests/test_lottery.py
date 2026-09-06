@@ -9,7 +9,7 @@ from pathlib import Path
 import discord
 import pytest
 
-from flyconomy import economy
+from flyconomy import economy, embeds
 from flyconomy.cogs.gambling import Gambling
 from flyconomy.cogs.lottery import Lottery
 from flyconomy.config import Settings
@@ -424,16 +424,34 @@ class TestCommands:
     async def test_an_empty_entrant_list_says_so(self, db, settings, ctx):
         cog = make_cog(db, settings)
         await cog.lottery_entrants.callback(cog, ctx)
-        assert "Nobody has entered" in ctx.last
+        assert "Nobody has entered" in ctx.embeds[0].description
 
-    async def test_entrants_are_mentioned(self, db, settings, ctx):
+    async def test_entrants_are_mentioned_in_an_embed(self, db, settings, ctx):
         cog = make_cog(db, settings)
         await db.add_bank(ALICE, 100_000)
         await cog.lottery_enter.callback(cog, ctx)
 
         await cog.lottery_entrants.callback(cog, ctx)
 
-        assert f"<@{ALICE}>" in ctx.last
+        embed = ctx.embeds[0]
+        assert f"<@{ALICE}>" in embed.description
+        assert "draw #1" in embed.title
+        assert "1 in 1" in [f.value for f in embed.fields]
+
+    async def test_the_entrant_list_summarizes_a_long_draw(self, db, settings, ctx):
+        # Every mention would otherwise overrun the embed's description limit.
+        cog = make_cog(db, settings)
+        shown = embeds._LOTTERY_ENTRANTS_SHOWN
+        for user in range(1, shown + 6):
+            await db.add_bank(user, 100_000)
+            await db.enter_lottery(user, settings.lottery_ticket_price)
+
+        await cog.lottery_entrants.callback(cog, ctx)
+
+        embed = ctx.embeds[0]
+        assert embed.description.count("<@") == shown
+        assert "...and 5 more" in embed.description
+        assert f"{shown + 5:,}" in [f.value for f in embed.fields]
 
 
 class TestRunDraw:
