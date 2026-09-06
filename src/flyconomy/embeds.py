@@ -167,8 +167,12 @@ def lottery_winner_embed(winner_id: int, amount: int, draw: int, timezone: str) 
 
 
 #: Entrants named in full on the lottery's entrant list before the rest are
-#: summarized. An embed description is capped at 4,096 characters, and a
-#: mention is about 23 of them, so this leaves room for the heading above it.
+#: summarized. The list is a field rather than the description so it sits
+#: below the pot, and a field's value is capped at 1,024 characters -- a
+#: quarter of what a description allows. A mention is up to 23 of them plus a
+#: newline, so 40 names and the "and N more" line fit with room to spare.
+#: ``tests/test_lottery.py`` pins that, because overrunning it drops the whole
+#: embed rather than truncating the list.
 _LOTTERY_ENTRANTS_SHOWN = 40
 
 
@@ -208,8 +212,11 @@ def lottery_embed(
     embed.add_field(name="Ticket", value=money(ticket_price), inline=True)
 
     if not entrants:
-        embed.description = "Nobody has entered this draw yet."
-        embed.add_field(name="You", value="Enter first and the pot is yours alone.", inline=False)
+        embed.add_field(
+            name="In this draw",
+            value="Nobody yet. Enter first and the pot is yours alone.",
+            inline=False,
+        )
         embed.set_footer(text="Enter with /lottery enter.")
         return embed
 
@@ -221,7 +228,7 @@ def lottery_embed(
     hidden = len(entrants) - _LOTTERY_ENTRANTS_SHOWN
     if hidden > 0:
         shown.append(f"...and {hidden:,} more")
-    embed.description = "\n".join(shown)
+    embed.add_field(name="In this draw", value="\n".join(shown), inline=False)
 
     # Entering adds one more name to the draw, so a member who is not in it yet
     # is quoted the odds they would actually get rather than today's.

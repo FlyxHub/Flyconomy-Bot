@@ -388,6 +388,13 @@ class TestCreatorTax:
         assert await db.find_account(creator) is None
 
 
+def _field(embed: discord.Embed, name: str) -> str:
+    """Return one field's value, so a test names what it is reading."""
+    value = next(f.value for f in embed.fields if f.name == name)
+    assert value is not None
+    return value
+
+
 class TestCommands:
     async def test_info_reports_the_pot(self, db, settings, ctx):
         cog = make_cog(db, settings)
@@ -424,7 +431,7 @@ class TestCommands:
     async def test_an_empty_draw_says_so(self, db, settings, ctx):
         cog = make_cog(db, settings)
         await cog.lottery.callback(cog, ctx)
-        assert "Nobody has entered" in ctx.embeds[0].description
+        assert "Nobody yet" in _field(ctx.embeds[0], "In this draw")
 
     async def test_info_lists_the_entrants(self, db, settings, ctx):
         # The whole reason `lottery entrants` is gone: one command answers
@@ -437,8 +444,9 @@ class TestCommands:
         await cog.lottery.callback(cog, ctx)
 
         embed = ctx.embeds[0]
-        assert f"<@{ALICE}>" in embed.description
-        assert f"<@{BOB}>" in embed.description
+        listed = _field(embed, "In this draw")
+        assert f"<@{ALICE}>" in listed
+        assert f"<@{BOB}>" in listed
         assert "draw #1" in embed.title
 
     async def test_info_marks_the_caller_in_the_list(self, db, settings, ctx):
@@ -449,9 +457,9 @@ class TestCommands:
 
         await cog.lottery.callback(cog, ctx)
 
-        description = ctx.embeds[0].description
-        assert f"<@{ALICE}> (you)" in description
-        assert f"<@{BOB}> (you)" not in description
+        listed = _field(ctx.embeds[0], "In this draw")
+        assert f"<@{ALICE}> (you)" in listed
+        assert f"<@{BOB}> (you)" not in listed
 
     async def test_an_entrant_is_quoted_the_odds_they_hold(self, db, settings, ctx):
         cog = make_cog(db, settings)
@@ -483,6 +491,35 @@ class TestCommands:
         await cog.lottery.callback(cog, ctx)
         assert f"${settings.lottery_ticket_price:,}" in [f.value for f in ctx.embeds[0].fields]
 
+    async def test_the_entrant_list_sits_below_the_pot(self, db, settings, ctx):
+        # Discord draws the description above every field, so the list has to
+        # be a field for the pot to come first.
+        cog = make_cog(db, settings)
+        await db.add_bank(ALICE, 100_000)
+        await db.enter_lottery(ALICE, settings.lottery_ticket_price)
+
+        await cog.lottery.callback(cog, ctx)
+
+        embed = ctx.embeds[0]
+        assert not embed.description
+        names = [f.name for f in embed.fields]
+        assert names.index("Pot") < names.index("In this draw")
+
+    async def test_a_full_entrant_list_fits_inside_a_field(self, db, settings, ctx):
+        # A field value over 1,024 characters is rejected outright, taking the
+        # whole embed with it, so the busiest draw has to stay under it.
+        cog = make_cog(db, settings)
+        shown = embeds._LOTTERY_ENTRANTS_SHOWN
+        # The widest snowflakes Discord issues, so the list is at its longest.
+        for user in range(999_999_999_999_999_999, 999_999_999_999_999_999 + shown + 5):
+            await db.add_bank(user, 100_000)
+            await db.enter_lottery(user, settings.lottery_ticket_price)
+        ctx.author = FakeUser(id=999_999_999_999_999_999)
+
+        await cog.lottery.callback(cog, ctx)
+
+        assert len(_field(ctx.embeds[0], "In this draw")) <= 1_024
+
     async def test_info_summarizes_a_long_draw(self, db, settings, ctx):
         # Every mention would otherwise overrun the embed's description limit.
         cog = make_cog(db, settings)
@@ -494,8 +531,9 @@ class TestCommands:
         await cog.lottery.callback(cog, ctx)
 
         embed = ctx.embeds[0]
-        assert embed.description.count("<@") == shown
-        assert "...and 5 more" in embed.description
+        listed = _field(embed, "In this draw")
+        assert listed.count("<@") == shown
+        assert "...and 5 more" in listed
         assert f"{shown + 5:,}" in [f.value for f in embed.fields]
 
 
