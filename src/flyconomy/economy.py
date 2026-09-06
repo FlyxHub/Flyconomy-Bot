@@ -130,61 +130,84 @@ SECURITY_COST: Final[dict[int, int]] = {
 
 # ----------------------------------------------------------------- reset ----
 
-#: Seconds a member must wait between one self-reset and the next.
+#: How long a run of self-resets stays "consecutive".
 #:
-#: A reset seeds a fresh account out of nothing, which makes it a faucet, and
-#: the only bound on a faucet is how often it can be opened. Ungated it was the
-#: largest source of money in the game by two orders of magnitude: at the
-#: shared rate limit it paid the full starting bank about thirty times a
-#: minute, which is why members could gamble everything and simply start over.
-#: A day between resets puts it below ``beg`` per hour even on the first one,
-#: and :func:`reset_seed` takes it to nothing from there.
-RESET_COOLDOWN_SECONDS: Final = 60 * 60 * 24
+#: Two resets less than this apart are one chain, and each link in it seeds
+#: half of the one before. A gap this long breaks the chain, so a member who
+#: leaves it alone for a day starts again at the full :data:`STARTING_BANK`.
+#: That is what bounds the faucet: a member may reset as often as they like,
+#: but every seed after the first is one they made cheaper themselves, and the
+#: whole chain totals less than two hours of begging.
+RESET_CYCLE_SECONDS: Final = 60 * 60 * 24
 
-#: How many self-resets in a season are seeded at all. Each one before this
+#: How many self-resets in one chain are seeded at all. Each one before this
 #: halves the previous seed; every one after it hands over an empty account.
 RESET_SEED_HALVINGS: Final = 3
 
 
-def reset_seed(previous_resets: int) -> int:
+def reset_seed(chained_resets: int) -> int:
     """Return the bank balance a self-reset hands the fresh account.
 
-    The first reset in a season is a genuine restart and seeds
-    :data:`STARTING_BANK`; each one after that halves, and past
-    :data:`RESET_SEED_HALVINGS` a reset seeds nothing at all. That schedule is
-    what makes resetting a last resort rather than a strategy: a member who
-    truly wants to begin again still can, but a member farming the seed is
-    bidding against themselves, and the fourth attempt pays zero no matter how
-    long they wait between them.
+    The first reset of a chain is a genuine restart and seeds
+    :data:`STARTING_BANK`; each one after it halves, and past
+    :data:`RESET_SEED_HALVINGS` a reset seeds nothing at all.
+
+    That schedule is what makes resetting a last resort rather than a strategy.
+    Nothing stops a member from resetting again immediately -- losing
+    everything and starting over is allowed to be a bad day, not an error
+    message -- but doing it repeatedly pays less each time, so gambling the
+    seed away and going again is a losing move rather than a free one.
 
     Args:
-        previous_resets: How many times the member has already reset
-            themselves this season.
+        chained_resets: How many resets the member has already taken in the
+            current chain, which is zero once the chain has expired.
 
     Returns:
         Dollars to seed the new account's bank with, which may be zero.
     """
-    if previous_resets >= RESET_SEED_HALVINGS:
+    if chained_resets >= RESET_SEED_HALVINGS:
         return 0
-    return STARTING_BANK >> previous_resets
+    return STARTING_BANK >> chained_resets
 
 
-def reset_cooldown_remaining(last_reset: float | None, now: float) -> float:
-    """Return the seconds left before a member may reset themselves again.
+def chained_resets(recorded: int, last_reset: float | None, now: float) -> int:
+    """Return how many resets count as consecutive with one taken now.
+
+    The stored count is only meaningful while the chain is alive: a member
+    whose last reset was over :data:`RESET_CYCLE_SECONDS` ago is starting a
+    new one, and reads as zero however many they took before.
 
     Args:
-        last_reset: Unix timestamp of the member's last self-reset, or ``None``
-            if they have never reset.
+        recorded: The count stored against the member.
+        last_reset: Unix timestamp of their last self-reset, or ``None`` if
+            they have never reset.
         now: The current unix timestamp.
 
     Returns:
-        Seconds still to wait, or ``0.0`` when the reset is available. A clock
-        that has moved backwards reads as available rather than as a wait no
-        member could sit out.
+        The live chain length, which the seed schedule is keyed by.
+    """
+    if last_reset is None or now - last_reset >= RESET_CYCLE_SECONDS:
+        return 0
+    return recorded
+
+
+def reset_cycle_expires_in(last_reset: float | None, now: float) -> float:
+    """Return the seconds until the seed goes back to the full stake.
+
+    The chain breaks a whole cycle after the member's last reset, and their
+    next one is then seeded :data:`STARTING_BANK` again.
+
+    Args:
+        last_reset: Unix timestamp of their last self-reset, or ``None``.
+        now: The current unix timestamp.
+
+    Returns:
+        Seconds until the full seed is available again, or ``0.0`` when it
+        already is. Never negative, so an odd clock reads as "available".
     """
     if last_reset is None:
         return 0.0
-    return max(0.0, RESET_COOLDOWN_SECONDS - (now - last_reset))
+    return max(0.0, RESET_CYCLE_SECONDS - (now - last_reset))
 
 
 # -------------------------------------------------------------- transfers ---

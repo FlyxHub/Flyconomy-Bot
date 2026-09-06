@@ -222,40 +222,53 @@ class TestWalletSecurity:
 
 
 class TestSelfReset:
-    def test_the_first_reset_is_a_real_fresh_start(self):
+    def test_the_first_reset_of_a_chain_is_a_real_fresh_start(self):
         assert economy.reset_seed(0) == economy.STARTING_BANK
 
-    def test_each_reset_seeds_half_of_the_one_before(self):
+    def test_each_reset_in_a_row_seeds_half_of_the_one_before(self):
         seeds = [economy.reset_seed(n) for n in range(economy.RESET_SEED_HALVINGS)]
         assert seeds == [1_000, 500, 250]
 
-    def test_a_reset_past_the_schedule_seeds_nothing(self):
-        # The point of the schedule: farming the seed converges on zero, so
-        # there is nothing left to spam for.
+    def test_resetting_past_the_schedule_seeds_nothing(self):
         assert all(
             economy.reset_seed(n) == 0
             for n in range(economy.RESET_SEED_HALVINGS, economy.RESET_SEED_HALVINGS + 10)
         )
 
-    def test_no_reset_ever_seeds_more_than_the_one_before(self):
+    def test_no_reset_ever_seeds_more_than_the_one_before_it(self):
         seeds = [economy.reset_seed(n) for n in range(12)]
         assert seeds == sorted(seeds, reverse=True)
 
-    def test_a_member_who_has_never_reset_may_reset_now(self):
-        assert economy.reset_cooldown_remaining(None, now=1_000.0) == 0
+    def test_a_member_who_has_never_reset_starts_a_fresh_chain(self):
+        assert economy.chained_resets(0, last_reset=None, now=1_000.0) == 0
 
-    def test_a_reset_inside_the_window_still_has_to_wait(self):
-        remaining = economy.reset_cooldown_remaining(last_reset=100.0, now=1_000.0)
-        assert remaining == economy.RESET_COOLDOWN_SECONDS - 900
+    def test_resets_close_together_are_one_chain(self):
+        assert economy.chained_resets(2, last_reset=1_000.0, now=1_060.0) == 2
 
-    def test_the_wait_ends_exactly_at_the_cooldown(self):
-        last = 100.0
-        assert economy.reset_cooldown_remaining(last, last + economy.RESET_COOLDOWN_SECONDS) == 0
+    def test_a_full_cycle_since_the_last_reset_breaks_the_chain(self):
+        # The whole point: leave it a day and the next reset is worth the full
+        # starting bank again, however many were taken before.
+        last = 1_000.0
+        assert economy.chained_resets(9, last, last + economy.RESET_CYCLE_SECONDS) == 0
+
+    def test_the_chain_survives_right_up_to_the_cycle(self):
+        last = 1_000.0
+        assert economy.chained_resets(2, last, last + economy.RESET_CYCLE_SECONDS - 1) == 2
+
+    def test_a_broken_chain_seeds_the_full_stake_again(self):
+        last = 1_000.0
+        chained = economy.chained_resets(3, last, last + economy.RESET_CYCLE_SECONDS)
+        assert economy.reset_seed(chained) == economy.STARTING_BANK
+
+    def test_the_wait_for_a_full_stake_counts_down_from_the_last_reset(self):
+        remaining = economy.reset_cycle_expires_in(last_reset=100.0, now=1_000.0)
+        assert remaining == economy.RESET_CYCLE_SECONDS - 900
+
+    def test_someone_who_has_never_reset_waits_for_nothing(self):
+        assert economy.reset_cycle_expires_in(None, now=1_000.0) == 0
 
     def test_a_clock_that_moved_backwards_does_not_extend_the_wait(self):
-        # Never negative, so an odd clock reads as "available" rather than as a
-        # wait that grows.
-        assert economy.reset_cooldown_remaining(last_reset=5_000.0, now=1_000.0) >= 0
+        assert economy.reset_cycle_expires_in(last_reset=5_000.0, now=1_000.0) >= 0
 
 
 class TestMining:

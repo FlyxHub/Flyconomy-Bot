@@ -21,7 +21,7 @@ from flyconomy.cogs.gambling import Gambling
 from flyconomy.cogs.mining import Mining
 from flyconomy.config import Settings
 from flyconomy.database import Database
-from flyconomy.errors import InsufficientFundsError, ResetOnCooldownError
+from flyconomy.errors import InsufficientFundsError
 from flyconomy.ratelimit import SlidingWindowLimiter
 from tests.conftest import ALICE, BOB, CAROL
 
@@ -300,13 +300,12 @@ class TestPay:
 
 
 class TestResetMe:
-    """A reset is a last resort, so it must never be the fastest way to earn.
+    """A reset is free to run, but a run of them pays less every time.
 
     Resetting used to delete the account and let ``ensure_account`` seed the
-    next command with the full starting bank, with nothing between one reset
-    and the next but the shared rate limit. That paid more per hour than every
-    other source in the game put together, which is why a member could stake
-    everything and simply start over.
+    next command with the full starting bank, however often it was run. That
+    paid more per hour than every other source in the game put together, which
+    is why a member could stake everything and simply start over.
     """
 
     async def test_resetme_clears_the_caller_account(self, db, settings, ctx):
@@ -343,21 +342,28 @@ class TestResetMe:
         await cog.resetme.callback(cog, ctx)
 
         assert "don't have an account" in ctx.last.lower()
-        assert await db.resets_used(ALICE) == 0
+        assert await db.resets_in_cycle(ALICE, now=0.0) == 0
 
-    async def test_a_second_reset_inside_the_cooldown_is_refused(self, db, settings, ctx):
+    async def test_a_second_reset_is_allowed_and_seeds_half(self, db, settings, ctx):
         cog = Economy(FakeBot(db, settings))
-        await db.add_wallet(ALICE, 5_000)
+        await db.ensure_account(ALICE)
         await cog.resetme.callback(cog, ctx)
-        await db.add_wallet(ALICE, 5_000)
 
-        with pytest.raises(ResetOnCooldownError):
+        await cog.resetme.callback(cog, ctx)
+
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK // 2
+
+    async def test_spamming_resets_ends_with_nothing(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.ensure_account(ALICE)
+
+        for _ in range(economy.RESET_SEED_HALVINGS + 2):
             await cog.resetme.callback(cog, ctx)
 
-        assert (await db.get_account(ALICE)).wallet == 5_000
-        assert await db.resets_used(ALICE) == 1
+        assert (await db.get_account(ALICE)).bank == 0
+        assert "nothing" in ctx.last
 
-    async def test_the_reply_warns_what_the_next_reset_is_worth(self, db, settings, ctx):
+    async def test_the_reply_warns_what_resetting_again_would_be_worth(self, db, settings, ctx):
         cog = Economy(FakeBot(db, settings))
         await db.ensure_account(ALICE)
 
@@ -365,15 +371,15 @@ class TestResetMe:
 
         assert f"${economy.reset_seed(1):,}" in ctx.last
 
-    async def test_the_last_seeded_reset_says_the_next_one_pays_nothing(self, db, settings, ctx):
+    async def test_the_reply_names_the_way_back_to_a_full_stake(self, db, settings, ctx):
+        # The schedule is only fair if the escape from it is on screen.
         cog = Economy(FakeBot(db, settings))
         await db.ensure_account(ALICE)
-        for elapsed in range(economy.RESET_SEED_HALVINGS - 1):
-            await db.reset_account(ALICE, elapsed * economy.RESET_COOLDOWN_SECONDS)
 
         await cog.resetme.callback(cog, ctx)
 
-        assert "nothing at all" in ctx.last
+        assert "24 hours" in ctx.last
+        assert f"${economy.STARTING_BANK:,}" in ctx.last
 
 
 class TestIncome:

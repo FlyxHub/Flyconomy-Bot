@@ -77,13 +77,13 @@ async def test_a_version_1_database_gains_an_empty_guide_table(db_path):
 
 
 async def test_a_version_1_database_gains_an_empty_reset_history(db_path):
-    # Migration 9 writes no rows: every inherited member is correctly on their
-    # first self-reset, and so is seeded the full starting bank by it.
+    # Migration 9 writes no rows: every inherited member holds no chain of
+    # resets, and so is seeded the full starting bank by their next one.
     make_v1_database(db_path, [(400, 12_000, 1, 2, ALICE)])
 
     database = await Database.connect(db_path)
     try:
-        assert await database.resets_used(ALICE) == 0
+        assert await database.resets_in_cycle(ALICE, now=0.0) == 0
         outcome = await database.reset_account(ALICE, now=0.0)
     finally:
         await database.close()

@@ -507,7 +507,7 @@ class TestLeaderboards:
 
 
 class TestSelfReset:
-    """The member-facing reset, which has to survive being used to escape.
+    """The member-facing reset, which is free to run but pays less each time.
 
     Everything else a reset touches is deleted, so the one row that decides
     what the next reset is worth has to be the row a reset does not clear.
@@ -522,44 +522,71 @@ class TestSelfReset:
         outcome = await db.reset_account(ALICE, now=0.0)
 
         account = await db.get_account(ALICE)
-        assert outcome.performed
         assert (account.wallet, account.crypto, account.miner) == (0, 0, 0)
         assert account.bank == economy.STARTING_BANK
+        assert outcome.seed == economy.STARTING_BANK
 
     async def test_the_seeded_row_is_written_rather_than_left_to_ensure_account(self, db):
         # If the row were left absent, the member's next command would create
         # it at the full starting bank and quietly undo the whole schedule.
-        for reset in range(economy.RESET_SEED_HALVINGS + 1):
-            await db.reset_account(ALICE, now=reset * economy.RESET_COOLDOWN_SECONDS)
+        for _ in range(economy.RESET_SEED_HALVINGS + 1):
+            await db.reset_account(ALICE, now=0.0)
 
         assert (await db.find_account(ALICE)) is not None
         await db.ensure_account(ALICE)
         assert (await db.get_account(ALICE)).bank == 0
 
-    async def test_each_reset_seeds_less_than_the_last(self, db):
-        seeds = []
-        for reset in range(economy.RESET_SEED_HALVINGS + 2):
-            outcome = await db.reset_account(ALICE, now=reset * economy.RESET_COOLDOWN_SECONDS)
-            seeds.append(outcome.seed)
-
+    async def test_resets_in_a_row_seed_less_each_time(self, db):
+        seeds = [(await db.reset_account(ALICE, now=0.0)).seed for _ in range(5)]
         assert seeds == [1_000, 500, 250, 0, 0]
 
-    async def test_a_reset_inside_the_cooldown_changes_nothing(self, db):
-        await db.reset_account(ALICE, now=0.0)
-        await db.add_wallet(ALICE, 7_500)
-
-        outcome = await db.reset_account(ALICE, now=economy.RESET_COOLDOWN_SECONDS - 1)
-
-        assert not outcome.performed
-        assert outcome.retry_after == 1
-        assert (await db.get_account(ALICE)).wallet == 7_500
-        assert await db.resets_used(ALICE) == 1
-
-    async def test_the_history_outlives_the_account_it_belongs_to(self, db):
-        await db.reset_account(ALICE, now=0.0)
-
+    async def test_a_reset_is_never_refused(self, db):
+        # Losing everything is allowed to be a bad day rather than an error
+        # message; the schedule is what makes spamming it pointless.
+        for _ in range(20):
+            await db.reset_account(ALICE, now=0.0)
         assert await db.find_account(ALICE) is not None
-        assert await db.resets_used(ALICE) == 1
+
+    async def test_a_day_later_the_seed_is_back_to_the_full_stake(self, db):
+        for _ in range(economy.RESET_SEED_HALVINGS + 1):
+            await db.reset_account(ALICE, now=0.0)
+
+        outcome = await db.reset_account(ALICE, now=economy.RESET_CYCLE_SECONDS)
+
+        assert outcome.seed == economy.STARTING_BANK
+        assert outcome.resets == 1
+
+    async def test_a_chain_continues_right_up_to_the_cycle(self, db):
+        await db.reset_account(ALICE, now=0.0)
+
+        outcome = await db.reset_account(ALICE, now=economy.RESET_CYCLE_SECONDS - 1)
+
+        assert outcome.seed == economy.STARTING_BANK // 2
+        assert outcome.resets == 2
+
+    async def test_the_chain_is_measured_from_the_last_reset_not_the_first(self, db):
+        # Each reset re-arms the day, so a member cannot keep a chain alive
+        # cheaply and then collect a full stake on the original schedule.
+        await db.reset_account(ALICE, now=0.0)
+        await db.reset_account(ALICE, now=economy.RESET_CYCLE_SECONDS - 60)
+
+        outcome = await db.reset_account(ALICE, now=economy.RESET_CYCLE_SECONDS)
+
+        assert outcome.seed == economy.STARTING_BANK // 4
+        assert outcome.resets == 3
+
+    async def test_the_outcome_says_what_another_reset_would_seed(self, db):
+        outcome = await db.reset_account(ALICE, now=0.0)
+        assert outcome.next_seed == economy.STARTING_BANK // 2
+
+    async def test_the_live_chain_length_expires_on_its_own(self, db):
+        await db.reset_account(ALICE, now=0.0)
+
+        assert await db.resets_in_cycle(ALICE, now=60.0) == 1
+        assert await db.resets_in_cycle(ALICE, now=economy.RESET_CYCLE_SECONDS) == 0
+
+    async def test_a_member_who_never_reset_holds_no_chain(self, db):
+        assert await db.resets_in_cycle(ALICE, now=0.0) == 0
 
     async def test_the_history_survives_a_reopen(self, db_path):
         database = await Database.connect(db_path)
@@ -570,7 +597,9 @@ class TestSelfReset:
 
         reopened = await Database.connect(db_path)
         try:
-            assert await reopened.resets_used(ALICE) == 1
+            # A restart must not hand back a full stake; the chain is on disk.
+            assert await reopened.resets_in_cycle(ALICE, now=60.0) == 1
+            assert (await reopened.reset_account(ALICE, now=60.0)).seed == 500
         finally:
             await reopened.close()
 
@@ -580,7 +609,7 @@ class TestSelfReset:
 
         await db.reset_account(ALICE, now=0.0)
 
-        assert await db.resets_used(BOB) == 1
+        assert await db.resets_in_cycle(BOB, now=0.0) == 1
         assert (await db.get_account(BOB)).bank == economy.STARTING_BANK
 
     async def test_a_reset_refunds_an_opponent_the_way_a_purge_does(self, db):
@@ -592,14 +621,14 @@ class TestSelfReset:
 
         assert (await db.get_account(BOB)).wallet == 5_000
 
-    async def test_a_moderator_purge_forgives_the_history(self, db):
-        # `$reset` is staff undoing something, not a member escaping the
+    async def test_a_moderator_purge_forgives_the_chain(self, db):
+        # `$reset` is staff undoing something, not a member working the
         # schedule, so it hands back a clean slate at the full stake.
         await db.reset_account(ALICE, now=0.0)
 
         await db.purge_user(ALICE)
 
-        assert await db.resets_used(ALICE) == 0
+        assert await db.resets_in_cycle(ALICE, now=0.0) == 0
         assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK
 
 

@@ -187,15 +187,21 @@ Three further layers, all in place because they cover different failure modes:
 - **A reset is a faucet, and was the largest one.** `resetme` seeds a fresh account, so it belongs in
   the paragraph above rather than under "destructive commands". Ungated it paid `STARTING_BANK` per
   invocation with nothing but the shared rate limit in the way — about $2.1M an hour, which is what
-  made "gamble everything, then start over" a strategy. It is bounded twice now, because either
-  bound alone leaks: a persisted 24h cooldown (`RESET_COOLDOWN_SECONDS`, checked against the
-  `resets` table rather than discord.py's in-memory cooldown, which a restart would forget), and a
-  seed that halves per reset to zero (`economy.reset_seed`). Two things are load-bearing.
+  made "gamble everything, then start over" a strategy. It is deliberately still *never refused*:
+  the bound is the payout, not a gate, because a member who has lost everything should meet a worse
+  deal rather than an error message. Resets less than `RESET_CYCLE_SECONDS` apart form one chain and
+  each seeds half the last (`economy.reset_seed`), so the chain is a convergent series — $1,750
+  total, under a day of begging and under one capped `daily`, however many resets are in it. That
+  sum, not any per-call limit, is what `tests/test_antiabuse.py` pins; a new schedule has to keep
+  the series convergent. Three things are load-bearing. The chain is measured from the *last* reset,
+  so it cannot be kept alive cheaply and then cashed out on the original clock.
   `Database.reset_account` writes the seeded `bank` row itself instead of leaving it to
-  `ensure_account`, which would hand back the full starting bank on the member's next command; and
+  `ensure_account`, which would hand back the full starting bank on the member's next command. And
   the `resets` row is the one thing a self-reset does not delete, since a counter the reset clears
-  always reads zero. `purge_user` does clear it — that is the staff path, and a moderator undoing
-  something is not a member escaping the schedule.
+  always reads zero — it stores the *current chain length*, not a lifetime total, and
+  `resets_in_cycle` applies the expiry on read because the stored row is stale until the next reset
+  rewrites it. `purge_user` does clear it — that is the staff path, and a moderator undoing
+  something is not a member working the schedule.
 - **A shared rate limit,** in `BaseCog.cog_check` over `ratelimit.SlidingWindowLimiter`. Deliberately
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
   commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on

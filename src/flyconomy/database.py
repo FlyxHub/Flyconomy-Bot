@@ -169,28 +169,23 @@ class LeaderboardEntry:
 
 @dataclass(frozen=True, slots=True)
 class ResetOutcome:
-    """What a member's self-reset did, or why it was refused.
+    """What a member's self-reset did, and what the next one would be worth.
 
     Attributes:
-        retry_after: Seconds until the member may reset again. Zero when the
-            reset went through, positive when the cooldown refused it.
-        resets: How many times the member has reset themselves this season,
-            counting this one when it happened.
+        resets: How long the member's chain of consecutive resets now is,
+            counting this one. Back to ``1`` once a chain has expired.
         seed: Bank balance the fresh account was given, which is zero once the
             schedule in :func:`economy.reset_seed` has run out.
-        next_seed: What the member's next reset would seed, so the reply can
-            say what a second one is worth before they spend it.
+        next_seed: What another reset right now would seed, so the reply can
+            say what it costs them before they spend it.
+        full_seed_in: Seconds until the chain breaks and the seed goes back to
+            :data:`economy.STARTING_BANK`.
     """
 
-    retry_after: float
     resets: int
     seed: int
     next_seed: int
-
-    @property
-    def performed(self) -> bool:
-        """Whether the account was actually reset."""
-        return self.retry_after <= 0
+    full_seed_in: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -1377,8 +1372,9 @@ class Database:
     async def reset_account(self, user_id: int, now: float) -> ResetOutcome:
         """Reset a member at their own request, seeding the fresh account.
 
-        Everything the member owns goes, exactly as a purge would take it, with
-        two differences that are the whole point of the command being safe:
+        Never refused. Everything the member owns goes, exactly as a purge
+        would take it, with two differences that are what make a free command
+        safe:
 
         * The ``resets`` row survives, and is what the seed schedule counts.
           It is the one thing a member cannot reset by resetting, so a
@@ -1388,60 +1384,72 @@ class Database:
           :data:`economy.STARTING_BANK` on the member's very next command and
           quietly undo the schedule. A zero seed still writes a row.
 
-        The read and the write share one transaction, so two resets racing each
-        other cannot both pass the cooldown check.
+        The stored count is the length of the *current* chain, not a lifetime
+        total: a reset more than :data:`economy.RESET_CYCLE_SECONDS` after the
+        last one starts a new chain and is seeded in full.
+
+        The read and the write share one transaction, so two resets racing
+        each other cannot both read the same chain length and be seeded alike.
 
         Args:
             user_id: The member's Discord snowflake.
-            now: The current unix timestamp, injected so the cooldown can be
+            now: The current unix timestamp, injected so the chain can be
                 tested without waiting a day.
 
         Returns:
-            What happened, including the wait when the cooldown refused it.
+            What the reset seeded, and what another one would.
         """
         async with self._transaction() as db:
             async with db.execute(
                 "SELECT count, last_reset FROM resets WHERE user = ?", (user_id,)
             ) as cursor:
                 row = await cursor.fetchone()
-            previous = int(row["count"]) if row else 0
+            recorded = int(row["count"]) if row else 0
             last_reset = float(row["last_reset"]) if row else None
 
-            remaining = economy.reset_cooldown_remaining(last_reset, now)
-            if remaining > 0:
-                return ResetOutcome(
-                    retry_after=remaining,
-                    resets=previous,
-                    seed=0,
-                    next_seed=economy.reset_seed(previous),
-                )
+            chained = economy.chained_resets(recorded, last_reset, now)
+            seed = economy.reset_seed(chained)
 
             await self._purge_on(db, user_id)
-            seed = economy.reset_seed(previous)
             await db.execute(
                 "INSERT INTO bank (wallet, bank, crypto, miner, user) VALUES (?, ?, 0, 0, ?)",
                 (economy.STARTING_WALLET, seed, user_id),
             )
             await db.execute(
-                "INSERT INTO resets (user, count, last_reset) VALUES (?, 1, ?) "
+                "INSERT INTO resets (user, count, last_reset) VALUES (?, ?, ?) "
                 "ON CONFLICT(user) DO UPDATE SET "
-                "count = count + 1, last_reset = excluded.last_reset",
-                (user_id, now),
+                "count = excluded.count, last_reset = excluded.last_reset",
+                (user_id, chained + 1, now),
             )
             return ResetOutcome(
-                retry_after=0.0,
-                resets=previous + 1,
+                resets=chained + 1,
                 seed=seed,
-                next_seed=economy.reset_seed(previous + 1),
+                next_seed=economy.reset_seed(chained + 1),
+                full_seed_in=economy.RESET_CYCLE_SECONDS,
             )
 
-    async def resets_used(self, user_id: int) -> int:
-        """Return how many times a member has reset themselves this season."""
+    async def resets_in_cycle(self, user_id: int, now: float) -> int:
+        """Return how many consecutive self-resets a member currently holds.
+
+        Reads as zero once the chain has expired, which is the number the seed
+        schedule uses -- the stored count is left alone until the next reset
+        rewrites it, so it is not the answer on its own.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            now: The current unix timestamp.
+
+        Returns:
+            The live chain length, zero if they have never reset or their last
+            reset is older than :data:`economy.RESET_CYCLE_SECONDS`.
+        """
         async with self._reader.execute(
-            "SELECT count FROM resets WHERE user = ?", (user_id,)
+            "SELECT count, last_reset FROM resets WHERE user = ?", (user_id,)
         ) as cursor:
             row = await cursor.fetchone()
-        return int(row["count"]) if row else 0
+        if row is None:
+            return 0
+        return economy.chained_resets(int(row["count"]), float(row["last_reset"]), now)
 
     async def purge_user(self, user_id: int) -> PurgeResult:
         """Remove every trace of a member from the database.

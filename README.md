@@ -310,7 +310,7 @@ mentioning the bot works as a prefix too.
 | `secure` | Raises your wallet security one level, paid from your bank balance. Alias: `security`. |
 | `leaderboard` | Ranks the top 10 members by net worth. Alias: `lb`. |
 | `wallets` | Ranks the top 10 undeposited wallets, which are the best robbery targets. |
-| `resetme` | Deletes everything you own and seeds a fresh account: $1,000 the first time, $500 the second, $250 the third, and nothing after that. Cooldown: 24 hours. |
+| `resetme` | Deletes everything you own and seeds a fresh account. Never refused, but resets in a row seed less each time: $1,000, then $500, then $250, then nothing. Leave it 24 hours and the next one is worth $1,000 again. |
 
 ### Flyxcoin
 
@@ -565,18 +565,25 @@ stops being true.
 with no stake and no real limit, so its cooldown is what bounds it. At 60 seconds
 it produces about $1,500 an hour, just under a maximum-level miner.
 
-**A reset costs more each time.** `resetme` seeds a brand new account, which makes
-it a faucet like `beg`, and it was the fastest one in the game: ungated it paid
-the full $1,000 starting bank per invocation, about $2.1 million an hour at the
-shared rate limit, which is what made gambling everything and starting over a
-strategy rather than a loss. Two things bound it now. A 24-hour cooldown, held in
-the database so a restart cannot clear it, keeps even the best reset below what
-begging earns in the same hour. And the seed halves with each reset a member has
-taken — $1,000, then $500, then $250, then nothing — so a whole season of
-resetting back to back totals less than two capped dailies. The count is the one
-thing a reset does not delete, which is what makes the schedule enforceable; a
-moderator's `$reset` or `$purge` clears it, because staff undoing something is
-not a member escaping the schedule.
+**A reset pays less every time it is used.** `resetme` seeds a brand new account,
+which makes it a faucet like `beg`, and it was the fastest one in the game: it
+paid the full $1,000 starting bank per invocation, about $2.1 million an hour at
+the shared rate limit, which is what made gambling everything and starting over a
+strategy rather than a loss.
+
+It is still never refused — losing everything should be a bad day, not an error
+message — so the bound is in the payout instead. Resets less than 24 hours apart
+are one chain, and each link seeds half the one before: $1,000, then $500, then
+$250, then nothing at all. A whole chain totals $1,750 however many resets are in
+it, which is less than a day of begging and less than a single capped `daily`.
+The chain expires 24 hours after the *last* reset in it, so a member who leaves
+it alone for a day is seeded in full again, and one who keeps resetting keeps
+pushing that back.
+
+The count is the one thing a reset does not delete, which is what makes the
+schedule enforceable, and it lives in the database rather than in memory so a
+restart cannot clear it. A moderator's `$reset` or `$purge` does clear it,
+because staff undoing something is not a member working the schedule.
 
 **A shared rate limit, not a per-command cooldown.** Every game command spends
 from one budget of `FLYCONOMY_RATE_LIMIT_ACTIONS` per

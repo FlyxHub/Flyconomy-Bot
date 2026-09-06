@@ -17,7 +17,6 @@ from flyconomy.errors import (
     FlyconomyError,
     InsufficientFundsError,
     RateLimitedError,
-    ResetOnCooldownError,
 )
 from flyconomy.ratelimit import SlidingWindowLimiter
 
@@ -254,11 +253,6 @@ def describe_command_error(error: BaseException) -> str | None:
         case RateLimitedError():
             return (
                 f"You are using commands too quickly. Try again in {_humanize(error.retry_after)}."
-            )
-        case ResetOnCooldownError():
-            return (
-                f"Resetting is a last resort, not a way back into the game. "
-                f"You can reset again in {_humanize(error.retry_after)}."
             )
         case BetTooLargeError():
             return f"The table limit is {error.limit:,}. You cannot stake {error.bet:,} on one bet."

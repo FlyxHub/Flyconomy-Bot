@@ -208,8 +208,8 @@ builds something worth showing up for.
 
 - **Maximum bet:** $100,000 a wager. A bet over the limit is refused outright and costs you nothing.
 - **Rate limit:** six game commands per 10 seconds, shared across every game. Spamming is throttled, not punished.
-- **Cooldowns:** `beg` 60 seconds · `mine` and `rob` 1 hour · `daily` and `resetme` 24 hours.
-- **`/resetme` is a last resort, not a comeback.** It deletes everything you own — cash, coins, miner, security — and seeds the fresh account with $1,000 the first time, $500 the second, $250 the third, and nothing at all after that. Gambling it all away and starting over costs you more each time you try it.
+- **Cooldowns:** `beg` 60 seconds · `mine` and `rob` 1 hour · `daily` 24 hours.
+- **`/resetme` is a last resort, not a comeback.** It deletes everything you own — cash, coins, miner, security — and seeds you a fresh account. Reset again straight away and you get less: $1,000, then $500, then $250, then nothing. Leave it 24 hours and you're back to the full $1,000. Gambling it all away and starting over is allowed; doing it four times in a day just leaves you with nothing.
 - **Balances can't go negative.** A bet you can't cover is refused, not overdrawn.
 - **Nothing is stranded.** Every button — blackjack, crash, tic-tac-toe — pays out or refunds on its own if you walk away mid-hand.
 - **The season resets each January.** Everything you build is for the year.

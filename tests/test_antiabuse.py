@@ -171,29 +171,58 @@ class TestFaucetsAreThrottled:
             economy.BEG_COOLDOWN_SECONDS,
             economy.MINE_COOLDOWN_SECONDS,
             economy.DAILY_COOLDOWN_SECONDS,
-            economy.RESET_COOLDOWN_SECONDS,
         ):
             assert seconds > 0
 
-    def test_resetting_cannot_outpace_begging(self):
-        # A reset seeds money out of nothing, so it is a faucet like any other
-        # and has to be measured as one. Ungated it paid the whole starting
-        # bank per invocation, which at the shared rate limit was orders of
-        # magnitude past every other source.
-        beg_per_hour = (
+
+class TestResettingIsNotAnIncome:
+    """`resetme` seeds money out of nothing, so it is a faucet like any other.
+
+    It is the one faucet with no cooldown at all -- a member may run it as
+    often as they like -- so the bound has to come from the payout instead. A
+    chain of resets is a convergent series, and its whole sum is what a member
+    can earn per day no matter how they space the resets inside that day.
+    """
+
+    #: The most a chain can ever pay, however long it runs.
+    def _chain_total(self) -> int:
+        return sum(economy.reset_seed(n) for n in range(1_000))
+
+    def test_a_chain_pays_a_finite_total_however_long_it_runs(self):
+        assert self._chain_total() == 1_750
+
+    def test_a_days_worth_of_resetting_cannot_outpace_begging(self):
+        # The chain can be run through in seconds, but it cannot be run again
+        # until it expires, so a day is the honest unit to compare.
+        beg_per_day = (
             (1 / economy.BEG_SUCCESS_ODDS)
             * ((economy.BEG_MIN + economy.BEG_MAX) / 2)
-            * (3600 / economy.BEG_COOLDOWN_SECONDS)
+            * (86_400 / economy.BEG_COOLDOWN_SECONDS)
         )
-        best_reset_per_hour = economy.reset_seed(0) * (3600 / economy.RESET_COOLDOWN_SECONDS)
-        assert best_reset_per_hour < beg_per_hour
+        assert self._chain_total() < beg_per_day
 
-    def test_a_season_of_resetting_is_bounded_and_shrinking(self):
-        # Every reset a member could take in a whole season, back to back,
-        # totals less than two capped dailies. The sum is finite no matter how
-        # many they take, which is what the halving schedule buys.
-        season = 365 * 24 * 60 * 60 // economy.RESET_COOLDOWN_SECONDS
-        assert sum(economy.reset_seed(n) for n in range(season)) < 2 * economy.DAILY_PAYOUT_CAP
+    def test_a_days_worth_of_resetting_is_under_a_single_daily(self):
+        assert self._chain_total() < economy.DAILY_PAYOUT_CAP
+
+    def test_a_whole_season_of_resetting_stays_linear(self):
+        # One chain per day for a year: linear, and small next to the daily it
+        # is measured against. Nothing here compounds, so no cap is needed.
+        season_total = 365 * self._chain_total()
+        assert season_total < 365 * economy.DAILY_PAYOUT_CAP
+
+    def test_every_reset_after_the_first_pays_less_than_the_one_before(self):
+        # The property the bound rests on: without it the series diverges and
+        # spamming pays forever.
+        seeds = [economy.reset_seed(n) for n in range(economy.RESET_SEED_HALVINGS + 3)]
+        assert seeds[-1] == 0
+        assert all(later <= earlier for earlier, later in itertools.pairwise(seeds))
+
+    def test_a_chain_cannot_be_refreshed_faster_than_a_day(self):
+        # The seed only returns to full after a full cycle of not resetting,
+        # measured from the last reset rather than the first.
+        last = 5_000.0
+        assert economy.chained_resets(3, last, last + economy.RESET_CYCLE_SECONDS - 1) == 3
+        assert economy.chained_resets(3, last, last + economy.RESET_CYCLE_SECONDS) == 0
 
 
 class TestTableLimit:

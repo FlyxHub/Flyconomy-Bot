@@ -12,28 +12,32 @@ from flyconomy import economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.database import ResetOutcome
-from flyconomy.errors import ResetOnCooldownError
 
 
 def _reset_seed_line(outcome: ResetOutcome) -> str:
     """Describe what the fresh account was seeded with."""
     if outcome.seed:
         return f"You start again with {embeds.money(outcome.seed)} in the bank."
-    return "You start again with nothing, which is what a fourth reset is worth."
+    return "You start again with nothing: you have reset too many times in a row for a stake."
 
 
 def _reset_next_line(outcome: ResetOutcome) -> str:
-    """Warn what the member's next reset would be worth, before they spend it."""
-    ordinal = f"reset #{outcome.resets}"
+    """Warn what resetting again right now would be worth, before they do it.
+
+    Always names the way back to a full stake, because the schedule is only
+    fair if a member can see how to escape it.
+    """
+    hours = round(outcome.full_seed_in / 3600)
+    back_to_full = (
+        f"Leave it {hours} hours and your next reset is worth "
+        f"{embeds.money(economy.STARTING_BANK)} again."
+    )
     if outcome.next_seed:
         return (
-            f"-# That was your {ordinal}. The next one seeds "
-            f"{embeds.money(outcome.next_seed)}, and is available in 24 hours."
+            f"-# Reset again now and you would get {embeds.money(outcome.next_seed)}. "
+            f"{back_to_full}"
         )
-    return (
-        f"-# That was your {ordinal}. Every reset after it seeds nothing at all, "
-        "so this is the last one worth taking."
-    )
+    return f"-# Resetting again now would get you nothing. {back_to_full}"
 
 
 class Economy(BaseCog, name="Economy"):
@@ -204,15 +208,12 @@ class Economy(BaseCog, name="Economy"):
 
     @commands.hybrid_command(name="resetme")  # type: ignore[arg-type]
     async def resetme(self, ctx: commands.Context[FlyconomyBot]) -> None:
-        """Start over from nothing. Each reset seeds less than the last."""
+        """Start over from nothing. Resets in a row seed less and less."""
         if await self.db.find_account(ctx.author.id) is None:
             await ctx.send("You don't have an account to reset.")
             return
 
         outcome = await self.db.reset_account(ctx.author.id, time.time())
-        if not outcome.performed:
-            raise ResetOnCooldownError(outcome.retry_after, outcome.resets)
-
         seeded = _reset_seed_line(outcome)
         await ctx.send(f"Your account has been reset. {seeded}\n{_reset_next_line(outcome)}")
 
