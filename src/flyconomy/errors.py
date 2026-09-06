@@ -62,3 +62,22 @@ class BetTooLargeError(FlyconomyError):
         self.bet = bet
         self.limit = limit
         super().__init__(f"bet of {bet} exceeds the table limit of {limit}")
+
+
+class ResetOnCooldownError(FlyconomyError):
+    """A self-reset was refused because the member reset recently.
+
+    Not discord.py's own ``CommandOnCooldown``: that cooldown lives in memory
+    and would be forgotten on every restart, and a day-long wait a member can
+    clear by getting the bot restarted is not a wait at all.
+
+    Attributes:
+        retry_after: Seconds until the member may reset again.
+        resets: How many times they have already reset themselves.
+    """
+
+    def __init__(self, retry_after: float, resets: int) -> None:
+        """Store the wait and the history, and build a display message."""
+        self.retry_after = retry_after
+        self.resets = resets
+        super().__init__(f"reset on cooldown for another {retry_after:.1f}s")

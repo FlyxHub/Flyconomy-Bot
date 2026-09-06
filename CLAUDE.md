@@ -43,8 +43,8 @@ that would make that unsafe.
 buttons, `ratelimit.py` the abuse throttle, `guide.py` the member guide's text, and `config.py`
 the settings. The lottery adds two
 tables in migration 3, the jackpot two more in migration 5, head-to-head matches one in
-migration 6, wallet security one in migration 7, and the published guide one in migration 8;
-the `bank` table is still untouched. A
+migration 6, wallet security one in migration 7, the published guide one in migration 8, and
+self-reset history one in migration 9; the `bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
 Head-to-head games share `MatchView` (escrow settlement) and `MatchChallengeView` (the offer) in
@@ -184,6 +184,18 @@ Three further layers, all in place because they cover different failure modes:
 - **Faucet cooldowns.** `beg` creates money from nothing; its cooldown is the only thing bounding it.
   It sits at 60s so it earns less per hour than a maximum-level miner. Check that ratio before
   touching either number.
+- **A reset is a faucet, and was the largest one.** `resetme` seeds a fresh account, so it belongs in
+  the paragraph above rather than under "destructive commands". Ungated it paid `STARTING_BANK` per
+  invocation with nothing but the shared rate limit in the way — about $2.1M an hour, which is what
+  made "gamble everything, then start over" a strategy. It is bounded twice now, because either
+  bound alone leaks: a persisted 24h cooldown (`RESET_COOLDOWN_SECONDS`, checked against the
+  `resets` table rather than discord.py's in-memory cooldown, which a restart would forget), and a
+  seed that halves per reset to zero (`economy.reset_seed`). Two things are load-bearing.
+  `Database.reset_account` writes the seeded `bank` row itself instead of leaving it to
+  `ensure_account`, which would hand back the full starting bank on the member's next command; and
+  the `resets` row is the one thing a self-reset does not delete, since a counter the reset clears
+  always reads zero. `purge_user` does clear it — that is the staff path, and a moderator undoing
+  something is not a member escaping the schedule.
 - **A shared rate limit,** in `BaseCog.cog_check` over `ratelimit.SlidingWindowLimiter`. Deliberately
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
   commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on

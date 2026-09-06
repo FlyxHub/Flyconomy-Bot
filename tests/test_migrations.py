@@ -76,6 +76,21 @@ async def test_a_version_1_database_gains_an_empty_guide_table(db_path):
     assert (account.wallet, account.bank, account.crypto, account.miner) == (500, 9_000, 2, 3)
 
 
+async def test_a_version_1_database_gains_an_empty_reset_history(db_path):
+    # Migration 9 writes no rows: every inherited member is correctly on their
+    # first self-reset, and so is seeded the full starting bank by it.
+    make_v1_database(db_path, [(400, 12_000, 1, 2, ALICE)])
+
+    database = await Database.connect(db_path)
+    try:
+        assert await database.resets_used(ALICE) == 0
+        outcome = await database.reset_account(ALICE, now=0.0)
+    finally:
+        await database.close()
+
+    assert outcome.seed == economy.STARTING_BANK
+
+
 async def test_published_guide_messages_survive_a_reopen(db_path):
     # The bot edits messages it posted before the last restart, so the rows
     # tracking them have to outlive the process that wrote them.

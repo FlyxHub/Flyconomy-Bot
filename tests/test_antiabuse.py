@@ -171,8 +171,29 @@ class TestFaucetsAreThrottled:
             economy.BEG_COOLDOWN_SECONDS,
             economy.MINE_COOLDOWN_SECONDS,
             economy.DAILY_COOLDOWN_SECONDS,
+            economy.RESET_COOLDOWN_SECONDS,
         ):
             assert seconds > 0
+
+    def test_resetting_cannot_outpace_begging(self):
+        # A reset seeds money out of nothing, so it is a faucet like any other
+        # and has to be measured as one. Ungated it paid the whole starting
+        # bank per invocation, which at the shared rate limit was orders of
+        # magnitude past every other source.
+        beg_per_hour = (
+            (1 / economy.BEG_SUCCESS_ODDS)
+            * ((economy.BEG_MIN + economy.BEG_MAX) / 2)
+            * (3600 / economy.BEG_COOLDOWN_SECONDS)
+        )
+        best_reset_per_hour = economy.reset_seed(0) * (3600 / economy.RESET_COOLDOWN_SECONDS)
+        assert best_reset_per_hour < beg_per_hour
+
+    def test_a_season_of_resetting_is_bounded_and_shrinking(self):
+        # Every reset a member could take in a whole season, back to back,
+        # totals less than two capped dailies. The sum is finite no matter how
+        # many they take, which is what the halving schedule buys.
+        season = 365 * 24 * 60 * 60 // economy.RESET_COOLDOWN_SECONDS
+        assert sum(economy.reset_seed(n) for n in range(season)) < 2 * economy.DAILY_PAYOUT_CAP
 
 
 class TestTableLimit:

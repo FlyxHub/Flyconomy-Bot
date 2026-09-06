@@ -310,7 +310,7 @@ mentioning the bot works as a prefix too.
 | `secure` | Raises your wallet security one level, paid from your bank balance. Alias: `security`. |
 | `leaderboard` | Ranks the top 10 members by net worth. Alias: `lb`. |
 | `wallets` | Ranks the top 10 undeposited wallets, which are the best robbery targets. |
-| `resetme` | Deletes your own account, resetting you to a new player. |
+| `resetme` | Deletes everything you own and seeds a fresh account: $1,000 the first time, $500 the second, $250 the third, and nothing after that. Cooldown: 24 hours. |
 
 ### Flyxcoin
 
@@ -423,7 +423,7 @@ which is the wrong place to advertise a command nobody else can run.
 | --- | --- |
 | `$adminme` | Gives you the admin miner, level 999. |
 | `$adminmine <amount>` | Adds Flyxcoin to your own account. A negative amount removes coins. |
-| `$reset <member>` | Deletes a member's account, resetting them to a new player. |
+| `$reset <member>` | Deletes a member's account, resetting them to a new player. Clears their `resetme` history too, so their next self-reset seeds the full starting bank again. |
 | `$purge <id>` | Deletes a user id from every table, taking the id itself or a mention. Use this for a row whose id no longer resolves to a member, which `$reset` cannot take. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
@@ -565,6 +565,19 @@ stops being true.
 **Faucets are slower than mining.** `beg` is the only command that creates money
 with no stake and no real limit, so its cooldown is what bounds it. At 60 seconds
 it produces about $1,500 an hour, just under a maximum-level miner.
+
+**A reset costs more each time.** `resetme` seeds a brand new account, which makes
+it a faucet like `beg`, and it was the fastest one in the game: ungated it paid
+the full $1,000 starting bank per invocation, about $2.1 million an hour at the
+shared rate limit, which is what made gambling everything and starting over a
+strategy rather than a loss. Two things bound it now. A 24-hour cooldown, held in
+the database so a restart cannot clear it, keeps even the best reset below what
+begging earns in the same hour. And the seed halves with each reset a member has
+taken — $1,000, then $500, then $250, then nothing — so a whole season of
+resetting back to back totals less than two capped dailies. The count is the one
+thing a reset does not delete, which is what makes the schedule enforceable; a
+moderator's `$reset` or `$purge` clears it, because staff undoing something is
+not a member escaping the schedule.
 
 **A shared rate limit, not a per-command cooldown.** Every game command spends
 from one budget of `FLYCONOMY_RATE_LIMIT_ACTIONS` per

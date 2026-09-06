@@ -33,7 +33,7 @@ You begin with **$1,000 in the bank** and an empty wallet.
 
 `/balance` shows everything you own. `/leaderboard` shows who's beating you.
 
--# Stuck? `$help` lists every command. `/resetme` wipes your account back to a new player, if you ever want to start over.
+-# Stuck? `$help` lists every command. `/resetme` starts you over from nothing — read the house rules before you reach for it.
 
 ════════════════════════════════════ 2 of 6 ════════════════════════════════════
 
@@ -209,7 +209,8 @@ builds something worth showing up for.
 
 - **Maximum bet:** $100,000 a wager. A bet over the limit is refused outright and costs you nothing.
 - **Rate limit:** six game commands per 10 seconds, shared across every game. Spamming is throttled, not punished.
-- **Cooldowns:** `beg` 60 seconds · `mine` and `rob` 1 hour · `daily` 24 hours.
+- **Cooldowns:** `beg` 60 seconds · `mine` and `rob` 1 hour · `daily` and `resetme` 24 hours.
+- **`/resetme` is a last resort, not a comeback.** It deletes everything you own — cash, coins, miner, security — and seeds the fresh account with $1,000 the first time, $500 the second, $250 the third, and nothing at all after that. Gambling it all away and starting over costs you more each time you try it.
 - **Balances can't go negative.** A bet you can't cover is refused, not overdrawn.
 - **Nothing is stranded.** Every button — blackjack, crash, tic-tac-toe — pays out or refunds on its own if you walk away mid-hand.
 - **The season resets each January.** Everything you build is for the year.

@@ -30,7 +30,7 @@ from flyconomy.errors import InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 8
+SCHEMA_VERSION: Final = 9
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -165,6 +165,32 @@ class LeaderboardEntry:
 
     user_id: int
     amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class ResetOutcome:
+    """What a member's self-reset did, or why it was refused.
+
+    Attributes:
+        retry_after: Seconds until the member may reset again. Zero when the
+            reset went through, positive when the cooldown refused it.
+        resets: How many times the member has reset themselves this season,
+            counting this one when it happened.
+        seed: Bank balance the fresh account was given, which is zero once the
+            schedule in :func:`economy.reset_seed` has run out.
+        next_seed: What the member's next reset would seed, so the reply can
+            say what a second one is worth before they spend it.
+    """
+
+    retry_after: float
+    resets: int
+    seed: int
+    next_seed: int
+
+    @property
+    def performed(self) -> bool:
+        """Whether the account was actually reset."""
+        return self.retry_after <= 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1333,7 +1359,12 @@ class Database:
             )
 
     async def delete_account(self, user_id: int) -> bool:
-        """Delete a member's account.
+        """Delete a member's account, on a moderator's behalf.
+
+        This is the staff path, and it purges: the member's reset history goes
+        with everything else, so a reset granted by a moderator restores the
+        full starting stake. The member-facing path is :meth:`reset_account`,
+        which deliberately keeps that history.
 
         Args:
             user_id: The member's Discord snowflake.
@@ -1343,18 +1374,91 @@ class Database:
         """
         return (await self.purge_user(user_id)).account
 
+    async def reset_account(self, user_id: int, now: float) -> ResetOutcome:
+        """Reset a member at their own request, seeding the fresh account.
+
+        Everything the member owns goes, exactly as a purge would take it, with
+        two differences that are the whole point of the command being safe:
+
+        * The ``resets`` row survives, and is what the seed schedule counts.
+          It is the one thing a member cannot reset by resetting, so a
+          diminishing seed actually diminishes.
+        * The new ``bank`` row is written here rather than left to
+          :meth:`ensure_account`, which would seed the full
+          :data:`economy.STARTING_BANK` on the member's very next command and
+          quietly undo the schedule. A zero seed still writes a row.
+
+        The read and the write share one transaction, so two resets racing each
+        other cannot both pass the cooldown check.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            now: The current unix timestamp, injected so the cooldown can be
+                tested without waiting a day.
+
+        Returns:
+            What happened, including the wait when the cooldown refused it.
+        """
+        async with self._transaction() as db:
+            async with db.execute(
+                "SELECT count, last_reset FROM resets WHERE user = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            previous = int(row["count"]) if row else 0
+            last_reset = float(row["last_reset"]) if row else None
+
+            remaining = economy.reset_cooldown_remaining(last_reset, now)
+            if remaining > 0:
+                return ResetOutcome(
+                    retry_after=remaining,
+                    resets=previous,
+                    seed=0,
+                    next_seed=economy.reset_seed(previous),
+                )
+
+            await self._purge_on(db, user_id)
+            seed = economy.reset_seed(previous)
+            await db.execute(
+                "INSERT INTO bank (wallet, bank, crypto, miner, user) VALUES (?, ?, 0, 0, ?)",
+                (economy.STARTING_WALLET, seed, user_id),
+            )
+            await db.execute(
+                "INSERT INTO resets (user, count, last_reset) VALUES (?, 1, ?) "
+                "ON CONFLICT(user) DO UPDATE SET "
+                "count = count + 1, last_reset = excluded.last_reset",
+                (user_id, now),
+            )
+            return ResetOutcome(
+                retry_after=0.0,
+                resets=previous + 1,
+                seed=seed,
+                next_seed=economy.reset_seed(previous + 1),
+            )
+
+    async def resets_used(self, user_id: int) -> int:
+        """Return how many times a member has reset themselves this season."""
+        async with self._reader.execute(
+            "SELECT count FROM resets WHERE user = ?", (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row["count"]) if row else 0
+
     async def purge_user(self, user_id: int) -> PurgeResult:
         """Remove every trace of a member from the database.
 
-        A member lives in five tables: their balances in ``bank``, their wallet
-        security level in ``security``, one row in ``lottery_entries`` while a
-        draw is open, one row in ``jackpot_entries`` while a jackpot round is,
-        and one row in ``escrow`` for each head-to-head match they are in the
-        middle of. All of it goes, in one transaction, so a purge can never
-        leave an entry behind that pays a pot into an account that no longer
-        exists. The security row is not counted in the result: it holds no
-        money, and a member who resets themselves should come back undefended
-        rather than keep a level they no longer paid for.
+        A member lives in six tables: their balances in ``bank``, their wallet
+        security level in ``security``, their self-reset history in ``resets``,
+        one row in ``lottery_entries`` while a draw is open, one row in
+        ``jackpot_entries`` while a jackpot round is, and one row in ``escrow``
+        for each head-to-head match they are in the middle of. All of it goes,
+        in one transaction, so a purge can never leave an entry behind that
+        pays a pot into an account that no longer exists. The security row is
+        not counted in the result: it holds no money, and a member who resets
+        themselves should come back undefended rather than keep a level they no
+        longer paid for. The reset history is not counted either, and is the
+        one thing :meth:`reset_account` deliberately does *not* remove — a
+        purge is a moderator wiping an id, so it forgives the schedule that a
+        member resetting themselves has to live with.
 
         A match the purged member was playing is voided rather than forfeited,
         and their opponent's stake goes back: the stake belongs to a member who
@@ -1376,33 +1480,49 @@ class Database:
             What was deleted.
         """
         async with self._transaction() as db:
-            account = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
-            removed = account.rowcount > 0
-            await db.execute("DELETE FROM security WHERE user = ?", (user_id,))
-            entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
-            antes = await db.execute("DELETE FROM jackpot_entries WHERE user = ?", (user_id,))
+            await db.execute("DELETE FROM resets WHERE user = ?", (user_id,))
+            return await self._purge_on(db, user_id)
 
-            async with db.execute(
-                "SELECT id, game, first_user, second_user, stake FROM escrow "
-                "WHERE first_user = ? OR second_user = ?",
-                (user_id, user_id),
-            ) as cursor:
-                held = list(await cursor.fetchall())
-            for row in held:
-                hold = _escrow_from_row(row)
-                opponent = hold.second_user if hold.first_user == user_id else hold.first_user
-                await self.ensure_account(opponent)
-                await db.execute(
-                    "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (hold.stake, opponent)
-                )
-                await db.execute("DELETE FROM escrow WHERE id = ?", (hold.hold_id,))
+    async def _purge_on(self, db: aiosqlite.Connection, user_id: int) -> PurgeResult:
+        """Remove a member's balances and open entries on an open transaction.
 
-            return PurgeResult(
-                account=removed,
-                lottery_entries=max(entries.rowcount, 0),
-                jackpot_entries=max(antes.rowcount, 0),
-                escrow_holds=len(held),
+        Shared by :meth:`purge_user` and :meth:`reset_account`, which differ
+        only in what they do about the ``resets`` row this never touches.
+
+        Args:
+            db: The connection inside the caller's transaction.
+            user_id: The member's Discord snowflake.
+
+        Returns:
+            What was deleted.
+        """
+        account = await db.execute("DELETE FROM bank WHERE user = ?", (user_id,))
+        removed = account.rowcount > 0
+        await db.execute("DELETE FROM security WHERE user = ?", (user_id,))
+        entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
+        antes = await db.execute("DELETE FROM jackpot_entries WHERE user = ?", (user_id,))
+
+        async with db.execute(
+            "SELECT id, game, first_user, second_user, stake FROM escrow "
+            "WHERE first_user = ? OR second_user = ?",
+            (user_id, user_id),
+        ) as cursor:
+            held = list(await cursor.fetchall())
+        for row in held:
+            hold = _escrow_from_row(row)
+            opponent = hold.second_user if hold.first_user == user_id else hold.first_user
+            await self.ensure_account(opponent)
+            await db.execute(
+                "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (hold.stake, opponent)
             )
+            await db.execute("DELETE FROM escrow WHERE id = ?", (hold.hold_id,))
+
+        return PurgeResult(
+            account=removed,
+            lottery_entries=max(entries.rowcount, 0),
+            jackpot_entries=max(antes.rowcount, 0),
+            escrow_holds=len(held),
+        )
 
 
 def _escrow_from_row(row: aiosqlite.Row) -> EscrowHold:
@@ -1602,6 +1722,26 @@ async def _migration_8_guide(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_9_resets(db: aiosqlite.Connection) -> None:
+    """Add the table that remembers how often a member has reset themselves.
+
+    The ``bank`` table is untouched. This row is the only thing about a member
+    that a self-reset does not delete, which is exactly what makes the seed
+    schedule in ``economy.reset_seed`` enforceable: a count kept anywhere the
+    reset itself clears would always read zero.
+
+    An absent row means no resets, so this migration writes none: every
+    existing member correctly starts on their first.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS resets ("
+        "  user INTEGER PRIMARY KEY,"
+        "  count INTEGER NOT NULL CHECK (count > 0),"
+        "  last_reset REAL NOT NULL"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -1611,4 +1751,5 @@ _MIGRATIONS: Final = {
     6: _migration_6_escrow,
     7: _migration_7_security,
     8: _migration_8_guide,
+    9: _migration_9_resets,
 }

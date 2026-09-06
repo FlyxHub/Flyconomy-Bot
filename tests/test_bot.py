@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from flyconomy import embeds
 from flyconomy.bot import EXTENSIONS, _humanize, build_intents, describe_command_error
-from flyconomy.errors import FlyconomyError, InsufficientFundsError
+from flyconomy.errors import FlyconomyError, InsufficientFundsError, ResetOnCooldownError
 
 
 class TestIntents:
@@ -49,6 +49,12 @@ class TestErrorMessages:
         message = describe_command_error(InsufficientFundsError(1, 5, "Flyxcoin"))
         assert message is not None
         assert "Flyxcoin" in message
+
+    def test_a_reset_on_cooldown_says_why_and_when(self):
+        message = describe_command_error(ResetOnCooldownError(7_200.0, resets=1))
+        assert message is not None
+        assert "last resort" in message
+        assert "2 hours" in message
 
     def test_a_wrapped_error_is_unwrapped(self):
         wrapped = commands.CommandInvokeError(InsufficientFundsError(0, 10))

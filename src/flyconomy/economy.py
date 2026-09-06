@@ -128,6 +128,65 @@ SECURITY_COST: Final[dict[int, int]] = {
     4: 1_000_000,
 }
 
+# ----------------------------------------------------------------- reset ----
+
+#: Seconds a member must wait between one self-reset and the next.
+#:
+#: A reset seeds a fresh account out of nothing, which makes it a faucet, and
+#: the only bound on a faucet is how often it can be opened. Ungated it was the
+#: largest source of money in the game by two orders of magnitude: at the
+#: shared rate limit it paid the full starting bank about thirty times a
+#: minute, which is why members could gamble everything and simply start over.
+#: A day between resets puts it below ``beg`` per hour even on the first one,
+#: and :func:`reset_seed` takes it to nothing from there.
+RESET_COOLDOWN_SECONDS: Final = 60 * 60 * 24
+
+#: How many self-resets in a season are seeded at all. Each one before this
+#: halves the previous seed; every one after it hands over an empty account.
+RESET_SEED_HALVINGS: Final = 3
+
+
+def reset_seed(previous_resets: int) -> int:
+    """Return the bank balance a self-reset hands the fresh account.
+
+    The first reset in a season is a genuine restart and seeds
+    :data:`STARTING_BANK`; each one after that halves, and past
+    :data:`RESET_SEED_HALVINGS` a reset seeds nothing at all. That schedule is
+    what makes resetting a last resort rather than a strategy: a member who
+    truly wants to begin again still can, but a member farming the seed is
+    bidding against themselves, and the fourth attempt pays zero no matter how
+    long they wait between them.
+
+    Args:
+        previous_resets: How many times the member has already reset
+            themselves this season.
+
+    Returns:
+        Dollars to seed the new account's bank with, which may be zero.
+    """
+    if previous_resets >= RESET_SEED_HALVINGS:
+        return 0
+    return STARTING_BANK >> previous_resets
+
+
+def reset_cooldown_remaining(last_reset: float | None, now: float) -> float:
+    """Return the seconds left before a member may reset themselves again.
+
+    Args:
+        last_reset: Unix timestamp of the member's last self-reset, or ``None``
+            if they have never reset.
+        now: The current unix timestamp.
+
+    Returns:
+        Seconds still to wait, or ``0.0`` when the reset is available. A clock
+        that has moved backwards reads as available rather than as a wait no
+        member could sit out.
+    """
+    if last_reset is None:
+        return 0.0
+    return max(0.0, RESET_COOLDOWN_SECONDS - (now - last_reset))
+
+
 # -------------------------------------------------------------- transfers ---
 
 #: Share of a member-to-member cash transfer withheld as tax.

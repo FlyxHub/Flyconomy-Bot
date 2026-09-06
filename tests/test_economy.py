@@ -221,6 +221,43 @@ class TestWalletSecurity:
         assert abs(hits / trials * 100 - expected) < 1.0
 
 
+class TestSelfReset:
+    def test_the_first_reset_is_a_real_fresh_start(self):
+        assert economy.reset_seed(0) == economy.STARTING_BANK
+
+    def test_each_reset_seeds_half_of_the_one_before(self):
+        seeds = [economy.reset_seed(n) for n in range(economy.RESET_SEED_HALVINGS)]
+        assert seeds == [1_000, 500, 250]
+
+    def test_a_reset_past_the_schedule_seeds_nothing(self):
+        # The point of the schedule: farming the seed converges on zero, so
+        # there is nothing left to spam for.
+        assert all(
+            economy.reset_seed(n) == 0
+            for n in range(economy.RESET_SEED_HALVINGS, economy.RESET_SEED_HALVINGS + 10)
+        )
+
+    def test_no_reset_ever_seeds_more_than_the_one_before(self):
+        seeds = [economy.reset_seed(n) for n in range(12)]
+        assert seeds == sorted(seeds, reverse=True)
+
+    def test_a_member_who_has_never_reset_may_reset_now(self):
+        assert economy.reset_cooldown_remaining(None, now=1_000.0) == 0
+
+    def test_a_reset_inside_the_window_still_has_to_wait(self):
+        remaining = economy.reset_cooldown_remaining(last_reset=100.0, now=1_000.0)
+        assert remaining == economy.RESET_COOLDOWN_SECONDS - 900
+
+    def test_the_wait_ends_exactly_at_the_cooldown(self):
+        last = 100.0
+        assert economy.reset_cooldown_remaining(last, last + economy.RESET_COOLDOWN_SECONDS) == 0
+
+    def test_a_clock_that_moved_backwards_does_not_extend_the_wait(self):
+        # Never negative, so an odd clock reads as "available" rather than as a
+        # wait that grows.
+        assert economy.reset_cooldown_remaining(last_reset=5_000.0, now=1_000.0) >= 0
+
+
 class TestMining:
     def test_no_miner_never_yields(self):
         rng = random.Random(0)

@@ -21,7 +21,7 @@ from flyconomy.cogs.gambling import Gambling
 from flyconomy.cogs.mining import Mining
 from flyconomy.config import Settings
 from flyconomy.database import Database
-from flyconomy.errors import InsufficientFundsError
+from flyconomy.errors import InsufficientFundsError, ResetOnCooldownError
 from flyconomy.ratelimit import SlidingWindowLimiter
 from tests.conftest import ALICE, BOB, CAROL
 
@@ -300,14 +300,33 @@ class TestPay:
 
 
 class TestResetMe:
-    async def test_resetme_deletes_the_caller_account(self, db, settings, ctx):
+    """A reset is a last resort, so it must never be the fastest way to earn.
+
+    Resetting used to delete the account and let ``ensure_account`` seed the
+    next command with the full starting bank, with nothing between one reset
+    and the next but the shared rate limit. That paid more per hour than every
+    other source in the game put together, which is why a member could stake
+    everything and simply start over.
+    """
+
+    async def test_resetme_clears_the_caller_account(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 5_000)
+        await db.add_crypto(ALICE, 3)
+
+        await cog.resetme.callback(cog, ctx)
+
+        account = await db.get_account(ALICE)
+        assert (account.wallet, account.crypto, account.miner) == (0, 0, 0)
+        assert "reset" in ctx.last.lower()
+
+    async def test_the_first_reset_seeds_the_full_starting_bank(self, db, settings, ctx):
         cog = Economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 5_000)
 
         await cog.resetme.callback(cog, ctx)
 
-        assert await db.find_account(ALICE) is None
-        assert "reset" in ctx.last.lower()
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK
 
     async def test_resetme_leaves_other_members_alone(self, db, settings, ctx):
         cog = Economy(FakeBot(db, settings))
@@ -324,6 +343,37 @@ class TestResetMe:
         await cog.resetme.callback(cog, ctx)
 
         assert "don't have an account" in ctx.last.lower()
+        assert await db.resets_used(ALICE) == 0
+
+    async def test_a_second_reset_inside_the_cooldown_is_refused(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 5_000)
+        await cog.resetme.callback(cog, ctx)
+        await db.add_wallet(ALICE, 5_000)
+
+        with pytest.raises(ResetOnCooldownError):
+            await cog.resetme.callback(cog, ctx)
+
+        assert (await db.get_account(ALICE)).wallet == 5_000
+        assert await db.resets_used(ALICE) == 1
+
+    async def test_the_reply_warns_what_the_next_reset_is_worth(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.ensure_account(ALICE)
+
+        await cog.resetme.callback(cog, ctx)
+
+        assert f"${economy.reset_seed(1):,}" in ctx.last
+
+    async def test_the_last_seeded_reset_says_the_next_one_pays_nothing(self, db, settings, ctx):
+        cog = Economy(FakeBot(db, settings))
+        await db.ensure_account(ALICE)
+        for elapsed in range(economy.RESET_SEED_HALVINGS - 1):
+            await db.reset_account(ALICE, elapsed * economy.RESET_COOLDOWN_SECONDS)
+
+        await cog.resetme.callback(cog, ctx)
+
+        assert "nothing at all" in ctx.last
 
 
 class TestIncome:

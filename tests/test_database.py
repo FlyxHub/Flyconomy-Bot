@@ -506,6 +506,103 @@ class TestLeaderboards:
         assert await db.top_wallets() == []
 
 
+class TestSelfReset:
+    """The member-facing reset, which has to survive being used to escape.
+
+    Everything else a reset touches is deleted, so the one row that decides
+    what the next reset is worth has to be the row a reset does not clear.
+    """
+
+    async def test_a_reset_wipes_the_balances_and_seeds_the_new_account(self, db):
+        await db.add_wallet(ALICE, 9_000)
+        await db.add_bank(ALICE, 50_000)
+        await db.add_crypto(ALICE, 4)
+        await db.buy_miner_upgrade(ALICE, cost=economy.UPGRADE_COST[0])
+
+        outcome = await db.reset_account(ALICE, now=0.0)
+
+        account = await db.get_account(ALICE)
+        assert outcome.performed
+        assert (account.wallet, account.crypto, account.miner) == (0, 0, 0)
+        assert account.bank == economy.STARTING_BANK
+
+    async def test_the_seeded_row_is_written_rather_than_left_to_ensure_account(self, db):
+        # If the row were left absent, the member's next command would create
+        # it at the full starting bank and quietly undo the whole schedule.
+        for reset in range(economy.RESET_SEED_HALVINGS + 1):
+            await db.reset_account(ALICE, now=reset * economy.RESET_COOLDOWN_SECONDS)
+
+        assert (await db.find_account(ALICE)) is not None
+        await db.ensure_account(ALICE)
+        assert (await db.get_account(ALICE)).bank == 0
+
+    async def test_each_reset_seeds_less_than_the_last(self, db):
+        seeds = []
+        for reset in range(economy.RESET_SEED_HALVINGS + 2):
+            outcome = await db.reset_account(ALICE, now=reset * economy.RESET_COOLDOWN_SECONDS)
+            seeds.append(outcome.seed)
+
+        assert seeds == [1_000, 500, 250, 0, 0]
+
+    async def test_a_reset_inside_the_cooldown_changes_nothing(self, db):
+        await db.reset_account(ALICE, now=0.0)
+        await db.add_wallet(ALICE, 7_500)
+
+        outcome = await db.reset_account(ALICE, now=economy.RESET_COOLDOWN_SECONDS - 1)
+
+        assert not outcome.performed
+        assert outcome.retry_after == 1
+        assert (await db.get_account(ALICE)).wallet == 7_500
+        assert await db.resets_used(ALICE) == 1
+
+    async def test_the_history_outlives_the_account_it_belongs_to(self, db):
+        await db.reset_account(ALICE, now=0.0)
+
+        assert await db.find_account(ALICE) is not None
+        assert await db.resets_used(ALICE) == 1
+
+    async def test_the_history_survives_a_reopen(self, db_path):
+        database = await Database.connect(db_path)
+        try:
+            await database.reset_account(ALICE, now=0.0)
+        finally:
+            await database.close()
+
+        reopened = await Database.connect(db_path)
+        try:
+            assert await reopened.resets_used(ALICE) == 1
+        finally:
+            await reopened.close()
+
+    async def test_a_reset_leaves_other_members_alone(self, db):
+        await db.add_wallet(BOB, 4_000)
+        await db.reset_account(BOB, now=0.0)
+
+        await db.reset_account(ALICE, now=0.0)
+
+        assert await db.resets_used(BOB) == 1
+        assert (await db.get_account(BOB)).bank == economy.STARTING_BANK
+
+    async def test_a_reset_refunds_an_opponent_the_way_a_purge_does(self, db):
+        await db.add_wallet(ALICE, 5_000)
+        await db.add_wallet(BOB, 5_000)
+        await db.open_escrow("tictactoe", ALICE, BOB, stake=1_000)
+
+        await db.reset_account(ALICE, now=0.0)
+
+        assert (await db.get_account(BOB)).wallet == 5_000
+
+    async def test_a_moderator_purge_forgives_the_history(self, db):
+        # `$reset` is staff undoing something, not a member escaping the
+        # schedule, so it hands back a clean slate at the full stake.
+        await db.reset_account(ALICE, now=0.0)
+
+        await db.purge_user(ALICE)
+
+        assert await db.resets_used(ALICE) == 0
+        assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK
+
+
 class TestLifecycle:
     async def test_the_database_works_as_a_context_manager(self, db_path):
         async with await Database.connect(db_path) as database:
