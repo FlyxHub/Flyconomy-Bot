@@ -279,7 +279,7 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_LOTTERY_TICKET_PRICE` | No | `10000` | Cost of one lottery entry. |
 | `FLYCONOMY_LOTTERY_RAKE` | No | `0.25` | Share of the casino's net winnings added to the pot. |
 | `FLYCONOMY_LOTTERY_DRAW_TIME` | No | `18:00` | 24-hour clock time the lottery draws each day, in `FLYCONOMY_TIMEZONE`. |
-| `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` | No | None | Channel to announce each draw's winner in. Unset skips the announcement. |
+| `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` | No | None | Channel for the bot's announcements: each draw's winner, and the daily interest run. Unset skips them. |
 | `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
 | `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | Bank account credited with the creator tax. Unset disables the tax outright, regardless of the rate. |
 | `FLYCONOMY_TRANSFER_TAX_RATE` | No | `0.05` | Share of a `pay` transfer withheld as tax. Half feeds the lottery pot, half goes to `FLYCONOMY_CREATOR_TAX_USER_ID`. Capped at `0.5`. |
@@ -630,6 +630,13 @@ So the interest is capped by `FLYCONOMY_MAX_DAILY_PAYOUT`. Below ten times the
 cap nothing changes, which is most of the early game; above it, growth becomes a
 straight line.
 
+Because nobody claims it, the run posts a notice to
+`FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` naming the total paid and how many
+accounts it reached — otherwise the only sign it happened is a balance that
+went up. A run that credited nobody is not announced, and an unreachable
+channel is logged rather than raised: the money has already moved by then, so
+the post cannot be allowed to fail the payout or leave the day unrecorded.
+
 The cap is **per account per day**, and stayed exactly that when the payout
 became automatic. What automation changed is who collects: every row in `bank`
 is paid rather than only the members who typed a command, and a row lasts
@@ -707,7 +714,8 @@ pays one entrant, picked uniformly. With nobody entered the pot rolls over
 untouched, so a jackpot builds on a quiet server. `$draw` runs one immediately.
 Set `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` to have the winner announced in a
 channel; a rollover is not announced, and a missing or unreachable channel is
-logged and otherwise does not affect the draw.
+logged and otherwise does not affect the draw. The same channel carries the
+daily interest notice, on the same terms — see below.
 
 **Odds cannot be bought.** Everyone entered has exactly one entry, enforced by a
 primary key on `(draw, user)` rather than by application code.

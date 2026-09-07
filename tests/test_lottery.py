@@ -16,24 +16,9 @@ from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import InsufficientFundsError
 from tests.conftest import ALICE, BOB, CAROL, make_v1_database
-from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
+from tests.test_cog_behavior import CHANNEL_ID, FakeBot, FakeChannel, FakeContext, FakeUser
 
 PRICE = 10_000
-CHANNEL_ID = 555
-
-
-class FakeChannel(discord.abc.Messageable):
-    """A stand-in for the announcement channel.
-
-    Subclasses ``Messageable`` so ``isinstance`` checks in the cog pass, with
-    ``send`` overridden to avoid touching the gateway.
-    """
-
-    def __init__(self) -> None:
-        self.embeds: list[object] = []
-
-    async def send(self, *, embed: object) -> None:  # type: ignore[override]
-        self.embeds.append(embed)
 
 
 @pytest.fixture

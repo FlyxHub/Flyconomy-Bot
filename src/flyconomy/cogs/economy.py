@@ -14,7 +14,7 @@ from discord.ext import commands, tasks
 from flyconomy import economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
-from flyconomy.database import ResetOutcome
+from flyconomy.database import DailyPayout, ResetOutcome
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +79,38 @@ class Economy(BaseCog, name="Economy"):
             paid.total,
             paid.accounts,
         )
+        await self._announce_interest(paid)
+
+    async def _announce_interest(self, paid: DailyPayout) -> None:
+        """Post the day's payout to the announcement channel, best effort.
+
+        Nobody claims the interest, so without this the only way to notice it
+        happened is a balance that went up. A missing or unreachable channel
+        must not fail the run, which has already credited every account by the
+        time this is called -- the same contract as the lottery's announcement,
+        and the reason both go through ``BaseCog.resolve_channel``.
+
+        A run that moved nothing is not announced. On a quiet server that would
+        otherwise post "$0 paid across 0 accounts" every morning forever.
+        """
+        channel_id = self.settings.lottery_announce_channel_id
+        if channel_id is None or paid.accounts == 0:
+            return
+
+        channel = await self.resolve_channel(channel_id)
+        if channel is None:
+            return
+
+        embed = embeds.daily_interest_embed(
+            paid,
+            economy.DAILY_PAYOUT_RATE,
+            self.settings.max_daily_payout,
+            self.timezone,
+        )
+        try:
+            await channel.send(embed=embed)
+        except discord.HTTPException:
+            log.warning("Failed to post the daily interest notice to channel %d", channel_id)
 
     @tasks.loop(hours=24)
     async def interest_loop(self) -> None:

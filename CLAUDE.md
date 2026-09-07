@@ -167,6 +167,13 @@ and only when the scheduled time has already passed — backfilling every missed
 week-long outage into a week of interest paid at once, which is the one shape the linear-growth
 bound does not survive.
 
+Because nobody claims it, `_announce_interest` posts the run to
+`settings.lottery_announce_channel_id` — the lottery's channel, shared rather than given a second
+setting, since it is the same "things the bot did on its own" feed. It carries the lottery's
+contract with it: the money has already moved when the post is attempted, so it goes through
+`BaseCog.resolve_channel` and an unreachable channel is logged rather than raised. A run that
+credited nobody is not announced, or a quiet server gets "$0 across 0 accounts" every morning.
+
 **Automatic payment changed who collects, not how much.** The cap is still per account per day, but
 issuance now scales with the number of rows in `bank` rather than with how many members showed up,
 and a row lasts forever. That is linear in accounts and capped per account, so it holds inside a

@@ -124,6 +124,26 @@ class FakeBot:
         raise discord.InvalidData(f"no channel {channel_id}")
 
 
+#: Channel id the announcement tests configure. Any value works; it only has to
+#: match the key in `FakeBot`'s channel map.
+CHANNEL_ID = 555
+
+
+class FakeChannel(discord.abc.Messageable):
+    """A stand-in for an announcement channel.
+
+    Subclasses ``Messageable`` so ``isinstance`` checks in the cog pass, with
+    ``send`` overridden to avoid touching the gateway. Shared with
+    tests/test_lottery.py, which announces through the same channel setting.
+    """
+
+    def __init__(self) -> None:
+        self.embeds: list[object] = []
+
+    async def send(self, *, embed: object) -> None:  # type: ignore[override]
+        self.embeds.append(embed)
+
+
 def make_economy(bot: FakeBot) -> Economy:
     """Build the economy cog without starting its daily interest timer.
 
@@ -505,6 +525,85 @@ class TestDailyInterest:
         await cog.pay_daily_interest()
 
         assert (await db.get_account(ALICE)).bank == 11_000
+
+
+class TestDailyInterestIsAnnounced:
+    """Nobody claims the payout, so the notice is the only sign it happened.
+
+    It shares the lottery's announcement channel, and deliberately shares its
+    contract too: the money has already moved by the time the post is
+    attempted, so an unreachable channel is logged and skipped rather than
+    raised.
+    """
+
+    @staticmethod
+    def _announcing(db: Database, channel: FakeChannel) -> Economy:
+        settings = Settings(discord_token="placeholder", lottery_announce_channel_id=CHANNEL_ID)
+        return make_economy(FakeBot(db, settings, channels={CHANNEL_ID: channel}))
+
+    async def test_a_payout_is_announced_when_a_channel_is_configured(self, db):
+        channel = FakeChannel()
+        cog = self._announcing(db, channel)
+        await db.add_bank(ALICE, 9_000)
+
+        await cog.pay_daily_interest()
+
+        assert len(channel.embeds) == 1
+        assert "$1,000" in channel.embeds[0].description
+        assert "1 account" in channel.embeds[0].description
+
+    async def test_the_account_count_reads_as_a_plural(self, db):
+        channel = FakeChannel()
+        cog = self._announcing(db, channel)
+        await db.add_bank(ALICE, 9_000)
+        await db.add_bank(BOB, 4_000)
+
+        await cog.pay_daily_interest()
+
+        assert "2 accounts" in channel.embeds[0].description
+
+    async def test_a_run_that_paid_nothing_is_not_announced(self, db):
+        # A quiet server would otherwise get "$0 across 0 accounts" every
+        # morning until someone banked money.
+        channel = FakeChannel()
+        cog = self._announcing(db, channel)
+
+        await cog.pay_daily_interest()
+
+        assert channel.embeds == []
+
+    async def test_a_repeat_run_for_the_same_day_announces_once(self, db):
+        channel = FakeChannel()
+        cog = self._announcing(db, channel)
+        await db.add_bank(ALICE, 9_000)
+
+        await cog.pay_daily_interest()
+        await cog.pay_daily_interest()
+
+        assert len(channel.embeds) == 1
+
+    async def test_no_announcement_without_a_configured_channel(self, db, settings):
+        assert settings.lottery_announce_channel_id is None
+        cog = make_economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 9_000)
+
+        # With no channel configured the cog must not even attempt a lookup.
+        await cog.pay_daily_interest()
+
+        assert (await db.get_account(ALICE)).bank == 11_000
+
+    async def test_an_unreachable_channel_does_not_lose_the_payout(self, db):
+        # The money moved before the post was attempted, so a channel that is
+        # gone must not turn a paid day into a failed one -- and the day stays
+        # paid, so the next run does not credit everyone twice.
+        settings = Settings(discord_token="placeholder", lottery_announce_channel_id=CHANNEL_ID)
+        cog = make_economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 9_000)
+
+        await cog.pay_daily_interest()
+
+        assert (await db.get_account(ALICE)).bank == 11_000
+        assert (await db.last_daily_payout()) is not None
 
 
 class TestRob:

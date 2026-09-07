@@ -14,7 +14,13 @@ from zoneinfo import ZoneInfo
 import discord
 
 from flyconomy import blackjack, crash, economy, jackpot, tictactoe
-from flyconomy.database import Account, JackpotState, LeaderboardEntry, LotteryState
+from flyconomy.database import (
+    Account,
+    DailyPayout,
+    JackpotState,
+    LeaderboardEntry,
+    LotteryState,
+)
 from flyconomy.economy import Card
 
 #: The bot's brand color, carried over from version 1.
@@ -141,6 +147,42 @@ def circulation_embed(total: int, price: int, timezone: str) -> discord.Embed:
     embed.add_field(
         name="Total value of all circulating FLX:",
         value=money(economy.flx_cost(total, price)),
+    )
+    return embed
+
+
+def daily_interest_embed(paid: DailyPayout, rate: float, cap: int, timezone: str) -> discord.Embed:
+    """Build the embed announcing that the day's interest has been paid.
+
+    Nobody claims the payout, so this message is the only thing that tells
+    members it happened at all. It names the rate and the cap rather than any
+    individual figure, because one message covers every account and a member's
+    own share is whatever their bank was a moment ago.
+
+    Args:
+        paid: What the run credited.
+        rate: Fraction of the bank paid, for the explanatory line.
+        cap: Ceiling on one account's payout, for the explanatory line.
+        timezone: IANA timezone for the embed timestamp.
+
+    Returns:
+        A populated embed.
+    """
+    accounts = f"{paid.accounts:,} account{'' if paid.accounts == 1 else 's'}"
+    embed = discord.Embed(
+        title="Daily interest paid",
+        description=f"{money(paid.total)} paid across {accounts}.",
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+    embed.add_field(
+        name="How it works",
+        value=(
+            f"Every morning your bank earns {rate:.0%} of its balance, up to "
+            f"{money(cap)}. It lands on its own — there is nothing to claim. "
+            "Money in your wallet earns nothing."
+        ),
+        inline=False,
     )
     return embed
 
