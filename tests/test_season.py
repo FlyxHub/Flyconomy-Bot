@@ -105,6 +105,10 @@ class TestDailyIsBounded:
         assert economy.daily_payout(10_000_000) == economy.DAILY_PAYOUT_CAP
 
     def test_a_season_of_daily_alone_stays_readable(self):
+        # This is now the *typical* account rather than a hypothetical one: the
+        # payout is automatic, so an account that is never touched again still
+        # collects every day until January. What it reaches is the ceiling on
+        # doing nothing at all, which is the bound that matters most.
         bank = economy.STARTING_BANK
         for _ in range(SEASON_DAYS):
             bank += economy.daily_payout(bank)
@@ -128,6 +132,48 @@ class TestDailyIsBounded:
         for _ in range(SEASON_DAYS):
             bank *= 1 + economy.DAILY_PAYOUT_RATE
         assert bank > 1e15
+
+
+class TestAutomaticInterestScalesWithAccounts:
+    """The payout is no longer gated by who shows up.
+
+    Before it was automatic, the faucet was sized by the members who claimed
+    it. Now every row in `bank` is paid, and rows are cheap: anyone who ever
+    ran one command has one, forever. So the question the old design never had
+    to ask is what happens as accounts accumulate, and the answer has to be
+    "issuance grows in proportion, not faster".
+    """
+
+    @staticmethod
+    def _dormant_season(accounts: int) -> int:
+        """Total issued over a season to accounts that only ever collect."""
+        banks = [economy.STARTING_BANK] * accounts
+        issued = 0
+        for _ in range(SEASON_DAYS):
+            for i, bank in enumerate(banks):
+                payout = economy.daily_payout(bank)
+                banks[i] = bank + payout
+                issued += payout
+        return issued
+
+    def test_issuance_is_linear_in_the_number_of_accounts(self):
+        ten = self._dormant_season(10)
+        hundred = self._dormant_season(100)
+        # Ten times the accounts, ten times the money. Anything else means the
+        # accounts interact, which they must not: each one is capped alone.
+        assert hundred == ten * 10
+
+    def test_a_dead_server_of_dormant_accounts_stays_inside_the_ceiling(self):
+        # 500 accounts nobody has touched since February is a realistic end
+        # state for a server in its second season, and the worst case for a
+        # faucet that no longer asks anyone to show up.
+        assert self._dormant_season(500) < SUPPLY_CEILING
+
+    def test_the_cap_still_binds_per_account_not_per_server(self):
+        # A shared cap would make the payout shrink as the server grew, which
+        # would quietly punish members for other people joining.
+        assert economy.daily_payout(10**9) == economy.DAILY_PAYOUT_CAP
+        assert self._dormant_season(2) == self._dormant_season(1) * 2
 
 
 class TestSeasonStaysBounded:

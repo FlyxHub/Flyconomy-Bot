@@ -81,17 +81,27 @@ RPS_TIE_RETURN: Final = 0
 ROULETTE_STRAIGHT_RETURN: Final = 35
 ROULETTE_COLOR_RETURN: Final = 2
 
-#: Fraction of the bank balance paid out by the ``daily`` command.
+#: Fraction of the bank balance paid out as daily interest.
 DAILY_PAYOUT_RATE: Final = 0.10
 
-#: Ceiling on a single ``daily`` claim, in dollars.
+#: Ceiling on one account's daily interest, in dollars.
 #:
 #: This is what keeps a season from hyperinflating. A percentage of the bank
 #: compounds, and 10% a day is a factor of 1.28e15 over a year, which is more
 #: money than the rest of the economy can produce by fifteen orders of
-#: magnitude. Capping the claim leaves the rate intact while the bank is small,
+#: magnitude. Capping the payout leaves the rate intact while the bank is small,
 #: so early play feels the same, then flattens growth to a straight line. Every
 #: other source is already linear, and linear cannot run away inside a season.
+#:
+#: The cap is per account per day, and it stayed exactly that when the payout
+#: became automatic. What the schedule changed is who collects and how often at
+#: most: a claim gated by an in-memory cooldown was reset by every restart,
+#: while a once-a-day tick cannot pay twice. The bound is therefore tighter
+#: than it was, not looser -- but it now applies to every account rather than
+#: only the ones that showed up, so total issuance scales with the number of
+#: accounts. That is linear in accounts and capped per account, so it stays
+#: inside a season; it is the reason a seeded second account is a straight
+#: multiplier on the only faucet that compounds.
 DAILY_PAYOUT_CAP: Final = 10_000
 
 #: Inclusive bounds on a successful ``beg``.
@@ -267,7 +277,11 @@ class TransferSplit:
 BEG_COOLDOWN_SECONDS: Final = 60
 MINE_COOLDOWN_SECONDS: Final = 60 * 60
 ROB_COOLDOWN_SECONDS: Final = 60 * 60
-DAILY_COOLDOWN_SECONDS: Final = 60 * 60 * 24
+
+#: The daily payout has no cooldown because it is no longer claimed. It is paid
+#: to every account on a schedule, and bounded by :data:`DAILY_PAYOUT_CAP` once
+#: per calendar day -- see :data:`DAILY_PAYOUT_PERIOD_SECONDS`.
+DAILY_PAYOUT_PERIOD_SECONDS: Final = 60 * 60 * 24
 
 # ---------------------------------------------------------------- games -----
 
@@ -405,11 +419,17 @@ def affordable_flx(bank: int, price: int = FLX_PRICE) -> int:
 
 
 def daily_payout(bank: int, cap: int | None = None) -> int:
-    """Return the ``daily`` command's payout for a given bank balance.
+    """Return one day's interest for a given bank balance.
+
+    This is the whole rule. The scheduled job in ``cogs/economy.py`` decides
+    *when* every account is paid and ``Database.pay_daily_interest`` decides
+    that it happens once, but neither one recomputes the amount: a bulk
+    ``UPDATE ... SET bank = bank + MIN(bank / 10, cap)`` would fork the
+    rounding into SQL, where no unit test can reach it.
 
     Args:
         bank: The member's current bank balance.
-        cap: Ceiling on the claim. Defaults to :data:`DAILY_PAYOUT_CAP`.
+        cap: Ceiling on the payout. Defaults to :data:`DAILY_PAYOUT_CAP`.
 
     Returns:
         A tenth of the bank, never more than the cap.

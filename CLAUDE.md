@@ -43,8 +43,9 @@ that would make that unsafe.
 buttons, `ratelimit.py` the abuse throttle, `guide.py` the member guide's text, and `config.py`
 the settings. The lottery adds two
 tables in migration 3, the jackpot two more in migration 5, head-to-head matches one in
-migration 6, wallet security one in migration 7, the published guide one in migration 8, and
-self-reset history one in migration 9; the `bank` table is still untouched. A
+migration 6, wallet security one in migration 7, the published guide one in migration 8,
+self-reset history one in migration 9, and the daily interest ledger one in migration 10; the
+`bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
 Head-to-head games share `MatchView` (escrow settlement) and `MatchChallengeView` (the offer) in
@@ -147,11 +148,32 @@ adding it to the guide in the same commit.
 The economy runs a calendar year and is reset each January, so every balance
 question is really "does this stay readable for 365 days".
 
-**Only one thing ever compounded, and it is capped.** `daily` pays a percentage of the bank; at 10%
-a day that is 1.28e15 over a year. `DAILY_PAYOUT_CAP` (and `settings.max_daily_payout`) bounds the
-claim, which leaves the rate untouched while the bank is small and turns growth into a straight line
-above that. Every other source — begging, mining, starting funds — is linear and cannot run away
-inside a fixed season.
+**Only one thing ever compounded, and it is capped.** The daily interest pays a percentage of the
+bank; at 10% a day that is 1.28e15 over a year. `DAILY_PAYOUT_CAP` (and `settings.max_daily_payout`)
+bounds one account's payout for one day, which leaves the rate untouched while the bank is small and
+turns growth into a straight line above that. Every other source — begging, mining, starting funds —
+is linear and cannot run away inside a fixed season.
+
+**The daily payout is a scheduled job, not a command.** It runs at
+`settings.daily_payout_time` in `settings.timezone` and pays *every row in `bank`*, so nobody claims
+it and nobody misses it. Three things are load-bearing. Idempotency is enforced by the primary key
+on `daily_payouts(day)` rather than by a check in Python: `Database.pay_daily_interest` claims the
+day and moves the money in one transaction, so a restart seconds after the tick cannot pay twice —
+which is a real tightening, because the `commands.cooldown` it replaced lived in memory and every
+restart handed everyone a fresh claim. The amount still comes from `economy.daily_payout`, never
+from SQL: a bulk `SET bank = bank + MIN(bank / 10, cap)` would fork the rounding rule somewhere no
+unit test can reach it. And the startup catch-up in `_before_interest_loop` backfills *today only*,
+and only when the scheduled time has already passed — backfilling every missed day would turn a
+week-long outage into a week of interest paid at once, which is the one shape the linear-growth
+bound does not survive.
+
+**Automatic payment changed who collects, not how much.** The cap is still per account per day, but
+issuance now scales with the number of rows in `bank` rather than with how many members showed up,
+and a row lasts forever. That is linear in accounts and capped per account, so it holds inside a
+season — `tests/test_season.py` pins both halves, including a 500-account server nobody plays on.
+The accepted cost is that an untouched account still grows all year, which makes a seeded second
+account a straight multiplier on the only faucet that compounds, needing no attention after the day
+it is seeded. That is a Discord-level problem, not an economy-level one.
 
 **A sink is the safe direction.** `secure` is the counterweight added when robbery was driving
 people away from the games: it buys down the odds a `rob` against you lands, costs bank money,

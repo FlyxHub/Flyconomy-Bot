@@ -170,9 +170,16 @@ class TestFaucetsAreThrottled:
         for seconds in (
             economy.BEG_COOLDOWN_SECONDS,
             economy.MINE_COOLDOWN_SECONDS,
-            economy.DAILY_COOLDOWN_SECONDS,
         ):
             assert seconds > 0
+
+    def test_the_daily_faucet_is_bounded_by_its_schedule_not_a_cooldown(self):
+        # `daily` is no longer claimed, so there is no cooldown to check. What
+        # bounds it now is that the payout runs once per calendar day and is
+        # capped per account -- and the day is a primary key in the database,
+        # so a restart cannot buy a second run. Both halves have to hold.
+        assert economy.DAILY_PAYOUT_PERIOD_SECONDS == 60 * 60 * 24
+        assert economy.DAILY_PAYOUT_CAP > 0
 
 
 class TestResettingIsNotAnIncome:

@@ -16,6 +16,7 @@ import discord
 import pytest
 
 from flyconomy import economy
+from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.economy import Economy
 from flyconomy.cogs.gambling import Gambling
 from flyconomy.cogs.mining import Mining
@@ -123,6 +124,19 @@ class FakeBot:
         raise discord.InvalidData(f"no channel {channel_id}")
 
 
+def make_economy(bot: FakeBot) -> Economy:
+    """Build the economy cog without starting its daily interest timer.
+
+    `Economy.__init__` starts a `tasks.loop`, which wants a gateway to wait on
+    and a scheduled time to sleep until. Neither exists here, and none of these
+    tests are about the schedule -- the payout itself is driven directly in
+    `TestDailyInterest`. Same shape as `make_cog` in tests/test_lottery.py.
+    """
+    cog = Economy.__new__(Economy)
+    BaseCog.__init__(cog, bot)
+    return cog
+
+
 @pytest.fixture
 async def db(tmp_path: Path) -> AsyncIterator[Database]:
     database = await Database.connect(tmp_path / "bot.db")
@@ -197,7 +211,7 @@ def _seeded(cog: Any, seed: int) -> Any:
 
 class TestBanking:
     async def test_deposit_moves_the_named_amount(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 500)
 
         await cog.deposit.callback(cog, ctx, 200)
@@ -207,7 +221,7 @@ class TestBanking:
         assert "200" in ctx.last
 
     async def test_deposit_defaults_to_the_whole_wallet(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 750)
 
         await cog.deposit.callback(cog, ctx, None)
@@ -217,14 +231,14 @@ class TestBanking:
         assert account.bank == economy.STARTING_BANK + 750
 
     async def test_depositing_an_empty_wallet_explains_itself(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
 
         await cog.deposit.callback(cog, ctx, None)
 
         assert "empty" in ctx.last.lower()
 
     async def test_depositing_more_than_you_hold_is_refused(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 100)
 
         with pytest.raises(InsufficientFundsError):
@@ -233,7 +247,7 @@ class TestBanking:
         assert (await db.get_account(ALICE)).wallet == 100
 
     async def test_withdraw_defaults_to_the_whole_bank(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
 
         await cog.withdraw.callback(cog, ctx, None)
 
@@ -244,7 +258,7 @@ class TestBanking:
 
 class TestPay:
     async def test_paying_credits_the_recipient_net_of_the_tax(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 10_000)
 
         await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
@@ -253,7 +267,7 @@ class TestPay:
         assert (await db.get_account(BOB)).bank == economy.STARTING_BANK + 950
 
     async def test_the_reply_names_both_the_amount_sent_and_the_tax(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 10_000)
 
         await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
@@ -262,7 +276,7 @@ class TestPay:
         assert "$50" in ctx.last
 
     async def test_paying_yourself_is_refused(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 10_000)
 
         await cog.pay.callback(cog, ctx, FakeUser(id=ALICE), 1_000)
@@ -271,7 +285,7 @@ class TestPay:
         assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK + 10_000
 
     async def test_paying_more_than_your_bank_holds_is_refused(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
 
         with pytest.raises(InsufficientFundsError):
             await cog.pay.callback(cog, ctx, FakeUser(id=BOB), economy.STARTING_BANK + 100)
@@ -281,7 +295,7 @@ class TestPay:
 
     async def test_the_rate_comes_from_settings(self, db, ctx):
         settings = Settings(discord_token="placeholder", transfer_tax_rate=0.5)
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 10_000)
 
         await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
@@ -290,7 +304,7 @@ class TestPay:
 
     async def test_the_creator_receives_half_the_tax_when_configured(self, db, ctx):
         settings = Settings(discord_token="placeholder", creator_tax_user_id=CAROL)
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 10_000)
 
         await cog.pay.callback(cog, ctx, FakeUser(id=BOB), 1_000)
@@ -309,7 +323,7 @@ class TestResetMe:
     """
 
     async def test_resetme_clears_the_caller_account(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 5_000)
         await db.add_crypto(ALICE, 3)
 
@@ -320,7 +334,7 @@ class TestResetMe:
         assert "reset" in ctx.last.lower()
 
     async def test_the_first_reset_seeds_the_full_starting_bank(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 5_000)
 
         await cog.resetme.callback(cog, ctx)
@@ -328,7 +342,7 @@ class TestResetMe:
         assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK
 
     async def test_resetme_leaves_other_members_alone(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 5_000)
         await db.add_wallet(BOB, 500)
 
@@ -337,7 +351,7 @@ class TestResetMe:
         assert (await db.get_account(BOB)).wallet == 500
 
     async def test_resetting_with_no_account_says_so(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
 
         await cog.resetme.callback(cog, ctx)
 
@@ -345,7 +359,7 @@ class TestResetMe:
         assert await db.resets_in_cycle(ALICE, now=0.0) == 0
 
     async def test_a_second_reset_is_allowed_and_seeds_half(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.ensure_account(ALICE)
         await cog.resetme.callback(cog, ctx)
 
@@ -354,7 +368,7 @@ class TestResetMe:
         assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK // 2
 
     async def test_spamming_resets_ends_with_nothing(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.ensure_account(ALICE)
 
         for _ in range(economy.RESET_SEED_HALVINGS + 2):
@@ -364,7 +378,7 @@ class TestResetMe:
         assert "nothing" in ctx.last
 
     async def test_the_reply_warns_what_resetting_again_would_be_worth(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.ensure_account(ALICE)
 
         await cog.resetme.callback(cog, ctx)
@@ -373,7 +387,7 @@ class TestResetMe:
 
     async def test_the_reply_names_the_way_back_to_a_full_stake(self, db, settings, ctx):
         # The schedule is only fair if the escape from it is on screen.
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.ensure_account(ALICE)
 
         await cog.resetme.callback(cog, ctx)
@@ -384,7 +398,7 @@ class TestResetMe:
 
 class TestIncome:
     async def test_beg_either_pays_or_says_nothing(self, db, settings, ctx):
-        cog = _seeded(Economy(FakeBot(db, settings)), 7)
+        cog = _seeded(make_economy(FakeBot(db, settings)), 7)
 
         for _ in range(20):
             await cog.beg.callback(cog, ctx)
@@ -394,34 +408,108 @@ class TestIncome:
         assert any("$" in message for message in ctx.sent)
 
     async def test_beg_never_pays_more_than_the_cap(self, db, settings, ctx):
-        cog = _seeded(Economy(FakeBot(db, settings)), 3)
+        cog = _seeded(make_economy(FakeBot(db, settings)), 3)
 
         for _ in range(30):
             await cog.beg.callback(cog, ctx)
 
         assert (await db.get_account(ALICE)).wallet <= 30 * economy.BEG_MAX
 
-    async def test_daily_pays_ten_percent_of_the_bank(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+
+class TestDailyInterest:
+    """The daily payout, which is a scheduled job rather than a command.
+
+    The schedule itself is discord.py's; what these cover is the part that is
+    ours -- that the amount is unchanged from the claim it replaced, that it
+    reaches every account rather than only the ones that showed up, and that it
+    cannot pay a day twice.
+    """
+
+    async def test_it_pays_ten_percent_of_the_bank(self, db, settings):
         await db.add_bank(ALICE, 9_000)
 
-        await cog.daily.callback(cog, ctx)
+        paid = await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
 
         assert (await db.get_account(ALICE)).bank == 11_000
+        assert paid is not None
+        assert paid.total == 1_000
+        assert paid.accounts == 1
 
-    async def test_daily_on_an_empty_bank_pays_nothing_without_failing(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+    async def test_it_pays_every_account_not_just_the_active_one(self, db, settings):
+        # The whole point of the change: nobody claims, so nobody is missed.
+        await db.add_bank(ALICE, 9_000)
+        await db.add_bank(BOB, 4_000)
+
+        paid = await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
+
+        assert (await db.get_account(ALICE)).bank == 11_000
+        assert (await db.get_account(BOB)).bank == 5_500
+        assert paid is not None
+        assert paid.accounts == 2
+        assert paid.total == 1_500
+
+    async def test_the_cap_binds_per_account(self, db, settings):
+        await db.add_bank(ALICE, 10_000_000)
+
+        paid = await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
+
+        assert paid is not None
+        assert paid.total == settings.max_daily_payout
+
+    async def test_an_empty_bank_is_paid_nothing_and_is_not_counted(self, db, settings):
         await db.transfer(ALICE, source="bank", destination="wallet", amount=1_000)
 
-        await cog.daily.callback(cog, ctx)
+        paid = await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
 
         assert (await db.get_account(ALICE)).bank == 0
-        assert "$0" in ctx.last
+        assert paid is not None
+        assert paid.accounts == 0
+        assert paid.total == 0
+
+    async def test_a_second_run_for_the_same_day_pays_nothing(self, db, settings):
+        # This is the restart case: the tick fires, the bot restarts a second
+        # later, and the startup catch-up runs against a day already paid.
+        await db.add_bank(ALICE, 9_000)
+
+        first = await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
+        second = await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
+
+        assert first is not None
+        assert second is None
+        assert (await db.get_account(ALICE)).bank == 11_000
+
+    async def test_the_next_day_pays_again(self, db, settings):
+        await db.add_bank(ALICE, 9_000)
+
+        await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
+        await db.pay_daily_interest("2026-01-03", settings.max_daily_payout)
+
+        assert (await db.get_account(ALICE)).bank == 12_100
+
+    async def test_the_last_run_is_readable_afterwards(self, db, settings):
+        assert await db.last_daily_payout() is None
+        await db.add_bank(ALICE, 9_000)
+
+        await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
+        await db.pay_daily_interest("2026-01-03", settings.max_daily_payout)
+
+        last = await db.last_daily_payout()
+        assert last is not None
+        assert last.day == "2026-01-03"
+
+    async def test_the_cog_pays_todays_interest_once(self, db, settings):
+        cog = make_economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 9_000)
+
+        await cog.pay_daily_interest()
+        await cog.pay_daily_interest()
+
+        assert (await db.get_account(ALICE)).bank == 11_000
 
 
 class TestRob:
     async def test_robbing_yourself_is_refused_and_takes_nothing(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 500)
 
         await cog.rob.callback(cog, ctx, FakeUser(id=ALICE))
@@ -431,7 +519,7 @@ class TestRob:
         assert ctx.command.cooldown_reset is True
 
     async def test_robbing_an_empty_wallet_is_refused(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
 
         await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
 
@@ -439,7 +527,7 @@ class TestRob:
         assert ctx.command.cooldown_reset is True
 
     async def test_a_successful_robbery_moves_money_between_wallets(self, db, settings, ctx):
-        cog = _seeded(Economy(FakeBot(db, settings)), 1)
+        cog = _seeded(make_economy(FakeBot(db, settings)), 1)
         await db.add_wallet(BOB, 1_000)
 
         for _ in range(20):
@@ -453,7 +541,7 @@ class TestRob:
 
 async def _buy_security(db, settings, user_id: int, levels: int) -> None:
     """Buy ``levels`` of wallet security for a member, funding the bank first."""
-    cog = Economy(FakeBot(db, settings))
+    cog = make_economy(FakeBot(db, settings))
     ctx = FakeContext(author=FakeUser(id=user_id))
     await db.add_bank(user_id, sum(economy.SECURITY_COST.values()))
     for _ in range(levels):
@@ -464,7 +552,7 @@ class TestWalletSecurity:
     async def test_buying_a_level_charges_the_bank_and_reports_the_new_odds(
         self, db, settings, ctx
     ):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 10_000)
 
         await cog.secure.callback(cog, ctx)
@@ -475,7 +563,7 @@ class TestWalletSecurity:
         assert f"{economy.rob_success_percent(1)}%" in ctx.last
 
     async def test_an_unaffordable_level_is_refused_and_costs_nothing(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
 
         await cog.secure.callback(cog, ctx)
 
@@ -485,7 +573,7 @@ class TestWalletSecurity:
         assert "only have" in ctx.last
 
     async def test_a_maxed_wallet_cannot_buy_another_level(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, sum(economy.SECURITY_COST.values()))
         for _ in economy.SECURITY_COST:
             await cog.secure.callback(cog, ctx)
@@ -505,7 +593,7 @@ class TestWalletSecurity:
         # target, the roll, and the wallet are identical in both halves, so the
         # only thing deciding the outcome is the security that was bought.
         await db.add_wallet(BOB, 1_000)
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         cog.rng = ScriptedRandom(randint=45)
 
         await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
@@ -521,7 +609,7 @@ class TestWalletSecurity:
     async def test_a_failed_robbery_names_the_defense_that_stopped_it(self, db, settings, ctx):
         await db.add_wallet(BOB, 1_000)
         await _buy_security(db, settings, BOB, 1)
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         cog.rng = ScriptedRandom(randint=45)
 
         await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
@@ -530,7 +618,7 @@ class TestWalletSecurity:
 
     async def test_a_failed_robbery_on_an_open_wallet_mentions_no_defense(self, db, settings, ctx):
         await db.add_wallet(BOB, 1_000)
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         cog.rng = ScriptedRandom(randint=99)
 
         await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
@@ -795,7 +883,7 @@ class TestCasino:
 
 class TestLeaderboards:
     async def test_the_leaderboard_lists_members(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 5_000)
         await db.add_wallet(BOB, 100)
 
@@ -806,7 +894,7 @@ class TestLeaderboards:
         assert f"<@{BOB}>" in description
 
     async def test_the_wallet_board_ignores_banked_cash(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 1_000_000)
         await db.add_wallet(BOB, 5)
 
@@ -817,7 +905,7 @@ class TestLeaderboards:
         assert f"<@{ALICE}>" not in description
 
     async def test_balance_reports_every_holding(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await db.add_wallet(ALICE, 250)
         await db.add_crypto(ALICE, 2)
 
@@ -828,7 +916,7 @@ class TestLeaderboards:
         assert "2" in values
 
     async def test_balance_shows_the_wallet_security_level(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
         await _buy_security(db, settings, ALICE, 2)
 
         await cog.balance.callback(cog, ctx, None)
@@ -837,7 +925,7 @@ class TestLeaderboards:
         assert fields["Wallet Security:"] == "Level 2"
 
     async def test_security_shares_a_row_with_the_miner_level(self, db, settings, ctx):
-        cog = Economy(FakeBot(db, settings))
+        cog = make_economy(FakeBot(db, settings))
 
         await cog.balance.callback(cog, ctx, None)
 

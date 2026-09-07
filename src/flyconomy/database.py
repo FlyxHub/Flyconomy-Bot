@@ -30,7 +30,7 @@ from flyconomy.errors import InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 9
+SCHEMA_VERSION: Final = 10
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -186,6 +186,24 @@ class ResetOutcome:
     seed: int
     next_seed: int
     full_seed_in: float
+
+
+@dataclass(frozen=True, slots=True)
+class DailyPayout:
+    """What one day's interest run paid out.
+
+    Attributes:
+        day: The calendar day paid, ``YYYY-MM-DD`` in the bot's timezone. This
+            is the primary key that makes the run idempotent, so it is the
+            identity of the payout rather than a label on it.
+        accounts: How many accounts were credited. Accounts whose payout
+            rounded to zero are not counted, because nothing moved for them.
+        total: Dollars created across every account.
+    """
+
+    day: str
+    accounts: int
+    total: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -907,6 +925,63 @@ class Database:
         async with self._transaction() as db:
             await self.ensure_account(user_id)
             await db.execute("UPDATE bank SET miner = ? WHERE user = ?", (level, user_id))
+
+    # ------------------------------------------------------------- lottery --
+
+    async def pay_daily_interest(self, day: str, cap: int) -> DailyPayout | None:
+        """Pay one day's interest to every account, at most once per day.
+
+        Idempotency is the whole point of this method, and it is enforced by
+        the primary key on ``daily_payouts`` rather than by a check in Python:
+        the insert either claims the day or raises, inside the same transaction
+        that moves the money. A restart seconds after the scheduled tick, or a
+        loop that somehow fires twice, therefore cannot pay a second time.
+
+        Every credit is a relative ``bank = bank + ?`` update, and the amount
+        comes from :func:`economy.daily_payout` rather than from SQL, so the
+        rule stays in one testable place.
+
+        Args:
+            day: The calendar day to pay, ``YYYY-MM-DD`` in the bot's timezone.
+            cap: Ceiling on one account's payout.
+
+        Returns:
+            What was paid, or ``None`` if this day had already been paid.
+        """
+        async with self._transaction() as db:
+            async with db.execute("SELECT 1 FROM daily_payouts WHERE day = ?", (day,)) as cursor:
+                if await cursor.fetchone() is not None:
+                    return None
+
+            async with db.execute("SELECT user, bank FROM bank") as cursor:
+                rows = await cursor.fetchall()
+
+            payments = [
+                (payout, int(row["user"]))
+                for row in rows
+                if (payout := economy.daily_payout(int(row["bank"]), cap)) > 0
+            ]
+            if payments:
+                await db.executemany("UPDATE bank SET bank = bank + ? WHERE user = ?", payments)
+
+            total = sum(payout for payout, _ in payments)
+            await db.execute(
+                "INSERT INTO daily_payouts (day, accounts, total) VALUES (?, ?, ?)",
+                (day, len(payments), total),
+            )
+            return DailyPayout(day=day, accounts=len(payments), total=total)
+
+    async def last_daily_payout(self) -> DailyPayout | None:
+        """Return the most recent day's interest run, or ``None`` if never run."""
+        async with self._reader.execute(
+            "SELECT day, accounts, total FROM daily_payouts ORDER BY day DESC LIMIT 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return DailyPayout(
+            day=str(row["day"]), accounts=int(row["accounts"]), total=int(row["total"])
+        )
 
     # ------------------------------------------------------------- lottery --
 
@@ -1750,6 +1825,29 @@ async def _migration_9_resets(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_10_daily_payouts(db: aiosqlite.Connection) -> None:
+    """Add the table that records which days' interest has already been paid.
+
+    The ``bank`` table is untouched. The calendar day is the primary key, which
+    is what makes the scheduled payout idempotent: the run claims the day and
+    moves the money in one transaction, so a restart just after the tick cannot
+    pay a second time. Storing a row per day rather than a single "last paid"
+    cell also leaves the history readable, which is the only record of what the
+    faucet actually issued now that no member claims it.
+
+    An empty table means nothing has been paid yet. That is correct for a fresh
+    install and for an upgrade alike: this migration writes no rows, so the
+    first scheduled tick after the upgrade pays the first day.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS daily_payouts ("
+        "  day TEXT PRIMARY KEY,"
+        "  accounts INTEGER NOT NULL CHECK (accounts >= 0),"
+        "  total INTEGER NOT NULL CHECK (total >= 0)"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -1760,4 +1858,5 @@ _MIGRATIONS: Final = {
     7: _migration_7_security,
     8: _migration_8_guide,
     9: _migration_9_resets,
+    10: _migration_10_daily_payouts,
 }

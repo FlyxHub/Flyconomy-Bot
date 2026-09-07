@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -47,9 +47,16 @@ class Settings(BaseSettings):
     max_daily_payout: Annotated[int, Field(gt=0)] = Field(
         default=10_000,
         description=(
-            "Ceiling on one `daily` claim. The claim is a percentage of the bank, "
-            "which compounds, so this ceiling is what keeps a season from "
-            "hyperinflating."
+            "Ceiling on one account's daily interest. The payout is a percentage "
+            "of the bank, which compounds, so this ceiling is what keeps a season "
+            "from hyperinflating."
+        ),
+    )
+    daily_payout_time: str = Field(
+        default="08:00",
+        description=(
+            "24-hour clock time (HH:MM) the daily interest is paid each day, in "
+            "the timezone setting."
         ),
     )
     lottery_ticket_price: Annotated[int, Field(gt=0)] = Field(
@@ -200,16 +207,16 @@ class Settings(BaseSettings):
             raise ValueError(msg) from exc
         return value
 
-    @field_validator("lottery_draw_time")
+    @field_validator("lottery_draw_time", "daily_payout_time")
     @classmethod
-    def _validate_draw_time(cls, value: str) -> str:
-        """Reject a draw time that isn't a plain 24-hour HH:MM."""
+    def _validate_clock_time(cls, value: str, info: ValidationInfo) -> str:
+        """Reject a scheduled time that isn't a plain 24-hour HH:MM."""
         import datetime
 
         try:
             datetime.datetime.strptime(value, "%H:%M")  # noqa: DTZ007 - format check only
         except ValueError as exc:
-            msg = f"lottery_draw_time must be HH:MM in 24-hour time, got {value!r}"
+            msg = f"{info.field_name} must be HH:MM in 24-hour time, got {value!r}"
             raise ValueError(msg) from exc
         return value
 

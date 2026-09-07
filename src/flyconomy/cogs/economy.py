@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import datetime
+import logging
 import time
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from flyconomy import economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.database import ResetOutcome
+
+log = logging.getLogger(__name__)
 
 
 def _reset_seed_line(outcome: ResetOutcome) -> str:
@@ -42,6 +47,78 @@ def _reset_next_line(outcome: ResetOutcome) -> str:
 
 class Economy(BaseCog, name="Economy"):
     """Wallet and bank management, passive income, and rankings."""
+
+    def __init__(self, bot: FlyconomyBot) -> None:
+        """Bind the cog and start the daily interest timer."""
+        super().__init__(bot)
+        hour, minute = (int(part) for part in bot.settings.daily_payout_time.split(":"))
+        self._payout_time = datetime.time(hour, minute, tzinfo=ZoneInfo(bot.settings.timezone))
+        self.interest_loop.change_interval(time=self._payout_time)
+        self.interest_loop.start()
+
+    async def cog_unload(self) -> None:
+        """Stop the interest timer when the extension is unloaded."""
+        self.interest_loop.cancel()
+
+    # ------------------------------------------------------ daily interest --
+
+    async def pay_daily_interest(self) -> None:
+        """Pay one day's interest to every account, for today.
+
+        Does nothing if today has already been paid, which is what makes this
+        safe to call from both the scheduled tick and the startup catch-up.
+        """
+        today = datetime.datetime.now(ZoneInfo(self.timezone)).date().isoformat()
+        paid = await self.db.pay_daily_interest(today, self.settings.max_daily_payout)
+        if paid is None:
+            log.debug("Daily interest for %s was already paid", today)
+            return
+        log.info(
+            "Daily interest for %s paid %d across %d accounts",
+            paid.day,
+            paid.total,
+            paid.accounts,
+        )
+
+    @tasks.loop(hours=24)
+    async def interest_loop(self) -> None:
+        """Pay the daily interest on the configured schedule."""
+        try:
+            await self.pay_daily_interest()
+        except Exception:
+            # A failed run must not kill the loop, or interest stops for good.
+            log.exception("Daily interest run failed; will try again next interval")
+
+    @interest_loop.before_loop
+    async def _before_interest_loop(self) -> None:
+        """Wait for the gateway, then catch up on today if the tick was missed.
+
+        Only *today* is ever caught up, and only when the scheduled time has
+        already passed. Backfilling every missed day would turn a week-long
+        outage into a week of interest paid in one lump, which is the one shape
+        the season's linear-growth bound does not survive; skipping the catch-up
+        entirely would instead make every restart a silent tax on everyone.
+
+        Starting before the scheduled time does nothing at all -- the loop's own
+        first tick pays that day -- so the two paths cannot both fire, and
+        ``pay_daily_interest`` would refuse the second one anyway.
+        """
+        try:
+            await self.bot.wait_until_ready()
+        except RuntimeError:
+            log.debug("No gateway connection; the daily interest timer will not run")
+            self.interest_loop.cancel()
+            return
+
+        now = datetime.datetime.now(ZoneInfo(self.timezone))
+        scheduled_today = now.replace(
+            hour=self._payout_time.hour,
+            minute=self._payout_time.minute,
+            second=0,
+            microsecond=0,
+        )
+        if now >= scheduled_today:
+            await self.pay_daily_interest()
 
     @commands.hybrid_command(name="balance", aliases=["bal"])  # type: ignore[arg-type]
     @app_commands.describe(member="Whose balance to show. Defaults to you.")
@@ -126,16 +203,6 @@ class Economy(BaseCog, name="Economy"):
         amount = self.rng.randint(economy.BEG_MIN, economy.BEG_MAX)
         await self.db.add_wallet(ctx.author.id, amount)
         await ctx.send(f"You got {embeds.money(amount)}")
-
-    @commands.hybrid_command(name="daily")  # type: ignore[arg-type]
-    @commands.cooldown(1, economy.DAILY_COOLDOWN_SECONDS, commands.BucketType.user)
-    async def daily(self, ctx: commands.Context[FlyconomyBot]) -> None:
-        """Collect a daily payout worth 10% of your bank balance."""
-        account = await self.db.get_account(ctx.author.id)
-        payout = economy.daily_payout(account.bank, self.settings.max_daily_payout)
-        if payout:
-            await self.db.add_bank(ctx.author.id, payout)
-        await ctx.send(f"You received your daily payout of **{embeds.money(payout)}**")
 
     @commands.hybrid_command(name="rob")  # type: ignore[arg-type]
     @commands.cooldown(1, economy.ROB_COOLDOWN_SECONDS, commands.BucketType.user)

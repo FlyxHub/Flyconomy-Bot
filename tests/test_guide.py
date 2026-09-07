@@ -26,7 +26,7 @@ from flyconomy.cogs.guide import Guide
 from flyconomy.config import Settings
 from flyconomy.database import Database, GuidePost
 from tests.test_cog_behavior import FakeBot
-from tests.test_commands import ALL_MEMBER_COMMANDS
+from tests.test_commands import ALL_MEMBER_COMMANDS, REMOVED_COMMANDS
 
 #: The channel the fakes below publish to.
 CHANNEL = 555_555_555_555_555_555
@@ -189,6 +189,16 @@ class TestGuideStaysTrue:
         text = "\n".join(guide.load_sections())
         undocumented = sorted(name for name in ALL_MEMBER_COMMANDS if f"/{name}" not in text)
         assert not undocumented, f"the guide does not mention: {', '.join(undocumented)}"
+
+    @pytest.mark.parametrize("name", sorted(REMOVED_COMMANDS))
+    def test_no_withdrawn_command_is_still_advertised(self, name):
+        # The other direction of the check above, and the one that was missing:
+        # documenting a command that exists is enforced, but a command that was
+        # taken away left its instructions behind, telling members to type
+        # something the bot no longer answers. Removing a command means editing
+        # the guide in the same commit, exactly like adding one.
+        text = "\n".join(guide.load_sections())
+        assert f"/{name}" not in text, f"the guide still tells members to use /{name}"
 
     @pytest.mark.parametrize("level", sorted(economy.SECURITY_COST))
     def test_the_security_prices_match_the_rules(self, level):

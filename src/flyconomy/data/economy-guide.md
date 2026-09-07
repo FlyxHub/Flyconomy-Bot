@@ -25,11 +25,15 @@ you argument hints, so start there.
 
 You begin with **$1,000 in the bank** and an empty wallet.
 
-1. `/daily` — pays 10% of your bank, up to $10,000. Once every 24 hours. Never skip it.
-2. `/beg` — pays $1 to $100, about half the time. 60-second cooldown.
-3. `/withdraw 500` — move cash to your wallet. The casino only stakes from there.
-4. `/coinflip heads 100` — you're playing.
-5. `/deposit` — put the rest back somewhere safe. The next message explains why.
+1. `/beg` — pays $1 to $100, about half the time. 60-second cooldown.
+2. `/withdraw 500` — move cash to your wallet. The casino only stakes from there.
+3. `/coinflip heads 100` — you're playing.
+4. `/deposit` — put the rest back somewhere safe. The next message explains why.
+
+**Your bank pays interest every morning at 8:00 AM.** It's 10% of your bank
+balance, up to $10,000 a day, and it lands on its own — there's nothing to
+claim and nothing to remember. Money in your wallet earns nothing, so the
+bank is where it grows.
 
 `/balance` shows everything you own. `/leaderboard` shows who's beating you.
 
@@ -208,7 +212,8 @@ builds something worth showing up for.
 
 - **Maximum bet:** $100,000 a wager. A bet over the limit is refused outright and costs you nothing.
 - **Rate limit:** six game commands per 10 seconds, shared across every game. Spamming is throttled, not punished.
-- **Cooldowns:** `beg` 60 seconds · `mine` and `rob` 1 hour · `daily` 24 hours.
+- **Cooldowns:** `beg` 60 seconds · `mine` and `rob` 1 hour.
+- **Daily interest:** paid automatically at 8:00 AM to every account, 10% of your bank up to $10,000. You don't claim it, and you can't miss it.
 - **`/resetme` is a last resort, not a comeback.** It deletes everything you own — cash, coins, miner, security — and seeds you a fresh account. Reset again straight away and you get less: $1,000, then $500, then $250, then nothing. Leave it 24 hours and you're back to the full $1,000. Gambling it all away and starting over is allowed; doing it four times in a day just leaves you with nothing.
 - **Balances can't go negative.** A bet you can't cover is refused, not overdrawn.
 - **Nothing is stranded.** Every button — blackjack, crash, tic-tac-toe — pays out or refunds on its own if you walk away mid-hand.
@@ -216,7 +221,7 @@ builds something worth showing up for.
 
 ```
 BANKING     /balance  /deposit  /withdraw  /pay  /leaderboard  /wallets
-INCOME      /daily  /beg  /mine  /upgrade
+INCOME      /beg  /mine  /upgrade  (bank interest is automatic)
 DEFENCE     /secure
 ROBBERY     /rob @member
 FLYXCOIN    /flx info  /flx buy  /flx sell  /flx send
@@ -225,9 +230,10 @@ CASINO      /coinflip  /dice  /rps  /roulette  /slots  /war
 TOGETHER    /jackpot  /tictactoe  /lottery info  /lottery enter
 ```
 
-Two habits separate the people at the top of `/leaderboard` from everyone else:
-they claim `/daily` every single day, and they never leave money in their
-wallet they aren't actively gambling.
+One habit separates the people at the top of `/leaderboard` from everyone
+else: they never leave money in their wallet they aren't actively gambling.
+The bank pays interest and the wallet doesn't, and the wallet is the only
+place `/rob` can reach.
 
 Good luck. 💸
 

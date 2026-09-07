@@ -22,7 +22,6 @@ V1_MEMBER_COMMANDS = {
     "deposit": ("dep",),
     "withdraw": (),
     "beg": (),
-    "daily": (),
     "rob": (),
     "leaderboard": ("lb",),
     "wallets": (),
@@ -33,6 +32,13 @@ V1_MEMBER_COMMANDS = {
     "rps": (),
     "dice": (),
     "roulette": (),
+}
+
+#: Version 1 commands deliberately withdrawn since the rewrite, with the reason.
+#: Everything else in `V1_MEMBER_COMMANDS` is a promise the rewrite kept, so a
+#: removal has to be stated here rather than by quietly deleting a line above.
+REMOVED_COMMANDS = {
+    "daily": "the payout is automatic now, paid to every account on a schedule",
 }
 
 #: Commands version 1 restricted to the bot owner.
@@ -96,6 +102,12 @@ class TestMemberCommands:
         for alias in aliases:
             assert alias in command.aliases
             assert bot.get_command(alias) is command
+
+    @pytest.mark.parametrize("name", sorted(REMOVED_COMMANDS))
+    async def test_withdrawn_commands_are_gone(self, bot: FlyconomyBot, name: str):
+        # Not an oversight: `daily` became a scheduled job, so a member typing
+        # it should find nothing rather than a second way to be paid.
+        assert bot.get_command(name) is None, f"{name} is still registered"
 
     async def test_every_member_command_has_help_text(self, bot: FlyconomyBot):
         for name in V1_MEMBER_COMMANDS:
@@ -214,7 +226,7 @@ class TestCooldowns:
 
     @pytest.mark.parametrize(
         ("name", "seconds"),
-        [("mine", 3600), ("rob", 3600), ("daily", 86400)],
+        [("mine", 3600), ("rob", 3600)],
     )
     async def test_version_1_cooldowns_are_unchanged(
         self, bot: FlyconomyBot, name: str, seconds: int

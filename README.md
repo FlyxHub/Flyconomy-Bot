@@ -35,8 +35,9 @@ classic prefix command, such as `$balance`.
 
 - **Banking.** Members hold cash in a wallet and a bank account. Wallet cash can
   be stolen; banked cash cannot.
-- **Income.** Members beg for small amounts, collect a daily payout worth 10% of
-  their bank balance, or rob another member's wallet.
+- **Income.** Members beg for small amounts, earn daily interest worth 10% of
+  their bank balance, or rob another member's wallet. The interest is paid
+  automatically to every account each morning; there is nothing to claim.
 - **Wallet security.** Members buy levels of security to make a robbery against
   them less likely to land, so playing the casino out of a wallet does not mean
   leaving it undefended.
@@ -271,9 +272,10 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_DISCORD_TOKEN` | Yes | None | Bot token from the Discord developer portal. |
 | `FLYCONOMY_DATABASE_PATH` | No | `data/bot.db` | Path to the SQLite file. Parent directories are created. |
 | `FLYCONOMY_COMMAND_PREFIX` | No | `$` | Prefix for classic text commands. Slash commands ignore it. |
-| `FLYCONOMY_TIMEZONE` | No | `America/Chicago` | IANA timezone for embed timestamps and the lottery draw time. |
+| `FLYCONOMY_TIMEZONE` | No | `America/Chicago` | IANA timezone for embed timestamps, the daily interest, and the lottery draw time. |
 | `FLYCONOMY_LOG_LEVEL` | No | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
-| `FLYCONOMY_MAX_DAILY_PAYOUT` | No | `10000` | Ceiling on one `daily` claim. This is what bounds a season. |
+| `FLYCONOMY_MAX_DAILY_PAYOUT` | No | `10000` | Ceiling on one account's daily interest. This is what bounds a season. |
+| `FLYCONOMY_DAILY_PAYOUT_TIME` | No | `08:00` | 24-hour clock time the daily interest is paid, in `FLYCONOMY_TIMEZONE`. |
 | `FLYCONOMY_LOTTERY_TICKET_PRICE` | No | `10000` | Cost of one lottery entry. |
 | `FLYCONOMY_LOTTERY_RAKE` | No | `0.25` | Share of the casino's net winnings added to the pot. |
 | `FLYCONOMY_LOTTERY_DRAW_TIME` | No | `18:00` | 24-hour clock time the lottery draws each day, in `FLYCONOMY_TIMEZONE`. |
@@ -304,7 +306,6 @@ mentioning the bot works as a prefix too.
 | `deposit [amount]` | Moves money from your wallet to your bank. Defaults to your whole wallet. Alias: `dep`. |
 | `withdraw [amount]` | Moves money from your bank to your wallet. Defaults to your whole bank balance. |
 | `beg` | Pays $1 to $100 half the time. Cooldown: 60 seconds. |
-| `daily` | Pays 10% of your bank balance. Cooldown: 24 hours. |
 | `rob <member>` | Takes a random share of a member's wallet. Lands half the time against an undefended wallet, less against a secured one. Cooldown: 1 hour. |
 | `pay <member> <amount>` | Sends bank money to another member, minus a 5% transfer tax. Minimum $100. Alias: `transfer`. |
 | `secure` | Raises your wallet security one level, paid from your bank balance. Alias: `security`. |
@@ -575,7 +576,8 @@ It is still never refused — losing everything should be a bad day, not an erro
 message — so the bound is in the payout instead. Resets less than 24 hours apart
 are one chain, and each link seeds half the one before: $1,000, then $500, then
 $250, then nothing at all. A whole chain totals $1,750 however many resets are in
-it, which is less than a day of begging and less than a single capped `daily`.
+it, which is less than a day of begging and less than a single capped day's
+interest.
 The chain expires 24 hours after the *last* reset in it, so a member who leaves
 it alone for a day is seeded in full again, and one who keeps resetting keeps
 pushing that back.
@@ -618,14 +620,25 @@ The economy is meant to run from one January 1 to the next and then be reset, so
 the question is not whether it inflates but whether it stays readable for 365
 days. It does, because **only one source ever compounded**.
 
-`daily` pays a tenth of your bank. A percentage of a growing number is
-exponential: at 10% a day that is a factor of 1.28e15 over a year, which is more
-money than everything else in the bot produces by fifteen orders of magnitude.
-Every other source is linear, and linear cannot run away inside a fixed season.
+The daily interest pays a tenth of your bank. A percentage of a growing number
+is exponential: at 10% a day that is a factor of 1.28e15 over a year, which is
+more money than everything else in the bot produces by fifteen orders of
+magnitude. Every other source is linear, and linear cannot run away inside a
+fixed season.
 
-So `daily` is capped by `FLYCONOMY_MAX_DAILY_PAYOUT`. Below ten times the cap
-nothing changes, which is most of the early game; above it, growth becomes a
+So the interest is capped by `FLYCONOMY_MAX_DAILY_PAYOUT`. Below ten times the
+cap nothing changes, which is most of the early game; above it, growth becomes a
 straight line.
+
+The cap is **per account per day**, and stayed exactly that when the payout
+became automatic. What automation changed is who collects: every row in `bank`
+is paid rather than only the members who typed a command, and a row lasts
+forever, so total issuance now scales with the number of accounts. That is
+linear in accounts and capped per account, so it stays inside a season —
+`tests/test_season.py` pins both halves, including a 500-account server nobody
+plays on. It does mean an account left alone all year still grows, which is
+what makes a seeded second account a straight multiplier on the only faucet
+that compounds.
 
 | | Total supply after 365 days | Richest member |
 | --- | --- | --- |
@@ -672,9 +685,10 @@ casino's creator tax already behaves.
 
 One thing the tax does **not** do is stop money being funnelled into a second
 account, because the Flyxcoin rail was already free before `pay` existed. That
-matters because `daily` is capped per account rather than per person, so a
-seeded second account is a straightforward multiplier on the only faucet that
-compounds. It is a Discord-level problem rather than an economy-level one, and
+matters because the daily interest is capped per account rather than per
+person and is now paid without anyone claiming it, so a seeded second account
+is a straightforward multiplier on the only faucet that compounds — and one
+that needs no attention after the day it is seeded. It is a Discord-level problem rather than an economy-level one, and
 no transfer tax is the tool that fixes it.
 
 ### The lottery
@@ -998,7 +1012,8 @@ changed on purpose.
 | Rock paper scissors no longer refunds ties. | Refunding the tie paid players +33% of everything staked on the game, which no rate limit could close. It is now 0%, like coinflip, dice, and war. |
 | `beg` moved from a 3-second to a 60-second cooldown. | At 3 seconds it created about $30,000 an hour from nothing, more than a maximum-level miner produced. |
 | Wagers are capped, and game commands share a rate limit. | See [Keeping the economy honest](#keeping-the-economy-honest). |
-| `daily` is capped at $10,000 a claim. | It paid 10% of the bank, compounding, which is a factor of 1.28e15 over a year. It was the only source that compounded, and the only thing standing between the bot and hyperinflation. |
+| The daily payout is capped at $10,000 an account per day. | It paid 10% of the bank, compounding, which is a factor of 1.28e15 over a year. It was the only source that compounded, and the only thing standing between the bot and hyperinflation. |
+| `daily` was withdrawn; the payout is automatic. | The claim was gated by an in-memory cooldown that every restart reset, so it could be collected more than once a day. A scheduled job at `FLYCONOMY_DAILY_PAYOUT_TIME` pays every account instead, once per calendar day, with the day as a primary key so a restart cannot buy a second run. |
 | A lottery was added. | Gives the casino's winnings somewhere to go besides deletion, without creating money. See [The lottery](#the-lottery). |
 | Three games were added: `blackjack`, `slots`, and `war`. | The casino had no game of skill, no jackpot game, and no game with a push. All three are documented in the payout tables above. |
 | Mining odds at levels 2 through 5 are now 5%, 10%, 15%, and 20%. | Version 1 tested `randint(1, 100) in range(1, 5)`, which is 4%, not the 5% it announced. Every level was short by one point. The odds now match what the bot has always claimed. |
