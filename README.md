@@ -430,6 +430,10 @@ which is the wrong place to advertise a command nobody else can run.
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
 | `$guide [repost]` | Publishes the member guide now instead of at the next restart. `repost` re-sends it, moving it to the bottom of the channel. |
+| `$market <bull\|bear>` | Starts a Flyxcoin run on demand. Hidden from `$help` as well as owner-only; see [Steering the market](#steering-the-market). |
+
+Every prefix command works in a DM with the bot as well as in a channel, which
+is the intended home of `$market`.
 
 ## The member guide
 
@@ -713,6 +717,39 @@ the distribution — trading falls from roughly 55x the next-best path to 16x �
 but the largest source of inequality in this economy is the lottery, which is
 winner-take-all and pays its whole pot to one member. That is a separate problem
 from this one.
+
+### Steering the market
+
+`$market bull` and `$market bear` start a Flyxcoin run on demand. It is
+owner-only like the rest of `cogs/admin.py`, and additionally `hidden`, so it
+does not appear in `$help` even for the owner — the other admin commands are
+merely uninteresting to a member, while this one changes how a run should be
+read. Every prefix command works in a DM with the bot, and nothing here needs a
+guild: the market is server-wide, and the caller is identified by `is_owner`
+rather than by any membership.
+
+**A triggered run is indistinguishable from a spontaneous one.** Both go through
+`economy.start_run`, which draws the length from the same 12-36 tick
+distribution, and both then play out through the ordinary scheduled tick — the
+command arms the regime and moves no price itself. The creator's run DM does not
+fire for one either, which falls out of the design rather than being
+special-cased: by the time the tick runs, the market is already in the regime
+that notice watches for. A run already in flight is refused rather than
+replaced, since overwriting it would cut it short for everyone watching.
+
+**It is safe only because buying is capped.** Being able to crash the price,
+buy, pump it, and sell is the strongest possible position in this market, and it
+is worth surprisingly little: the daily limit bounds the profit to 100 coins
+times the swing, whatever the timing. Simulated over a season from $1,000,000:
+
+| | Season-end net worth |
+| --- | --- |
+| Band trading, no trigger | $65,252,100 |
+| **Trigger, with the 100/day cap** | **$219,237,500** |
+| Trigger, with no buy cap | $2,074,087,592,668,720 |
+
+A 3.4x edge, still 45x under `RICHEST_CEILING`. Remove the cap and the same
+command is an unbounded money printer. Do not add one without the other.
 
 ### Transfers
 

@@ -618,6 +618,56 @@ def roll_rob(security_level: int, rng: random.Random | None = None) -> bool:
     return source.randint(1, 100) <= rob_success_percent(security_level)
 
 
+def parse_run_direction(raw: str) -> Literal["bull", "bear"] | None:
+    """Parse a raw run direction, mirroring :func:`parse_roulette_bet`.
+
+    Args:
+        raw: User input, such as ``"bull"`` or ``"BEAR"``.
+
+    Returns:
+        The direction, or ``None`` if it is neither.
+    """
+    cleaned = raw.strip().lower()
+    if cleaned == "bull":
+        return "bull"
+    if cleaned == "bear":
+        return "bear"
+    return None
+
+
+def start_run(
+    state: MarketState,
+    direction: Literal["bull", "bear"],
+    rng: random.Random | None = None,
+) -> MarketState:
+    """Return ``state`` with a run of ``direction`` just begun.
+
+    The single place a run's length is drawn, shared by the random start inside
+    :func:`next_flx_market` and by the owner-only trigger in ``cogs/admin.py``.
+    A triggered run is therefore the same object as a spontaneous one, drawn
+    from the same distribution -- there is nothing in a run's shape, length, or
+    price path that could tell a member which kind they are watching.
+
+    The price is not moved here. The run begins on the next scheduled tick, so
+    starting one takes the same path through :func:`next_flx_market` either way
+    rather than a second, subtly different one.
+
+    Args:
+        state: The market before the run.
+        direction: Which way the run should go.
+        rng: Random source, injectable for deterministic tests.
+
+    Returns:
+        The market with the run armed, at the same price.
+    """
+    source = rng if rng is not None else _DEFAULT_RNG
+    return MarketState(
+        price=state.price,
+        regime=direction,
+        ticks_left=source.randint(FLX_RUN_MIN_TICKS, FLX_RUN_MAX_TICKS),
+    )
+
+
 def next_flx_market(state: MarketState, rng: random.Random | None = None) -> MarketState:
     """Advance the market by one tick.
 
@@ -653,8 +703,8 @@ def next_flx_market(state: MarketState, rng: random.Random | None = None) -> Mar
     regime: MarketRegime = state.regime
     ticks_left = state.ticks_left
     if regime == "calm" and source.randint(1, FLX_RUN_ODDS) == 1:
-        regime = "bull" if source.random() < 0.5 else "bear"
-        ticks_left = source.randint(FLX_RUN_MIN_TICKS, FLX_RUN_MAX_TICKS)
+        started = start_run(state, "bull" if source.random() < 0.5 else "bear", source)
+        regime, ticks_left = started.regime, started.ticks_left
 
     if regime == "calm":
         reversion = FLX_MEAN_REVERSION_PERCENT

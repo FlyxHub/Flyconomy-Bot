@@ -1327,6 +1327,40 @@ class TestMarketTick:
         assert cog.bot.presence is not None
         assert (await db.get_market()).regime != "calm"
 
+    async def test_an_armed_run_plays_out_on_the_next_tick(self, db, settings):
+        # The owner-only trigger writes the regime and stops; the scheduled tick
+        # is what actually moves the price, so a triggered run and a
+        # spontaneous one take the same path.
+        cog = make_market(FakeBot(db, settings))
+        cog.rng.seed(1)
+        await db.set_market(
+            economy.MarketState(price=economy.FLX_PRICE, regime="bull", ticks_left=20)
+        )
+
+        start = economy.FLX_PRICE
+        for _ in range(20):
+            await cog.tick_loop.coro(cog)
+        state = await db.get_market()
+
+        assert state.price > start * 1.15
+        assert state.regime == "calm"
+
+    async def test_an_armed_run_does_not_dm_the_creator(self, db, settings):
+        # The creator triggered it, so telling them about it is noise. It falls
+        # out of the design rather than being special-cased: by the time the
+        # tick runs, the market is already in the regime the notice watches for.
+        creator = FakeRecipient()
+        cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
+        cog.rng.seed(1)
+        await db.set_market(
+            economy.MarketState(price=economy.FLX_PRICE, regime="bear", ticks_left=5)
+        )
+
+        for _ in range(5):
+            await cog.tick_loop.coro(cog)
+
+        assert creator.embeds == []
+
     async def test_a_tick_updates_the_status(self, db, settings):
         cog = make_market(FakeBot(db, settings))
         cog.rng.seed(1)

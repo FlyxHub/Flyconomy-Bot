@@ -189,6 +189,58 @@ class Admin(BaseCog, name="Admin"):
         ]
         await ctx.send(f"Published the guide: {', '.join(part for part in parts if part)}.")
 
+    @commands.command(name="market", hidden=True)
+    async def market(self, ctx: commands.Context[FlyconomyBot], direction: str) -> None:
+        """Start a Flyxcoin bull or bear run on demand.
+
+        Hidden as well as owner-only. Every other command in this cog is kept
+        out of a member's ``$help`` by its check, which is enough for a
+        maintenance command whose existence is not interesting. This one is
+        different: knowing the market can be steered at all changes how a
+        member reads a run, so it is left out of the listing entirely.
+
+        Usable from a DM with the bot, like every prefix command. Nothing here
+        needs a guild -- the market is server-wide and the caller is identified
+        by ``is_owner`` rather than by any membership.
+
+        The run is armed rather than played out: the price starts moving on the
+        next scheduled tick, up to :data:`economy.FLX_TICK_MINUTES` minutes
+        away, through the same code path a spontaneous run takes. Its length is
+        drawn from the same distribution too, so nothing about it reads as
+        different from one the market started on its own -- including that the
+        creator's run DM does not fire, since by then the market is already in
+        the regime the notice is watching for.
+
+        Args:
+            ctx: Invocation context.
+            direction: ``bull`` or ``bear``.
+
+        Raises:
+            commands.BadArgument: If ``direction`` is neither of those.
+        """
+        wanted = economy.parse_run_direction(direction)
+        if wanted is None:
+            raise commands.BadArgument(f"{direction!r} is not a direction. Use `bull` or `bear`.")
+
+        state = await self.db.get_market()
+        if state.regime != "calm":
+            # Refused rather than replaced: overwriting a run in flight would
+            # cut it short for everyone watching, and the caller almost
+            # certainly did not know one was running.
+            minutes = state.ticks_left * economy.FLX_TICK_MINUTES
+            await ctx.send(
+                f"A {state.regime} run is already going, with about {minutes} minutes left."
+            )
+            return
+
+        started = economy.start_run(state, wanted, self.rng)
+        await self.db.set_market(started)
+        minutes = started.ticks_left * economy.FLX_TICK_MINUTES
+        await ctx.send(
+            f"Armed a {wanted} run of about {minutes} minutes at "
+            f"{embeds.money(started.price)}. It starts on the next tick."
+        )
+
 
 async def setup(bot: FlyconomyBot) -> None:
     """Register the cog with the bot."""

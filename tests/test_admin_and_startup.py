@@ -354,3 +354,79 @@ class TestExitCodes:
         except ValidationError:  # pragma: no cover - the failure this guards
             pytest.fail("main() leaked a ValidationError instead of exiting cleanly")
         assert code == 2
+
+
+class TestTriggeredRuns:
+    """The owner-only market trigger."""
+
+    async def test_a_bull_run_is_armed(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        cog.rng.seed(1)
+
+        await cog.market.callback(cog, ctx, "bull")
+
+        state = await db.get_market()
+        assert state.regime == "bull"
+        assert economy.FLX_RUN_MIN_TICKS <= state.ticks_left <= economy.FLX_RUN_MAX_TICKS
+
+    async def test_a_bear_run_is_armed(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        cog.rng.seed(1)
+
+        await cog.market.callback(cog, ctx, "bear")
+
+        assert (await db.get_market()).regime == "bear"
+
+    @pytest.mark.parametrize("written", ["BULL", " bear ", "Bull"])
+    async def test_the_direction_is_forgiving_about_case(self, db, settings, ctx, written):
+        cog = Admin(FakeAdminBot(db, settings))
+
+        await cog.market.callback(cog, ctx, written)
+
+        assert (await db.get_market()).regime == written.strip().lower()
+
+    @pytest.mark.parametrize("written", ["sideways", "up", ""])
+    async def test_anything_else_is_refused(self, db, settings, ctx, written):
+        cog = Admin(FakeAdminBot(db, settings))
+
+        with pytest.raises(commands.BadArgument):
+            await cog.market.callback(cog, ctx, written)
+
+        assert (await db.get_market()).regime == "calm"
+
+    async def test_arming_does_not_move_the_price(self, db, settings, ctx):
+        # The run plays out through the scheduled tick, so that a triggered run
+        # takes exactly the path a spontaneous one does.
+        cog = Admin(FakeAdminBot(db, settings))
+        before = (await db.get_market()).price
+
+        await cog.market.callback(cog, ctx, "bull")
+
+        assert (await db.get_market()).price == before
+
+    async def test_a_run_already_going_is_not_replaced(self, db, settings, ctx):
+        # Overwriting one would cut it short for everyone watching it.
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.set_market(economy.MarketState(price=12_000, regime="bull", ticks_left=6))
+
+        await cog.market.callback(cog, ctx, "bear")
+
+        state = await db.get_market()
+        assert (state.regime, state.ticks_left) == ("bull", 6)
+        assert "already" in ctx.last.lower()
+
+    async def test_the_command_is_hidden_from_help(self, db, settings):
+        # Owner-only already keeps it out of a member's listing. Hidden keeps it
+        # out of everyone's, including the owner's: knowing the market can be
+        # steered at all changes how a member reads a run.
+        cog = Admin(FakeAdminBot(db, settings))
+        assert cog.market.hidden is True
+
+    async def test_it_is_not_published_as_a_slash_command(self, db, settings):
+        cog = Admin(FakeAdminBot(db, settings))
+        assert not isinstance(cog.market, commands.HybridCommand)
+
+    async def test_a_non_owner_cannot_reach_it(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings, owner=False))
+        with pytest.raises(commands.NotOwner):
+            await cog.cog_check(ctx)

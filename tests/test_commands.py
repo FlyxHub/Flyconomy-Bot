@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from discord.ext import commands
 
-from flyconomy.bot import EXTENSIONS, FlyconomyBot
+from flyconomy.bot import EXTENSIONS, FlyconomyBot, build_intents
 from flyconomy.config import Settings
 from flyconomy.database import Database
 
@@ -200,6 +200,30 @@ class TestOwnerCommands:
     ):
         published = {command.qualified_name for command in bot.tree.walk_commands()}
         assert name not in published
+
+    async def test_the_market_trigger_works_in_a_dm(self, bot: FlyconomyBot):
+        # The whole point of it: usable from a DM with the bot. That needs the
+        # DM message intent, no guild-only check on the command or its cog, and
+        # no dependency on a Member rather than a User -- is_owner takes either.
+        command = bot.get_command("market")
+        assert command is not None
+        assert build_intents().dm_messages
+        assert command.checks == []
+        assert getattr(command.cog, "__cog_guild_only__", False) is False
+
+    async def test_the_market_trigger_is_hidden_and_not_published(self, bot: FlyconomyBot):
+        command = bot.get_command("market")
+        assert command is not None
+        assert command.hidden is True
+        published = {c.qualified_name for c in bot.tree.walk_commands()}
+        assert "market" not in published
+
+    async def test_the_market_trigger_is_absent_from_the_help_listing(self, bot: FlyconomyBot):
+        # `hidden` is what DefaultHelpCommand filters on, so this is the check
+        # that the command really does not appear rather than merely being
+        # marked. Owner-only alone would still list it for the owner.
+        listed = {c.name for c in bot.commands if not c.hidden}
+        assert "market" not in listed
 
     async def test_purge_is_owner_only(self, bot: FlyconomyBot):
         published = {command.qualified_name for command in bot.tree.walk_commands()}

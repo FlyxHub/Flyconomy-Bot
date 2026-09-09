@@ -128,7 +128,16 @@ adding it to the guide in the same commit.
   Annotate numeric arguments with `commands.Range[int, 1]` so Discord rejects bad input client-side
   and negative bets stay impossible.
 - **Owner commands stay prefix-only** (`@commands.command` in `cogs/admin.py`). A slash command is
-  published to every member, including those who can't run it. `$sync` republishes the tree.
+  published to every member, including those who can't run it. `$sync` republishes the tree. They
+  all work in a DM with the bot, which needs nothing special — no command in that cog carries a
+  guild-only check, and `is_owner` takes a `User` as happily as a `Member`. `$market bull|bear` is
+  additionally `hidden`, so it is absent from `$help` even for the owner: the rest of the cog is
+  merely uninteresting to a member, while knowing the market can be steered changes how a run
+  reads. It arms `economy.start_run` and moves no price itself, so a triggered run is drawn from
+  the same length distribution and plays out through the same tick as a spontaneous one, and the
+  creator's run DM does not fire for it. That command is only safe because `FLX_DAILY_BUY_CAP`
+  exists — crash, buy, pump, sell is worth $219M over a season with the cap and $2.07 quadrillion
+  without it. Don't keep one without the other.
 - **`self.rng`** on `BaseCog` is the random source for game outcomes, so tests can seed it.
 - **Interactive components** live in `views.py`. Keep the button callbacks trivial: each one calls an
   `apply_*` coroutine that takes no `Interaction`, then redraws. **Discord caps an action row at
