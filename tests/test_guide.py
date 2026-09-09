@@ -221,6 +221,21 @@ class TestGuideStaysTrue:
         ):
             assert f"${figure:,}" in text, f"the guide never mentions ${figure:,}"
 
+    def test_the_daily_flyxcoin_limit_is_documented(self):
+        # A member who is refused a purchase should have read why first. The
+        # limit is in coins rather than dollars, so it is checked apart from the
+        # dollar figures above.
+        text = "\n".join(guide.load_sections())
+        settings = Settings(discord_token="placeholder")
+        assert f"{settings.max_flx_buy:,} Flyxcoin a day" in text
+
+    def test_the_market_regimes_are_described(self):
+        # The guide is prose, so a retuned market that nobody re-described
+        # would quietly tell members the wrong odds. Runs are the whole change.
+        text = "\n".join(guide.load_sections()).lower()
+        assert "bull run" in text
+        assert "bear run" in text
+
     def test_the_transfer_tax_is_described(self):
         text = "\n".join(guide.load_sections())
         settings = Settings(discord_token="placeholder")

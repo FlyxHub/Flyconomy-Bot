@@ -25,6 +25,16 @@ RICHEST_CEILING = 10_000_000_000
 SUPPLY_CEILING = 100_000_000_000
 
 
+#: Ticks the market takes in a day, from :data:`economy.FLX_TICK_MINUTES`.
+TICKS_PER_DAY = 24 * 60 // economy.FLX_TICK_MINUTES
+
+#: Where a trader in the simulation buys and sells. The market mean-reverts, so
+#: a band either side of the anchor is a round trip that completes on its own --
+#: the strategy any member would find within a week of watching the ticker.
+TRADE_BUY_BELOW = int(economy.FLX_PRICE * 0.9)
+TRADE_SELL_ABOVE = int(economy.FLX_PRICE * 1.1)
+
+
 def run_season(
     days: int = SEASON_DAYS,
     *,
@@ -32,6 +42,8 @@ def run_season(
     seed: int = 7,
     daily_cap: int | None = None,
     rake: float = 0.25,
+    traders: int = 0,
+    flx_cap: int | None = None,
 ) -> dict[str, int]:
     """Play out a season and report the money supply.
 
@@ -41,6 +53,10 @@ def run_season(
         seed: Random seed, so the result is reproducible.
         daily_cap: Ceiling on a daily claim, or ``None`` for the default.
         rake: Share of the house take diverted to the lottery pot.
+        traders: How many of the members trade the Flyxcoin band, checking the
+            price on every tick. They are the first ``traders`` players.
+        flx_cap: Ceiling on one member's daily Flyxcoin buying, or ``None`` for
+            the default. A huge number stands in for having no cap at all.
 
     Returns:
         The total supply, the richest member, and the pot.
@@ -48,12 +64,30 @@ def run_season(
     rng = random.Random(seed)
     settings = Settings(discord_token="placeholder")
     cap = settings.max_daily_payout if daily_cap is None else daily_cap
+    coin_cap = settings.max_flx_buy if flx_cap is None else flx_cap
 
     wallet = dict.fromkeys(range(players), 0)
     bank = dict.fromkeys(range(players), economy.STARTING_BANK)
+    coins = dict.fromkeys(range(players), 0)
     pot = 0
+    market = economy.MarketState(price=economy.FLX_PRICE)
 
     for _ in range(days):
+        bought_today = dict.fromkeys(range(players), 0)
+        for _tick in range(TICKS_PER_DAY if traders else 0):
+            market = economy.next_flx_market(market, rng)
+            for user in range(traders):
+                if market.price <= TRADE_BUY_BELOW:
+                    affordable = economy.affordable_flx(bank[user], market.price)
+                    buy = min(affordable, economy.flx_buy_allowance(bought_today[user], coin_cap))
+                    if buy:
+                        bank[user] -= economy.flx_cost(buy, market.price)
+                        coins[user] += buy
+                        bought_today[user] += buy
+                elif market.price >= TRADE_SELL_ABOVE and coins[user]:
+                    bank[user] += economy.flx_cost(coins[user], market.price)
+                    coins[user] = 0
+
         entrants = []
         for user in range(players):
             grinder = user % 3 == 0
@@ -84,9 +118,12 @@ def run_season(
             bank[rng.choice(entrants)] += pot
             pot = 0
 
+    def worth(user: int) -> int:
+        return wallet[user] + bank[user] + economy.flx_cost(coins[user], market.price)
+
     return {
-        "supply": sum(wallet.values()) + sum(bank.values()) + pot,
-        "richest": max(wallet[u] + bank[u] for u in range(players)),
+        "supply": sum(worth(u) for u in range(players)) + pot,
+        "richest": max(worth(u) for u in range(players)),
         "pot": pot,
     }
 
@@ -229,3 +266,52 @@ class TestTheLotteryDoesNotMintMoney:
 
     def test_no_rake_makes_the_casino_a_pure_sink(self):
         assert run_season(rake=0.0)["supply"] < run_season(rake=1.0)["supply"]
+
+
+class TestTheMarketIsBoundedToo:
+    """The market is the only place in this economy where money multiplies.
+
+    The walk mean-reverts and :func:`economy.flx_cost` quotes one price to buyer
+    and seller alike, so buying below the anchor and selling above it is a round
+    trip that pays every time -- and it pays a percentage of whatever bank the
+    member brought, which is the compounding shape the rest of this suite exists
+    to catch. :data:`economy.FLX_DAILY_BUY_CAP` is what bounds it.
+    """
+
+    def test_a_season_of_band_trading_stays_readable(self):
+        result = run_season(traders=3)
+        assert result["supply"] < SUPPLY_CEILING, f"supply reached {result['supply']:,}"
+        assert result["richest"] < RICHEST_CEILING, f"richest reached {result['richest']:,}"
+
+    def test_trading_growth_is_linear_not_exponential(self):
+        half = run_season(days=SEASON_DAYS // 2, traders=3)["richest"]
+        full = run_season(days=SEASON_DAYS, traders=3)["richest"]
+        assert 1.2 < full / half < 4.0, f"the richest grew {full / half:.1f}x in twice the days"
+
+    def test_the_result_is_stable_across_seeds(self):
+        for seed in (1, 2, 3):
+            result = run_season(traders=3, seed=seed)
+            assert result["supply"] < SUPPLY_CEILING
+            assert result["richest"] < RICHEST_CEILING
+
+    def test_more_traders_do_not_change_the_shape(self):
+        # Issuance scales with how many members trade, not with how rich they
+        # are. That is linear in accounts and capped per account, the same shape
+        # the daily interest already has.
+        assert run_season(traders=6)["richest"] < RICHEST_CEILING
+
+    def test_the_cap_is_what_holds_it_together(self):
+        # If this ever stops failing, something else is bounding the market and
+        # the cap may no longer be doing the work this class claims it does.
+        uncapped = run_season(days=200, traders=3, flx_cap=10**9)["richest"]
+        capped = run_season(days=200, traders=3)["richest"]
+        assert uncapped > RICHEST_CEILING, f"an uncapped market only reached {uncapped:,}"
+        assert capped < RICHEST_CEILING
+
+    def test_raising_the_cap_raises_the_ceiling_proportionally(self):
+        # The cap is a dial rather than a cliff: doubling it roughly doubles
+        # what a season of trading returns. That is what makes it safe to retune
+        # without re-deriving the whole bound.
+        low = run_season(days=120, traders=1, flx_cap=50)["richest"]
+        high = run_season(days=120, traders=1, flx_cap=100)["richest"]
+        assert 1.5 < high / low < 3.0, f"doubling the cap moved the result {high / low:.1f}x"

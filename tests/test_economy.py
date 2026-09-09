@@ -50,51 +50,131 @@ class TestFlyxcoin:
 
 
 class TestFlxPriceWalk:
-    def test_stays_within_bounds_over_many_ticks(self):
-        rng = random.Random(1)
-        price = economy.FLX_PRICE
-        for _ in range(10_000):
-            price = economy.next_flx_price(price, rng)
-            assert economy.FLX_PRICE_FLOOR <= price <= economy.FLX_PRICE_CEILING
+    def _walk(self, ticks: int, seed: int, start: int | None = None) -> list[economy.MarketState]:
+        rng = random.Random(seed)
+        state = economy.MarketState(price=start or economy.FLX_PRICE)
+        seen = []
+        for _ in range(ticks):
+            state = economy.next_flx_market(state, rng)
+            seen.append(state)
+        return seen
 
-    def test_stays_within_bounds_starting_from_the_floor(self):
-        rng = random.Random(2)
-        price = economy.FLX_PRICE_FLOOR
-        for _ in range(1_000):
-            price = economy.next_flx_price(price, rng)
-            assert economy.FLX_PRICE_FLOOR <= price <= economy.FLX_PRICE_CEILING
-
-    def test_stays_within_bounds_starting_from_the_ceiling(self):
-        rng = random.Random(3)
-        price = economy.FLX_PRICE_CEILING
-        for _ in range(1_000):
-            price = economy.next_flx_price(price, rng)
-            assert economy.FLX_PRICE_FLOOR <= price <= economy.FLX_PRICE_CEILING
+    @pytest.mark.parametrize(
+        ("seed", "start"),
+        [(1, None), (2, economy.FLX_PRICE_FLOOR), (3, economy.FLX_PRICE_CEILING)],
+    )
+    def test_stays_within_bounds_over_many_ticks(self, seed, start):
+        for state in self._walk(10_000, seed, start):
+            assert economy.FLX_PRICE_FLOOR <= state.price <= economy.FLX_PRICE_CEILING
 
     def test_is_deterministic_given_a_seeded_source(self):
-        first = economy.next_flx_price(economy.FLX_PRICE, random.Random(42))
-        second = economy.next_flx_price(economy.FLX_PRICE, random.Random(42))
+        state = economy.MarketState(price=economy.FLX_PRICE)
+        first = economy.next_flx_market(state, random.Random(42))
+        second = economy.next_flx_market(state, random.Random(42))
         assert first == second
 
     def test_reverts_toward_the_anchor_on_average(self):
         # Starting pinned at the ceiling, the mean-reverting pull should drag
         # the average of many ticks back down toward FLX_PRICE rather than
         # leaving it parked at the bound.
-        rng = random.Random(4)
-        price = economy.FLX_PRICE_CEILING
-        samples = []
-        for _ in range(5_000):
-            price = economy.next_flx_price(price, rng)
-            samples.append(price)
-        average = sum(samples) / len(samples)
-        assert average < economy.FLX_PRICE_CEILING * 0.9
+        prices = [s.price for s in self._walk(5_000, 4, economy.FLX_PRICE_CEILING)]
+        assert sum(prices) / len(prices) < economy.FLX_PRICE_CEILING * 0.9
 
     def test_never_reaches_zero_or_negative(self):
-        rng = random.Random(5)
-        price = economy.FLX_PRICE_FLOOR
-        for _ in range(10_000):
-            price = economy.next_flx_price(price, rng)
-            assert price >= 1
+        for state in self._walk(10_000, 5, economy.FLX_PRICE_FLOOR):
+            assert state.price >= 1
+
+    def test_a_settled_calm_market_stays_near_the_anchor(self):
+        # The point of the regime is that quiet ticks are still quiet: a market
+        # that has not run for a while sits close to the anchor, which is what
+        # makes a run legible when one does start. Measured only after the
+        # reversion has had time to undo the last run, since the recovery after
+        # one is calm but deliberately still far from home.
+        rng = random.Random(11)
+        state = economy.MarketState(price=economy.FLX_PRICE)
+        settled = 0
+        prices = []
+        for _ in range(20_000):
+            state = economy.next_flx_market(state, rng)
+            settled = settled + 1 if state.regime == "calm" else 0
+            if settled > 100:
+                prices.append(state.price)
+
+        assert len(prices) > 1_000, "not enough settled ticks to draw a conclusion"
+        # The average is the claim; the bound only catches a walk that has come
+        # loose from its anchor entirely.
+        assert abs(sum(prices) / len(prices) - economy.FLX_PRICE) < economy.FLX_PRICE * 0.02
+        assert max(abs(p - economy.FLX_PRICE) for p in prices) < economy.FLX_PRICE * 0.35
+
+
+class TestFlxRuns:
+    def test_a_calm_market_eventually_starts_a_run(self):
+        assert any(s.regime != "calm" for s in TestFlxPriceWalk()._walk(20_000, 6))
+
+    def test_a_run_ends_within_its_declared_length(self):
+        rng = random.Random(7)
+        state = economy.MarketState(price=economy.FLX_PRICE)
+        for _ in range(50_000):
+            previous = state
+            state = economy.next_flx_market(state, rng)
+            started = previous.regime == "calm" and state.regime != "calm"
+            if started:
+                # ticks_left is what remains after this first tick was spent.
+                assert state.ticks_left < economy.FLX_RUN_MAX_TICKS
+                length = 1
+                while state.regime != "calm":
+                    state = economy.next_flx_market(state, rng)
+                    length += 1
+                assert economy.FLX_RUN_MIN_TICKS <= length <= economy.FLX_RUN_MAX_TICKS
+                return
+        pytest.fail("no run started in 50,000 ticks")
+
+    def test_a_run_moves_the_price_further_than_a_calm_stretch(self):
+        # The whole point of the change: a run has to be able to do what raising
+        # the calm volatility never could.
+        rng = random.Random(8)
+        state = economy.MarketState(price=economy.FLX_PRICE)
+        calm: list[float] = []
+        run: list[float] = []
+        for _ in range(60_000):
+            previous = state
+            state = economy.next_flx_market(state, rng)
+            move = abs(state.price - previous.price) / previous.price
+            (run if previous.regime != "calm" else calm).append(move)
+        assert run, "no run occurred"
+        assert sum(run) / len(run) > sum(calm) / len(calm)
+
+    def test_runs_go_both_ways(self):
+        seen = {s.regime for s in TestFlxPriceWalk()._walk(60_000, 9)}
+        assert {"bull", "bear"} <= seen
+
+    def test_a_bull_run_can_reach_far_above_the_calm_band(self):
+        # A season should occasionally see a price a calm market never would.
+        peak = max(s.price for s in TestFlxPriceWalk()._walk(105_120, 10))
+        assert peak > economy.FLX_PRICE * 1.3
+
+    def test_a_bear_run_can_reach_far_below_the_calm_band(self):
+        trough = min(s.price for s in TestFlxPriceWalk()._walk(105_120, 10))
+        assert trough < economy.FLX_PRICE * 0.7
+
+    def test_the_price_still_hovers_near_the_anchor_most_of_the_time(self):
+        # Runs are the exception, not the weather. If this drops, the market has
+        # stopped being a place to park money and become a casino game.
+        prices = [s.price for s in TestFlxPriceWalk()._walk(105_120, 12)]
+        near = sum(1 for p in prices if economy.FLX_PRICE * 0.9 <= p <= economy.FLX_PRICE * 1.1)
+        assert near / len(prices) > 0.75
+
+
+class TestFlxBuyAllowance:
+    @pytest.mark.parametrize(
+        ("bought", "expected"),
+        [(0, 100), (40, 60), (100, 0), (140, 0)],
+    )
+    def test_reports_what_is_left_of_the_day(self, bought, expected):
+        assert economy.flx_buy_allowance(bought, 100) == expected
+
+    def test_defaults_to_the_configured_cap(self):
+        assert economy.flx_buy_allowance(0) == economy.FLX_DAILY_BUY_CAP
 
 
 class TestDailyPayout:

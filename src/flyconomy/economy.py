@@ -29,7 +29,8 @@ FLX_PRICE_FLOOR: Final = FLX_PRICE // 2
 FLX_PRICE_CEILING: Final = FLX_PRICE * 2
 
 #: Largest single-tick move, as a percent of the price after mean reversion is
-#: applied, in either direction.
+#: applied, in either direction. Applies while the market is calm; a run widens
+#: it to :data:`FLX_RUN_VOLATILITY_PERCENT`.
 FLX_VOLATILITY_PERCENT: Final = 3
 
 #: Percent of the gap back to FLX_PRICE that each tick closes, before the
@@ -37,9 +38,72 @@ FLX_VOLATILITY_PERCENT: Final = 3
 #: instead of drifting out to a bound and sitting there.
 FLX_MEAN_REVERSION_PERCENT: Final = 5
 
+#: One in this many calm ticks starts a bull or bear run. At
+#: :data:`FLX_TICK_MINUTES` that is about one run every two days.
+FLX_RUN_ODDS: Final = 576
+
+#: How long a run lasts, in ticks. One to three hours at five minutes a tick.
+FLX_RUN_MIN_TICKS: Final = 12
+FLX_RUN_MAX_TICKS: Final = 36
+
+#: Per-tick drift during a run, as a percent, signed by its direction. Over a
+#: typical run this compounds to roughly a 40% move.
+FLX_RUN_DRIFT_PERCENT: Final = 1.5
+
+#: Mean reversion is suppressed but not switched off during a run. At the calm
+#: 5% the pull cancels the drift within a few ticks and the price never goes
+#: anywhere; at zero a run would ride the bound for its whole length. Leaving a
+#: little in makes a run decelerate under its own weight, so its size falls out
+#: of the drift and the length instead of needing a separate cap.
+FLX_RUN_REVERSION_PERCENT: Final = 1
+
+#: Shock size during a run. Wider than the calm market, so a run reads as
+#: volatile rather than as a smooth ramp.
+FLX_RUN_VOLATILITY_PERCENT: Final = 5
+
+#: The most Flyxcoin one member may buy in a day.
+#:
+#: The market is the only place in the game where money multiplies. The walk
+#: mean-reverts and :func:`flx_cost` quotes one price to buyer and seller alike,
+#: so buying below the anchor and selling above it is a round trip that is
+#: profitable every time, and its profit is a percentage of whatever bank the
+#: member brought -- the exact shape :data:`DAILY_PAYOUT_CAP` exists to stop.
+#: Capping the coins bought per day bounds one day's gain in absolute dollars,
+#: which turns a season of trading from exponential into linear.
+#:
+#: Denominated in coins rather than dollars on purpose: the cap then tightens on
+#: its own as the price rises, and it cannot be dodged by waiting for a dip.
+#: Buying is capped and selling is not, because a member can only sell what they
+#: already bought or mined, and mining is bounded by its own cooldown.
+FLX_DAILY_BUY_CAP: Final = 100
+
 #: Minutes between price ticks, driven by the background task in
 #: ``cogs/market.py``.
 FLX_TICK_MINUTES: Final = 5
+
+#: What the market is currently doing. ``calm`` is the resting state; the other
+#: two are runs, and differ only in the sign of the drift.
+MarketRegime = Literal["calm", "bull", "bear"]
+
+
+@dataclass(frozen=True, slots=True)
+class MarketState:
+    """The whole market, as one tick leaves it.
+
+    A run has to outlive the tick that starts it, which a price alone cannot
+    express -- so the regime and its remaining length travel with the price and
+    are persisted beside it.
+
+    Attributes:
+        price: The live Flyxcoin price, in dollars.
+        regime: What the market is doing.
+        ticks_left: Ticks remaining in the current run, zero while calm.
+    """
+
+    price: int
+    regime: MarketRegime = "calm"
+    ticks_left: int = 0
+
 
 #: Wallet balance granted to a brand new account.
 STARTING_WALLET: Final = 0
@@ -554,30 +618,78 @@ def roll_rob(security_level: int, rng: random.Random | None = None) -> bool:
     return source.randint(1, 100) <= rob_success_percent(security_level)
 
 
-def next_flx_price(current: int, rng: random.Random | None = None) -> int:
-    """Advance the live Flyxcoin price by one random-walk tick.
+def next_flx_market(state: MarketState, rng: random.Random | None = None) -> MarketState:
+    """Advance the market by one tick.
 
-    Every tick pulls the price back toward :data:`FLX_PRICE` by
-    :data:`FLX_MEAN_REVERSION_PERCENT` percent of the gap, applies a random
-    shock of up to :data:`FLX_VOLATILITY_PERCENT` percent, and clamps the
-    result to ``[FLX_PRICE_FLOOR, FLX_PRICE_CEILING]``. The pull and the bounds
-    share the same anchor, so buying and immediately selling stays roughly
-    value-neutral instead of drifting for free, and the walk cannot run away
-    the way an uncapped percentage would.
+    A calm tick behaves exactly as the market always has: pull
+    :data:`FLX_MEAN_REVERSION_PERCENT` of the gap back toward :data:`FLX_PRICE`,
+    apply a shock of up to :data:`FLX_VOLATILITY_PERCENT`, and clamp to
+    ``[FLX_PRICE_FLOOR, FLX_PRICE_CEILING]``. That keeps the price hovering near
+    the anchor, which is where it sits about seven ticks in eight.
+
+    One calm tick in :data:`FLX_RUN_ODDS` instead starts a run, which lasts
+    between :data:`FLX_RUN_MIN_TICKS` and :data:`FLX_RUN_MAX_TICKS` and carries a
+    steady drift in one direction. Raising :data:`FLX_VOLATILITY_PERCENT` alone
+    could never produce this: mean reversion erases a one-tick spike within the
+    hour, so a *run* needs state that survives the tick, which is why this takes
+    and returns a whole :class:`MarketState` rather than a price.
+
+    A run is not separately capped. Reversion is suppressed during one rather
+    than switched off, so the drift meets a pull that grows with the distance
+    travelled and the run decelerates on its own; the bounds are the backstop,
+    not the mechanism. When the run expires the calm reversion drags the price
+    home over the next hour or two, which is what makes the move read as a run
+    and a recovery instead of a permanent step.
 
     Args:
-        current: The price before this tick.
+        state: The market before this tick.
         rng: Random source, injectable for deterministic tests.
 
     Returns:
-        The next price, always at least $1.
+        The market after this tick. The price is always at least $1.
     """
     source = rng if rng is not None else _DEFAULT_RNG
-    reverted = current + (FLX_PRICE - current) * FLX_MEAN_REVERSION_PERCENT / 100
-    shock = source.uniform(-FLX_VOLATILITY_PERCENT, FLX_VOLATILITY_PERCENT) / 100
-    moved = reverted * (1 + shock)
+
+    regime: MarketRegime = state.regime
+    ticks_left = state.ticks_left
+    if regime == "calm" and source.randint(1, FLX_RUN_ODDS) == 1:
+        regime = "bull" if source.random() < 0.5 else "bear"
+        ticks_left = source.randint(FLX_RUN_MIN_TICKS, FLX_RUN_MAX_TICKS)
+
+    if regime == "calm":
+        reversion = FLX_MEAN_REVERSION_PERCENT
+        volatility = FLX_VOLATILITY_PERCENT
+        drift = 0.0
+    else:
+        reversion = FLX_RUN_REVERSION_PERCENT
+        volatility = FLX_RUN_VOLATILITY_PERCENT
+        drift = FLX_RUN_DRIFT_PERCENT if regime == "bull" else -FLX_RUN_DRIFT_PERCENT
+
+    reverted = state.price + (FLX_PRICE - state.price) * reversion / 100
+    drifted = reverted * (1 + drift / 100)
+    shock = source.uniform(-volatility, volatility) / 100
+    moved = drifted * (1 + shock)
     clamped = min(FLX_PRICE_CEILING, max(FLX_PRICE_FLOOR, moved))
-    return max(1, round(clamped))
+
+    if regime != "calm":
+        ticks_left -= 1
+        if ticks_left <= 0:
+            regime, ticks_left = "calm", 0
+
+    return MarketState(price=max(1, round(clamped)), regime=regime, ticks_left=ticks_left)
+
+
+def flx_buy_allowance(bought_today: int, cap: int = FLX_DAILY_BUY_CAP) -> int:
+    """Return how much more Flyxcoin a member may buy today.
+
+    Args:
+        bought_today: Coins the member has already bought today.
+        cap: The daily ceiling. Defaults to :data:`FLX_DAILY_BUY_CAP`.
+
+    Returns:
+        Coins still available to buy, never negative.
+    """
+    return max(0, cap - bought_today)
 
 
 def rps_outcome(player: str, bot_move: str) -> Literal["win", "lose", "tie"]:

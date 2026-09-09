@@ -8,9 +8,9 @@ import discord
 import pytest
 from discord.ext import commands
 
-from flyconomy import embeds
+from flyconomy import economy, embeds
 from flyconomy.bot import EXTENSIONS, _humanize, build_intents, describe_command_error
-from flyconomy.errors import FlyconomyError, InsufficientFundsError
+from flyconomy.errors import DailyBuyLimitError, FlyconomyError, InsufficientFundsError
 
 
 class TestIntents:
@@ -49,6 +49,17 @@ class TestErrorMessages:
         message = describe_command_error(InsufficientFundsError(1, 5, "Flyxcoin"))
         assert message is not None
         assert "Flyxcoin" in message
+
+    def test_the_daily_buy_limit_says_what_is_left(self):
+        message = describe_command_error(DailyBuyLimitError(80, 40, 100))
+        assert message is not None
+        assert "40" in message
+        assert "100" in message
+
+    def test_the_daily_buy_limit_reads_differently_once_it_is_spent(self):
+        message = describe_command_error(DailyBuyLimitError(1, 0, 100))
+        assert message is not None
+        assert "midnight" in message
 
     def test_a_wrapped_error_is_unwrapped(self):
         wrapped = commands.CommandInvokeError(InsufficientFundsError(0, 10))
@@ -157,15 +168,28 @@ class TestEmbeds:
         assert embeds.now("UTC").tzinfo is not None
 
     def test_the_circulation_embed_values_the_supply(self):
-        embed = embeds.circulation_embed(3, 10_000, "UTC")
-        assert embed.fields[0].value == "$10,000"
-        assert embed.fields[1].value == "3"
-        assert embed.fields[2].value == "$30,000"
+        embed = embeds.circulation_embed(3, economy.MarketState(price=10_000), "UTC", 100)
+        assert embed.fields[1].value == "$10,000"
+        assert embed.fields[2].value == "3"
+        assert embed.fields[3].value == "$30,000"
 
     def test_the_circulation_embed_uses_the_price_it_is_given(self):
-        embed = embeds.circulation_embed(3, 5_000, "UTC")
-        assert embed.fields[0].value == "$5,000"
-        assert embed.fields[2].value == "$15,000"
+        embed = embeds.circulation_embed(3, economy.MarketState(price=5_000), "UTC", 100)
+        assert embed.fields[1].value == "$5,000"
+        assert embed.fields[3].value == "$15,000"
+
+    def test_the_circulation_embed_names_the_regime_and_the_daily_limit(self):
+        state = economy.MarketState(price=12_000, regime="bull", ticks_left=9)
+        embed = embeds.circulation_embed(3, state, "UTC", 100)
+        assert "Bull run" in (embed.fields[0].value or "")
+        assert "100" in (embed.footer.text or "")
+
+    def test_the_run_dm_says_which_way_and_for_how_long(self):
+        state = economy.MarketState(price=12_000, regime="bear", ticks_left=10)
+        embed = embeds.market_run_embed(state, "UTC")
+        assert "Bear run" in (embed.title or "")
+        assert "falling" in (embed.description or "")
+        assert str(10 * economy.FLX_TICK_MINUTES) in (embed.description or "")
 
     def test_the_ticker_reads_flat_with_no_prior_price(self):
         assert embeds.flx_ticker(10_000, 0) == "$10,000"

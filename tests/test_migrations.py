@@ -255,3 +255,57 @@ async def test_the_market_migration_is_idempotent(db_path):
         finally:
             await database.close()
         assert price == economy.FLX_PRICE
+
+
+async def test_a_version_1_database_gets_a_calm_market_and_an_empty_buy_ledger(db_path):
+    make_v1_database(db_path, [(0, 1_000, 0, 0, ALICE)])
+
+    database = await Database.connect(db_path)
+    try:
+        state = await database.get_market()
+        bought = await database.coins_bought_today("2026-01-01", ALICE)
+    finally:
+        await database.close()
+
+    # An upgrade mid-season must not start anybody's day partway through, and
+    # must not resume a run that never happened.
+    assert state == economy.MarketState(price=economy.FLX_PRICE)
+    assert bought == 0
+
+
+async def test_the_regime_migration_is_idempotent(db_path):
+    # SQLite has no ADD COLUMN IF NOT EXISTS, so re-running this one is the
+    # case most likely to break a partly upgraded database.
+    make_v1_database(db_path, [(0, 1_000, 0, 0, ALICE)])
+
+    for _ in range(3):
+        database = await Database.connect(db_path)
+        try:
+            await database.migrate()
+            await database.set_market(
+                economy.MarketState(price=12_000, regime="bull", ticks_left=4)
+            )
+            state = await database.get_market()
+        finally:
+            await database.close()
+        assert state.regime == "bull"
+
+
+async def test_the_market_regime_survives_a_reopen(db_path):
+    make_v1_database(db_path, [])
+
+    database = await Database.connect(db_path)
+    try:
+        await database.set_market(economy.MarketState(price=7_000, regime="bear", ticks_left=9))
+    finally:
+        await database.close()
+
+    database = await Database.connect(db_path)
+    try:
+        state = await database.get_market()
+    finally:
+        await database.close()
+
+    # A restart mid-run must resume the run rather than silently calm the
+    # market, or a bot that crashes often would never finish one.
+    assert state == economy.MarketState(price=7_000, regime="bear", ticks_left=9)

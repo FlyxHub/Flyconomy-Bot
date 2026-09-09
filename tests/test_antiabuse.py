@@ -18,9 +18,10 @@ from flyconomy import crash, economy, jackpot, tictactoe
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
+from flyconomy.cogs.mining import Mining
 from flyconomy.config import Settings
 from flyconomy.database import Database
-from flyconomy.errors import BetTooLargeError, RateLimitedError
+from flyconomy.errors import BetTooLargeError, DailyBuyLimitError, RateLimitedError
 from flyconomy.ratelimit import SlidingWindowLimiter
 from tests.conftest import ALICE, BOB, CAROL
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
@@ -512,3 +513,86 @@ class TestGrindingIsNotProfitable:
         staked = 4_000 * stake
         # Variance is real, so this bounds the edge rather than demanding a loss.
         assert (final - bankroll) / staked < 0.05, f"{game} paid out too well"
+
+
+class TestTheMarketCannotBeFarmed:
+    """The market is the one place a member's money multiplies rather than adds.
+
+    Every casino game here is bounded by having no positive expected value. The
+    market is not a game and cannot be bounded that way: the walk mean-reverts
+    around a fixed anchor and quotes one price to buyer and seller, so buying
+    low and selling high is a round trip that pays every time it completes. What
+    bounds it instead is the daily buying limit, which caps a day's gain in
+    absolute dollars and so turns a season from exponential into linear.
+    """
+
+    async def test_a_purchase_at_the_limit_is_accepted(self, db, settings, ctx):
+        cog = Mining(FakeBot(db, settings))
+        await db.add_bank(ALICE, settings.max_flx_buy * economy.FLX_PRICE)
+
+        await cog.flx_buy.callback(cog, ctx, settings.max_flx_buy)
+
+        assert (await db.get_account(ALICE)).crypto == settings.max_flx_buy
+
+    async def test_a_purchase_over_the_limit_is_refused(self, db, settings, ctx):
+        cog = Mining(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000_000_000)
+
+        with pytest.raises(DailyBuyLimitError):
+            await cog.flx_buy.callback(cog, ctx, settings.max_flx_buy + 1)
+
+    async def test_a_refused_purchase_costs_nothing(self, db, settings, ctx):
+        cog = Mining(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000_000_000)
+        before = (await db.get_account(ALICE)).bank
+
+        with pytest.raises(DailyBuyLimitError):
+            await cog.flx_buy.callback(cog, ctx, settings.max_flx_buy + 1)
+
+        account = await db.get_account(ALICE)
+        assert account.bank == before
+        assert account.crypto == 0
+
+    async def test_churning_within_a_day_cannot_dodge_the_limit(self, db, settings, ctx):
+        # Buying and selling repeatedly is the farming loop the cap exists to
+        # stop. Selling must not hand the allowance back.
+        cog = Mining(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000_000_000)
+
+        for _ in range(5):
+            await cog.flx_buy.callback(cog, ctx, settings.max_flx_buy // 5)
+            await cog.flx_sell.callback(cog, ctx, None)
+
+        with pytest.raises(DailyBuyLimitError):
+            await cog.flx_buy.callback(cog, ctx, 1)
+
+    async def test_an_omitted_amount_is_trimmed_to_the_limit_not_refused(self, db, settings, ctx):
+        # "Buy as much as I can" should mean the limit, not an error, or the
+        # default becomes unusable for anyone rich enough to hit the cap.
+        cog = Mining(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000_000_000)
+
+        await cog.flx_buy.callback(cog, ctx, None)
+
+        assert (await db.get_account(ALICE)).crypto == settings.max_flx_buy
+
+    async def test_the_limit_is_configurable(self, db, ctx):
+        tight = Settings(discord_token="placeholder", max_flx_buy=2)
+        cog = Mining(FakeBot(db, tight))
+        await db.add_bank(ALICE, 10_000_000)
+
+        with pytest.raises(DailyBuyLimitError):
+            await cog.flx_buy.callback(cog, ctx, 3)
+
+    def test_a_day_at_the_limit_is_bounded_in_absolute_dollars(self):
+        # The property that makes the season linear: whatever a member is worth,
+        # one day of perfect timing is worth at most this, because the bound is
+        # coins times the widest possible swing rather than a share of a bank.
+        settings = Settings(discord_token="placeholder")
+        best = settings.max_flx_buy * (economy.FLX_PRICE_CEILING - economy.FLX_PRICE_FLOOR)
+        assert best < economy.DAILY_PAYOUT_CAP * 200
+
+    def test_selling_is_deliberately_uncapped(self):
+        # A member can only sell coins they already bought or mined, both of
+        # which are bounded, so a sell limit would only strand holdings.
+        assert not hasattr(economy, "FLX_DAILY_SELL_CAP")

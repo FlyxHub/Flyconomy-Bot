@@ -8,8 +8,12 @@ import pytest
 
 from flyconomy import economy
 from flyconomy.database import Database
-from flyconomy.errors import InsufficientFundsError
+from flyconomy.errors import DailyBuyLimitError, InsufficientFundsError
 from tests.conftest import ALICE, BOB, CAROL
+
+#: Any calendar day. The buying ledger is keyed by day, so tests that are not
+#: about the limit pass one fixed day and a limit far above what they spend.
+DAY = "2026-01-01"
 
 
 class TestAccounts:
@@ -192,7 +196,7 @@ class TestTransfers:
 class TestCryptoMarket:
     async def test_buying_charges_the_bank_and_credits_coins(self, db: Database):
         await db.add_bank(ALICE, 30_000)
-        cost = await db.buy_crypto(ALICE, 3)
+        cost = await db.buy_crypto(ALICE, 3, DAY, 100)
         account = await db.get_account(ALICE)
         assert cost == 3 * economy.FLX_PRICE
         assert account.crypto == 3
@@ -200,7 +204,7 @@ class TestCryptoMarket:
 
     async def test_buying_more_than_you_can_afford_is_refused(self, db: Database):
         with pytest.raises(InsufficientFundsError):
-            await db.buy_crypto(ALICE, 1)
+            await db.buy_crypto(ALICE, 1, DAY, 100)
         assert (await db.get_account(ALICE)).crypto == 0
 
     async def test_selling_credits_the_bank(self, db: Database):
@@ -221,14 +225,14 @@ class TestCryptoMarket:
     async def test_buying_then_selling_returns_the_original_bank_balance(self, db: Database):
         await db.add_bank(ALICE, 50_000)
         before = (await db.get_account(ALICE)).bank
-        await db.buy_crypto(ALICE, 5)
+        await db.buy_crypto(ALICE, 5, DAY, 100)
         await db.sell_crypto(ALICE, 5)
         assert (await db.get_account(ALICE)).bank == before
 
     @pytest.mark.parametrize("amount", [0, -1])
     async def test_non_positive_trades_are_rejected(self, db: Database, amount):
         with pytest.raises(ValueError, match="must be positive"):
-            await db.buy_crypto(ALICE, amount)
+            await db.buy_crypto(ALICE, amount, DAY, 100)
         with pytest.raises(ValueError, match="must be positive"):
             await db.sell_crypto(ALICE, amount)
 
@@ -240,6 +244,102 @@ class TestCryptoMarket:
 
     async def test_total_crypto_is_zero_on_an_empty_database(self, db: Database):
         assert await db.total_crypto() == 0
+
+
+class TestDailyBuyLimit:
+    async def test_buying_up_to_the_limit_is_allowed(self, db: Database):
+        await db.add_bank(ALICE, 100 * economy.FLX_PRICE)
+        await db.buy_crypto(ALICE, 100, DAY, 100)
+        assert (await db.get_account(ALICE)).crypto == 100
+
+    async def test_buying_past_the_limit_is_refused(self, db: Database):
+        await db.add_bank(ALICE, 200 * economy.FLX_PRICE)
+        with pytest.raises(DailyBuyLimitError) as caught:
+            await db.buy_crypto(ALICE, 101, DAY, 100)
+        assert caught.value.remaining == 100
+        assert caught.value.limit == 100
+
+    async def test_the_limit_accumulates_across_purchases(self, db: Database):
+        await db.add_bank(ALICE, 200 * economy.FLX_PRICE)
+        await db.buy_crypto(ALICE, 60, DAY, 100)
+        await db.buy_crypto(ALICE, 40, DAY, 100)
+        with pytest.raises(DailyBuyLimitError) as caught:
+            await db.buy_crypto(ALICE, 1, DAY, 100)
+        assert caught.value.remaining == 0
+
+    async def test_a_refused_purchase_costs_nothing(self, db: Database):
+        await db.add_bank(ALICE, 200 * economy.FLX_PRICE)
+        before = (await db.get_account(ALICE)).bank
+        with pytest.raises(DailyBuyLimitError):
+            await db.buy_crypto(ALICE, 101, DAY, 100)
+        account = await db.get_account(ALICE)
+        assert account.bank == before
+        assert account.crypto == 0
+        assert await db.coins_bought_today(DAY, ALICE) == 0
+
+    async def test_the_limit_is_per_member(self, db: Database):
+        await db.add_bank(ALICE, 100 * economy.FLX_PRICE)
+        await db.add_bank(BOB, 100 * economy.FLX_PRICE)
+        await db.buy_crypto(ALICE, 100, DAY, 100)
+        await db.buy_crypto(BOB, 100, DAY, 100)
+        assert (await db.get_account(BOB)).crypto == 100
+
+    async def test_the_limit_resets_on_the_next_day(self, db: Database):
+        await db.add_bank(ALICE, 200 * economy.FLX_PRICE)
+        await db.buy_crypto(ALICE, 100, DAY, 100)
+        await db.buy_crypto(ALICE, 100, "2026-01-02", 100)
+        assert (await db.get_account(ALICE)).crypto == 200
+
+    async def test_selling_is_not_capped(self, db: Database):
+        # Only buying is bounded: a member can sell only what they already
+        # bought or mined, so a cap there would strand coins.
+        await db.add_crypto(ALICE, 5_000)
+        await db.sell_crypto(ALICE, 5_000)
+        assert (await db.get_account(ALICE)).crypto == 0
+
+    async def test_selling_does_not_refund_the_day_s_allowance(self, db: Database):
+        # Otherwise a member could churn buy/sell all day and never hit the cap,
+        # which is the exact loop the cap exists to bound.
+        await db.add_bank(ALICE, 200 * economy.FLX_PRICE)
+        await db.buy_crypto(ALICE, 100, DAY, 100)
+        await db.sell_crypto(ALICE, 100)
+        with pytest.raises(DailyBuyLimitError):
+            await db.buy_crypto(ALICE, 1, DAY, 100)
+
+    async def test_a_self_reset_does_not_clear_the_day_s_purchases(self, db: Database):
+        # The same reasoning as the `resets` row: a limit a member can clear
+        # themselves is not a limit.
+        await db.add_bank(ALICE, 200 * economy.FLX_PRICE)
+        await db.buy_crypto(ALICE, 100, DAY, 100)
+        await db.reset_account(ALICE, now=0.0)
+        assert await db.coins_bought_today(DAY, ALICE) == 100
+
+    async def test_a_staff_purge_does_clear_it(self, db: Database):
+        await db.add_bank(ALICE, 200 * economy.FLX_PRICE)
+        await db.buy_crypto(ALICE, 100, DAY, 100)
+        await db.purge_user(ALICE)
+        assert await db.coins_bought_today(DAY, ALICE) == 0
+
+
+class TestMarketState:
+    async def test_a_new_database_starts_calm_at_the_base_price(self, db: Database):
+        state = await db.get_market()
+        assert state == economy.MarketState(price=economy.FLX_PRICE)
+
+    async def test_the_regime_round_trips(self, db: Database):
+        stored = economy.MarketState(price=14_000, regime="bull", ticks_left=7)
+        await db.set_market(stored)
+        assert await db.get_market() == stored
+
+    async def test_a_non_positive_price_is_rejected(self, db: Database):
+        with pytest.raises(ValueError, match="must be positive"):
+            await db.set_market(economy.MarketState(price=0))
+
+    async def test_the_price_and_the_regime_move_together(self, db: Database):
+        await db.set_market(economy.MarketState(price=16_000, regime="bear", ticks_left=3))
+        await db.set_market(economy.MarketState(price=9_000))
+        state = await db.get_market()
+        assert (state.price, state.regime, state.ticks_left) == (9_000, "calm", 0)
 
 
 class TestLiveFlxPrice:
@@ -257,7 +357,7 @@ class TestLiveFlxPrice:
     async def test_buying_charges_the_live_price(self, db: Database):
         await db.set_flx_price(5_000)
         await db.add_bank(ALICE, 15_000)
-        cost = await db.buy_crypto(ALICE, 3)
+        cost = await db.buy_crypto(ALICE, 3, DAY, 100)
         assert cost == 15_000
         assert (await db.get_account(ALICE)).crypto == 3
 

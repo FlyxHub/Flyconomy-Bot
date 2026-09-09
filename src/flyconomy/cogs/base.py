@@ -83,6 +83,31 @@ class BaseCog(commands.Cog):
             return None
         return channel
 
+    async def resolve_user(self, user_id: int) -> discord.User | None:
+        """Look up a member the bot DMs on its own, without a command.
+
+        The sibling of :meth:`resolve_channel`, and best effort for the same
+        reason: every caller is a background job whose real work has already
+        happened, so there is no invocation left to report a failure to. A DM
+        can also fail permanently and legitimately -- a bot may only DM someone
+        who shares a guild with it and who accepts DMs from server members -- so
+        an unreachable recipient is logged and skipped rather than raised.
+
+        Args:
+            user_id: The member's Discord snowflake.
+
+        Returns:
+            The user, or ``None`` if they cannot be reached.
+        """
+        user = self.bot.get_user(user_id)
+        if user is None:
+            try:
+                user = await self.bot.fetch_user(user_id)
+            except discord.HTTPException:
+                log.warning("User %d is not reachable", user_id)
+                return None
+        return user
+
     async def rake(self, house_take: int) -> None:
         """Split the house's take between the lottery pot and the creator tax.
 

@@ -25,12 +25,12 @@ from typing import Final, Self
 import aiosqlite
 
 from flyconomy import economy, jackpot
-from flyconomy.errors import InsufficientFundsError
+from flyconomy.errors import DailyBuyLimitError, InsufficientFundsError
 
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 10
+SCHEMA_VERSION: Final = 11
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -446,6 +446,59 @@ class Database:
         async with self._transaction() as db:
             await db.execute("UPDATE market SET price = ? WHERE id = 1", (price,))
 
+    async def get_market(self) -> economy.MarketState:
+        """Return the whole market state: price, regime, and run length left.
+
+        The tick needs all three together, and reading them in one statement is
+        what keeps a price from being advanced under a regime it did not come
+        from.
+        """
+        async with self._reader.execute(
+            "SELECT price, regime, regime_ticks FROM market WHERE id = 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:  # pragma: no cover - migration 4 guarantees the row
+            return economy.MarketState(price=economy.FLX_PRICE)
+        return economy.MarketState(
+            price=int(row["price"]),
+            regime=row["regime"],
+            ticks_left=int(row["regime_ticks"]),
+        )
+
+    async def set_market(self, state: economy.MarketState) -> None:
+        """Store the whole market state. Used by the scheduled market tick.
+
+        Args:
+            state: The market as the tick left it.
+
+        Raises:
+            ValueError: If the price is not positive.
+        """
+        if state.price <= 0:
+            msg = "price must be positive"
+            raise ValueError(msg)
+        async with self._transaction() as db:
+            await db.execute(
+                "UPDATE market SET price = ?, regime = ?, regime_ticks = ? WHERE id = 1",
+                (state.price, state.regime, state.ticks_left),
+            )
+
+    async def coins_bought_today(self, day: str, user_id: int) -> int:
+        """Return how much Flyxcoin a member has already bought on ``day``.
+
+        Args:
+            day: Calendar day, ``YYYY-MM-DD`` in the bot's timezone.
+            user_id: The member's Discord snowflake.
+
+        Returns:
+            Coins bought so far today, zero when they have bought none.
+        """
+        async with self._reader.execute(
+            "SELECT coins FROM flx_purchases WHERE day = ? AND user = ?", (day, user_id)
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row["coins"]) if row is not None else 0
+
     @staticmethod
     async def _read_flx_price(db: aiosqlite.Connection) -> int:
         """Read the live Flyxcoin price for use inside an already-open transaction.
@@ -859,17 +912,27 @@ class Database:
             row = await cursor.fetchone()
         return int(row["level"]) if row is not None else 0
 
-    async def buy_crypto(self, user_id: int, amount: int) -> int:
+    async def buy_crypto(self, user_id: int, amount: int, day: str, cap: int) -> int:
         """Exchange bank dollars for Flyxcoin at the live market price.
+
+        The day's buying limit is checked and recorded inside the same
+        transaction that moves the money, so two purchases racing each other
+        cannot both pass the check and leave the member over the cap. The limit
+        is checked *before* the debit, so a refused purchase costs nothing --
+        the same contract ``Gambling._stake`` keeps for the table limit.
 
         Args:
             user_id: The member's Discord snowflake.
             amount: Coins to buy. Must be positive.
+            day: Calendar day the purchase counts against, ``YYYY-MM-DD`` in the
+                bot's timezone.
+            cap: The most the member may buy across ``day``.
 
         Returns:
             The dollar cost that was charged.
 
         Raises:
+            DailyBuyLimitError: If the purchase would exceed the day's limit.
             InsufficientFundsError: If the bank balance is too small.
             ValueError: If ``amount`` is not positive.
         """
@@ -879,6 +942,16 @@ class Database:
 
         async with self._transaction() as db:
             await self.ensure_account(user_id)
+
+            async with db.execute(
+                "SELECT coins FROM flx_purchases WHERE day = ? AND user = ?", (day, user_id)
+            ) as cursor:
+                row = await cursor.fetchone()
+            bought = int(row["coins"]) if row is not None else 0
+            remaining = economy.flx_buy_allowance(bought, cap)
+            if amount > remaining:
+                raise DailyBuyLimitError(amount, remaining, cap)
+
             cost = economy.flx_cost(amount, await self._read_flx_price(db))
             cursor = await db.execute(
                 "UPDATE bank SET bank = bank - ?, crypto = crypto + ? WHERE user = ? AND bank >= ?",
@@ -886,6 +959,12 @@ class Database:
             )
             if cursor.rowcount == 0:
                 raise InsufficientFundsError(await self._read_column(db, user_id, "bank"), cost)
+
+            await db.execute(
+                "INSERT INTO flx_purchases (day, user, coins) VALUES (?, ?, ?) "
+                "ON CONFLICT(day, user) DO UPDATE SET coins = coins + excluded.coins",
+                (day, user_id, amount),
+            )
         return cost
 
     async def sell_crypto(self, user_id: int, amount: int) -> int:
@@ -1548,6 +1627,12 @@ class Database:
         did nothing wrong, and there is no longer an account to award it
         against.
 
+        The day's Flyxcoin purchases go with the account, for the same reason
+        the ``resets`` row does: this is the staff path, and a moderator undoing
+        something is not a member working the schedule. ``reset_account`` shares
+        ``_purge_on`` and therefore leaves both rows standing, so a self-reset
+        cannot clear the day's buying limit and start it over.
+
         The lottery pot itself is untouched. Ticket money is redistributed
         rather than held per member, so refunding it here would mint the price
         of a ticket back out of the pot. A jackpot ante is the opposite: that
@@ -1564,6 +1649,7 @@ class Database:
         """
         async with self._transaction() as db:
             await db.execute("DELETE FROM resets WHERE user = ?", (user_id,))
+            await db.execute("DELETE FROM flx_purchases WHERE user = ?", (user_id,))
             return await self._purge_on(db, user_id)
 
     async def _purge_on(self, db: aiosqlite.Connection, user_id: int) -> PurgeResult:
@@ -1848,6 +1934,43 @@ async def _migration_10_daily_payouts(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_11_market_regime(db: aiosqlite.Connection) -> None:
+    """Add the market's regime and the per-member daily Flyxcoin buying ledger.
+
+    The ``bank`` table is untouched. The regime lives on the existing ``market``
+    row rather than in a table of its own because a tick moves the price and the
+    regime together and they must never be read apart -- a price without the
+    regime that produced it cannot be advanced correctly.
+
+    Re-runnable in the way the rest of these are: SQLite has no
+    ``ADD COLUMN IF NOT EXISTS``, so the columns are added only when
+    ``table_info`` says they are missing, and a database that already has them
+    is left alone.
+
+    ``flx_purchases`` is keyed by day and member, so the daily buying cap is
+    enforced by a row that exists rather than by anything held in memory -- the
+    same reason ``daily_payouts`` is keyed by day. An empty table means nobody
+    has bought anything today, which is the correct reading both for a fresh
+    install and for an upgrade mid-season.
+    """
+    async with db.execute("PRAGMA table_info(market)") as cursor:
+        columns = {row["name"] for row in await cursor.fetchall()}
+
+    if "regime" not in columns:
+        await db.execute("ALTER TABLE market ADD COLUMN regime TEXT NOT NULL DEFAULT 'calm'")
+    if "regime_ticks" not in columns:
+        await db.execute("ALTER TABLE market ADD COLUMN regime_ticks INTEGER NOT NULL DEFAULT 0")
+
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS flx_purchases ("
+        "  day TEXT NOT NULL,"
+        "  user INTEGER NOT NULL,"
+        "  coins INTEGER NOT NULL CHECK (coins >= 0),"
+        "  PRIMARY KEY (day, user)"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -1859,4 +1982,5 @@ _MIGRATIONS: Final = {
     8: _migration_8_guide,
     9: _migration_9_resets,
     10: _migration_10_daily_payouts,
+    11: _migration_11_market_regime,
 }

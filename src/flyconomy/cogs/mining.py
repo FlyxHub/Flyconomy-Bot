@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import datetime
+from zoneinfo import ZoneInfo
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -64,8 +67,19 @@ class Mining(BaseCog, name="Flyxcoin"):
     async def flx(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """Show how much Flyxcoin is in circulation and its current price."""
         total = await self.db.total_crypto()
-        price = await self.db.get_flx_price()
-        await ctx.send(embed=embeds.circulation_embed(total, price, self.timezone))
+        state = await self.db.get_market()
+        await ctx.send(
+            embed=embeds.circulation_embed(total, state, self.timezone, self.settings.max_flx_buy)
+        )
+
+    def _today(self) -> str:
+        """Return the calendar day purchases count against, in the bot's timezone.
+
+        The buying cap resets at local midnight rather than on a rolling window,
+        so the day a purchase lands on is the bot's day -- the same key the
+        daily interest claims.
+        """
+        return datetime.datetime.now(ZoneInfo(self.timezone)).date().isoformat()
 
     @flx.command(name="buy")  # type: ignore[arg-type]
     @app_commands.describe(amount="Coins to buy. Defaults to as many as you can afford.")
@@ -76,15 +90,32 @@ class Mining(BaseCog, name="Flyxcoin"):
     ) -> None:
         """Buy Flyxcoin with money from your bank account, at the live price."""
         account = await self.db.get_account(ctx.author.id)
-        amount = amount or economy.affordable_flx(account.bank, account.flx_price)
+        day = self._today()
+        cap = self.settings.max_flx_buy
+        remaining = economy.flx_buy_allowance(
+            await self.db.coins_bought_today(day, ctx.author.id), cap
+        )
+
+        # An omitted amount means "as much as I can", which the day's limit
+        # caps as much as the bank does. Naming an amount over the limit is
+        # still refused rather than quietly trimmed, so nobody is charged for a
+        # different purchase than the one they asked for.
+        if amount is None:
+            amount = min(economy.affordable_flx(account.bank, account.flx_price), remaining)
+            if not amount and remaining:
+                await ctx.send(
+                    f"One Flyxcoin costs {embeds.money(account.flx_price)} and you have "
+                    f"{embeds.money(account.bank)} in the bank."
+                )
+                return
+
         if not amount:
             await ctx.send(
-                f"One Flyxcoin costs {embeds.money(account.flx_price)} and you have "
-                f"{embeds.money(account.bank)} in the bank."
+                f"You have bought your {cap:,} Flyxcoin for today. The limit resets at midnight."
             )
             return
 
-        cost = await self.db.buy_crypto(ctx.author.id, amount)
+        cost = await self.db.buy_crypto(ctx.author.id, amount, day, cap)
         await ctx.send(f"You purchased {amount:,} Flyxcoin for {embeds.money(cost)}!")
 
     @flx.command(name="sell")  # type: ignore[arg-type]

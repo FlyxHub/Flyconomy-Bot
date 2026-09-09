@@ -43,8 +43,9 @@ classic prefix command, such as `$balance`.
   leaving it undefended.
 - **Flyxcoin.** Members buy a miner, upgrade it to improve their odds, mine
   hourly, and buy, sell, or send coins. The price moves on its own every 5
-  minutes on a bounded random walk, and the bot's status shows it live as a
-  `FLX: $10,340 ▲2.1%` stock ticker.
+  minutes on a bounded random walk that occasionally breaks into a bull or bear
+  run, and the bot's status shows it live as a `FLX: $10,340 ▲2.1%` stock
+  ticker. Buying is capped at 100 coins a day per member.
 - **Casino.** Blackjack with hit, stand, and double-down buttons, a crash
   multiplier to cash out of, plus a slot machine, card war, coin flip, rock
   paper scissors, dice, and American roulette.
@@ -281,10 +282,11 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_LOTTERY_DRAW_TIME` | No | `18:00` | 24-hour clock time the lottery draws each day, in `FLYCONOMY_TIMEZONE`. |
 | `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` | No | None | Channel for the bot's announcements: each draw's winner, and the daily interest run. Unset skips them. |
 | `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
-| `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | Bank account credited with the creator tax. Unset disables the tax outright, regardless of the rate. |
+| `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | The creator: credited with the creator tax, and DMed when a Flyxcoin run starts. Unset disables both, regardless of the rate. |
 | `FLYCONOMY_TRANSFER_TAX_RATE` | No | `0.05` | Share of a `pay` transfer withheld as tax. Half feeds the lottery pot, half goes to `FLYCONOMY_CREATOR_TAX_USER_ID`. Capped at `0.5`. |
 | `FLYCONOMY_GUIDE_CHANNEL_ID` | No | None | Channel the bot posts the member guide to and keeps updated. Unset publishes nothing. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
+| `FLYCONOMY_MAX_FLX_BUY` | No | `100` | Ceiling on the Flyxcoin one member may buy in a day. This is what bounds the market over a season. |
 | `FLYCONOMY_RATE_LIMIT_ACTIONS` | No | `6` | Game commands a member may run per window. |
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
 | `FLYCONOMY_DEV_GUILD_ID` | No | None | Server to sync slash commands to. Set it while developing; leave it empty in production. |
@@ -319,8 +321,8 @@ mentioning the bot works as a prefix too.
 | --- | --- |
 | `mine` | Mines Flyxcoin with your miner. Requires a miner. Cooldown: 1 hour. |
 | `upgrade` | Raises your miner one level, paid from your bank balance. |
-| `flx` | Shows the current Flyxcoin price, how much is in circulation, and what it is worth. |
-| `flx buy [amount]` | Buys Flyxcoin with bank money. Defaults to as many as you can afford. |
+| `flx` | Shows the current Flyxcoin price, what the market is doing, how much is in circulation, and what it is worth. |
+| `flx buy [amount]` | Buys Flyxcoin with bank money, up to 100 a day. Defaults to as many as you can afford within that. |
 | `flx sell [amount]` | Sells Flyxcoin into your bank. Defaults to everything you hold. |
 | `flx send <member> <amount>` | Sends Flyxcoin to another member. |
 
@@ -468,9 +470,10 @@ has scrolled past it.
 A guide that lies about the odds is worse than no guide, and it lies silently.
 `tests/test_guide.py` fails if a command exists that the guide never mentions,
 or if the security prices, miner prices, maximum bet, daily cap, ticket price,
-starting balance, or transfer tax in the code no longer appear in the text. Add
-a command or retune a number and the build tells you the guide needs the same
-edit.
+starting balance, transfer tax, or daily Flyxcoin buying limit in the code no
+longer appear in the text — or if it stops describing the market's bull and bear
+runs. Add a command or retune a number and the build tells you the guide needs
+the same edit.
 
 ## Economy reference
 
@@ -483,6 +486,8 @@ edit.
 | Flyxcoin price | Starts at $10,000, both buying and selling always trade at the current live price |
 | Flyxcoin price range | $5,000 to $20,000 (50% to 200% of the starting price) |
 | Flyxcoin price tick | Every 5 minutes: a random move of up to 3%, pulled 5% of the way back toward $10,000 first |
+| Flyxcoin bull/bear run | One calm tick in 576 (about one run every two days) starts a run of 12-36 ticks (1-3 hours), drifting 1.5% a tick with reversion cut to 1% and the shock widened to 5% |
+| Flyxcoin daily buy limit | 100 coins per member per day, resetting at midnight. Selling and sending are uncapped |
 | Net worth | wallet + bank + (Flyxcoin x the live Flyxcoin price) |
 
 ### Miner levels
@@ -610,6 +615,11 @@ paid back into the economy rather than destroyed, so a transfer is a pure
 redistribution: the supply never rises, and no pair of members can churn
 transfers into a profit. See [Transfers](#transfers).
 
+**The market is capped, because it is the one thing here that multiplies.**
+Every game is bounded by having no positive expected value. The market cannot be
+bounded that way, so it is bounded by a daily buying limit instead. See
+[The market is the only place money multiplies](#the-market-is-the-only-place-money-multiplies).
+
 A doubling strategy will still end most short sessions slightly ahead. That is
 true of any fair game and cannot be designed away without making the games
 unfair. What matters is the average, which is now zero or negative everywhere.
@@ -659,6 +669,51 @@ the richest member leaves sane bounds, or if growth stops looking linear.
 To make a season shorter or longer, move the cap: it is very close to the only
 number that decides how big the endgame gets.
 
+### The market is the only place money multiplies
+
+Every casino game here is held in check by the same property: no game has a
+positive expected value, so playing more cannot make money on average. The
+Flyxcoin market is not a game and cannot be checked that way.
+
+The price mean-reverts toward a fixed $10,000 anchor, and `flx_cost` quotes one
+price to buyer and seller alike. So buying below the anchor and selling above it
+is a round trip that completes on its own and pays every time. Worse, it pays a
+*percentage* of whatever bank the member brought to it — which is exactly the
+compounding shape [`DAILY_PAYOUT_CAP`](#surviving-a-season) exists to stop, in
+the one place nothing was stopping it.
+
+Simulated over a full season, a member who simply buys under $9,000 and sells
+over $11,000, checking every few hours, turns $100,000 into this:
+
+| | Season-end net worth |
+| --- | --- |
+| No daily limit | $84,227,406,998,223 |
+| **100 coins a day** | **$67,048,494** |
+| `RICHEST_CEILING` in `tests/test_season.py` | $10,000,000,000 |
+
+The limit is denominated in **coins rather than dollars** on purpose. A day's
+profit is then bounded by coins times the widest possible price swing, which is
+an absolute number of dollars rather than a share of a balance — so a season of
+trading grows linearly instead of exponentially, whatever the trader is worth.
+It also tightens on its own as the price rises, and cannot be dodged by waiting
+for a dip.
+
+**Only buying is capped.** A member can only sell coins they already bought or
+mined, and both of those are bounded already, so a limit on selling would strand
+holdings without bounding anything. Selling does not refund the day's allowance
+either, or churning buy/sell all day would sidestep the cap entirely.
+
+**It binds late and hits nobody else.** Reaching 100 coins in a day takes about
+$900,000 of bank in one day. Below that the limit is invisible, and a member at
+the $1,000 starting balance cannot buy a single coin at any price. The market is
+already the rich end of the game; the cap changes nothing at the other end.
+
+What the cap does **not** do is close the wealth gap. It compresses the top of
+the distribution — trading falls from roughly 55x the next-best path to 16x —
+but the largest source of inequality in this economy is the lottery, which is
+winner-take-all and pays its whole pot to one member. That is a separate problem
+from this one.
+
 ### Transfers
 
 `pay <member> <amount>` moves money from your bank to theirs and withholds 5% on
@@ -675,6 +730,14 @@ sum should use it.
 move in whole units, so Flyxcoin cannot carry anything smaller than one coin's
 price — between $5,000 and $20,000, depending on the market. Below that, `pay` is
 the only way to move money at all, and the 5% is the price of that convenience.
+
+**The daily buying limit narrows the free rail without closing it.** Building a
+new position is capped at 100 coins a day, so about $1,000,000 of new transfer
+capacity a day; coins already held send freely and instantly, and selling is
+uncapped. A large transfer is therefore still free but is planned a few days
+ahead rather than executed in one command. That is a real cost, accepted because
+the limit is load-bearing for something else — see *The market is the only place
+money multiplies* below.
 
 This means the tax rate does not steer anything. Any rate above zero already
 sends large transfers to Flyxcoin, because the alternative there is free;
@@ -768,9 +831,24 @@ The same account also receives half of every `pay` transfer's tax, which is a
 separate flow with its own rate — see [Transfers](#transfers). The casino cut
 and the transfer cut share only the account they are paid into.
 
+The same account also gets a DM whenever the Flyxcoin market breaks into a bull
+or bear run, naming the direction and roughly how long it has left. It is a
+perk, not a mechanic — one setting names the creator, the same way the daily
+interest shares the lottery's announcement channel rather than taking a second
+one. Nothing about the market depends on it: the run is already stored by the
+time the DM is attempted, so a creator who is unset, unreachable, or has DMs
+closed changes nothing, and the failure is logged rather than raised.
+
+Note what the DM is worth, which is deliberately not much. Knowing a run has
+started only helps to the extent you can act on it, and the daily buying limit
+bounds that to the same 100 coins anybody else could have bought. Simulated over
+a season, a trader who acts on every run the moment it starts ends up level with
+one who just watches the price — the cap binds first, so the information is
+flavour rather than an edge.
+
 Off by default in the sense that matters: `FLYCONOMY_CREATOR_TAX_USER_ID` is
-unset, so no account is credited regardless of `FLYCONOMY_CREATOR_TAX_RATE`.
-Set the ID to turn it on.
+unset, so no account is credited, and no DM is sent, regardless of
+`FLYCONOMY_CREATOR_TAX_RATE`. Set the ID to turn both on.
 
 ### Blackjack
 

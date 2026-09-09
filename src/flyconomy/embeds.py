@@ -126,28 +126,68 @@ def flx_ticker(price: int, previous: int) -> str:
     return f"{money(price)} {arrow}{change:+.1f}%"
 
 
-def circulation_embed(total: int, price: int, timezone: str) -> discord.Embed:
-    """Build the embed shown by ``flx`` with no action.
+#: How each market regime reads to a member. Shared by the info embed and the
+#: creator's run DM so the two always describe a run the same way.
+_REGIME_LABELS: Final = {
+    "calm": "▶ Steady",
+    "bull": "📈 Bull run",
+    "bear": "📉 Bear run",
+}
+
+
+def market_run_embed(state: economy.MarketState, timezone: str) -> discord.Embed:
+    """Build the DM sent to the creator when a run starts.
 
     Args:
-        total: Flyxcoin in circulation.
-        price: The live Flyxcoin price.
+        state: The market as the tick that started the run left it.
         timezone: IANA timezone for the embed timestamp.
 
     Returns:
         A populated embed.
     """
+    bull = state.regime == "bull"
+    embed = discord.Embed(
+        title=f"{_REGIME_LABELS[state.regime]} has started",
+        description=(
+            f"Flyxcoin is {'climbing' if bull else 'falling'} for roughly the next "
+            f"{state.ticks_left * economy.FLX_TICK_MINUTES} minutes."
+        ),
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+    embed.add_field(name="Price now:", value=money(state.price), inline=False)
+    embed.set_footer(text="You see this because you are the creator.")
+    return embed
+
+
+def circulation_embed(
+    total: int, state: economy.MarketState, timezone: str, daily_cap: int
+) -> discord.Embed:
+    """Build the embed shown by ``flx`` with no action.
+
+    Args:
+        total: Flyxcoin in circulation.
+        state: The live market: price, regime, and run length left.
+        timezone: IANA timezone for the embed timestamp.
+        daily_cap: The most one member may buy in a day.
+
+    Returns:
+        A populated embed.
+    """
+    price = state.price
     embed = discord.Embed(
         title="Total Flyxcoin in circulation.",
         color=BRAND_COLOR,
         timestamp=now(timezone),
     )
+    embed.add_field(name="Market:", value=_REGIME_LABELS[state.regime], inline=False)
     embed.add_field(name="Current FLX price:", value=money(price), inline=False)
     embed.add_field(name="Total FLX in circulation:", value=coins(total), inline=False)
     embed.add_field(
         name="Total value of all circulating FLX:",
         value=money(economy.flx_cost(total, price)),
     )
+    embed.set_footer(text=f"You can buy up to {daily_cap:,} Flyxcoin a day.")
     return embed
 
 

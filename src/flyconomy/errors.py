@@ -62,3 +62,27 @@ class BetTooLargeError(FlyconomyError):
         self.bet = bet
         self.limit = limit
         super().__init__(f"bet of {bet} exceeds the table limit of {limit}")
+
+
+class DailyBuyLimitError(FlyconomyError):
+    """A Flyxcoin purchase was refused for exceeding the day's buying limit.
+
+    Distinct from :class:`BetTooLargeError` because the limit is cumulative
+    rather than per action: the member may have bought nothing this large and
+    still be refused, so the message has to say what is left rather than what
+    the ceiling is.
+
+    Attributes:
+        requested: Coins the member tried to buy.
+        remaining: Coins they may still buy today.
+        limit: The daily ceiling.
+    """
+
+    def __init__(self, requested: int, remaining: int, limit: int) -> None:
+        """Store the refusal and build a display message."""
+        self.requested = requested
+        self.remaining = remaining
+        self.limit = limit
+        super().__init__(
+            f"purchase of {requested} exceeds the {remaining} left of today's limit of {limit}"
+        )

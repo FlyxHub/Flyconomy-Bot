@@ -11,7 +11,7 @@ order, not by the numbers, so renumbering by hand is never required.
 Every number here comes from `README.md`. If you retune the economy, retune
 this too — a guide that lies about the odds is worse than no guide.
 
-════════════════════════════════════ 1 of 6 ════════════════════════════════════
+════════════════════════════════════ 1 of 7 ════════════════════════════════════
 
 # 💵 The Flyconomy
 
@@ -39,7 +39,7 @@ bank is where it grows.
 
 -# Stuck? `$help` lists every command. `/resetme` starts you over from nothing — read the house rules before you reach for it.
 
-════════════════════════════════════ 2 of 6 ════════════════════════════════════
+════════════════════════════════════ 2 of 7 ════════════════════════════════════
 
 # 🏦 Wallet vs. bank
 
@@ -79,18 +79,17 @@ Four things worth knowing:
 
 Your level shows on `/balance`, right next to your miner.
 
-════════════════════════════════════ 3 of 6 ════════════════════════════════════
+════════════════════════════════════ 3 of 7 ════════════════════════════════════
 
 # ⛏️ Flyxcoin
 
-The server's fake cryptocurrency. It is a real second asset — its price moves
-on its own, and your coins count toward your net worth at whatever it's worth
-right now.
+The server's fake cryptocurrency — a real second asset whose price moves on its
+own, counting toward your net worth at whatever it's worth right now.
 
 ## Mining
 
-`/upgrade` buys your miner and levels it up, paid from your bank. `/mine` then
-runs once an hour.
+`/upgrade` buys and levels up your miner, paid from your bank. `/mine` then runs
+once an hour.
 
 ```
 Level   Costs to reach   Chance to mine a coin
@@ -102,32 +101,43 @@ Level   Costs to reach   Chance to mine a coin
 ```
 
 One coin is worth roughly $10,000, so a maxed miner averages about $2,000 an
-hour for free. It pays for itself, slowly, and it is the only income in the
-game that keeps earning while you sleep.
+hour for free — the only income that keeps earning while you sleep.
 
 ## The market
 
-- `/flx info` — the live price, the total in circulation, and what yours is worth. As a prefix command, plain `$flx` does the same.
+- `/flx info` — the live price, the total in circulation, and what yours is worth. Plain `$flx` does the same.
 - `/flx buy [amount]` — buys at the current price, from your bank.
 - `/flx sell [amount]` — sells at the current price, into your bank.
 - `/flx send @someone <amount>` — hand coins to another member.
 
-The price starts at $10,000 and moves every 5 minutes, up to 3% at a time. It
-is pulled gently back toward $10,000 and can never leave the $5,000–$20,000
-band, so it swings but it cannot moon and cannot go to zero. Buy the dips if
-you like — just know the floor and ceiling are real.
+The price moves every 5 minutes, usually drifting up to 3% a tick and pulled back
+toward $10,000 — it sits between $9,000 and $11,000 seven ticks in eight.
 
-## Sending money to people
+Every couple of days it breaks into a **bull run** or a **bear run**: one to
+three hours of hard movement one way, which can carry it most of the way to
+$20,000 or down to $5,000 before settling back. `/flx info` says which it is
+doing now, and it never leaves the $5,000–$20,000 band.
 
-- **`/pay` costs 5%.** The only option under about $10,000 — coins move in whole units, and one costs more than that.
+**You can buy at most 100 Flyxcoin a day**, resetting at midnight. Selling and
+sending are unlimited.
+
+-# Flyxcoin can't be robbed — only cash can. Coins are the safest place to park a fortune, if you can stomach the price moving.
+
+════════════════════════════════════ 4 of 7 ════════════════════════════════════
+
+# 💸 Sending money to people
+
+- **`/pay` costs 5%.** The only option under about $10,000 — coins move in whole units, and one costs more.
 - **`/flx send` is free.** Buy coins, send them, let them sell. Nothing is withheld.
 
-Move anything large as Flyxcoin. The only cost is the price drifting between
-the buy and the sell, and it drifts both ways.
+Move anything large as Flyxcoin — the only cost is the price drifting between the
+buy and the sell, and it drifts both ways. Only *buying* is capped, at 100 coins
+a day, so a big position is something you build up over a few days rather than
+in one go.
 
--# Flyxcoin can't be robbed — only cash can. Coins are the safest place to park a fortune, as long as you can stomach the price moving.
+-# The tax on `/pay` is not destroyed: half of it feeds the lottery pot, so every transfer makes somebody's draw a little richer.
 
-════════════════════════════════════ 4 of 6 ════════════════════════════════════
+════════════════════════════════════ 5 of 7 ════════════════════════════════════
 
 # 🎰 The casino
 
@@ -168,7 +178,7 @@ Blackjack is the exception worth studying: played well it's the best bet in the
 casino at 1.4%, and played badly it's the worst thing on the list at 15.8%.
 Same game, same table, ten times the cost.
 
-════════════════════════════════════ 5 of 6 ════════════════════════════════════
+════════════════════════════════════ 6 of 7 ════════════════════════════════════
 
 # 🏆 Playing against each other
 
@@ -206,7 +216,7 @@ The pot is fed by ticket sales *and* by a quarter of everything the casino
 wins. Nobody enters, nobody wins, and the pot rolls over — so a quiet week
 builds something worth showing up for.
 
-════════════════════════════════════ 6 of 6 ════════════════════════════════════
+════════════════════════════════════ 7 of 7 ════════════════════════════════════
 
 # 📋 House rules & cheat sheet
 

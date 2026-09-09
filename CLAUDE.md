@@ -44,7 +44,8 @@ buttons, `ratelimit.py` the abuse throttle, `guide.py` the member guide's text, 
 the settings. The lottery adds two
 tables in migration 3, the jackpot two more in migration 5, head-to-head matches one in
 migration 6, wallet security one in migration 7, the published guide one in migration 8,
-self-reset history one in migration 9, and the daily interest ledger one in migration 10; the
+self-reset history one in migration 9, the daily interest ledger one in migration 10, and the
+market's regime plus the daily Flyxcoin buying ledger one in migration 11; the
 `bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
@@ -289,6 +290,36 @@ Three further layers, all in place because they cover different failure modes:
   nothing. Any rate above zero sends large transfers down that rail; what actually splits the two
   rails is that coins move in whole units, so Flyxcoin cannot carry less than one coin's price.
   Raising the rate steers nothing — reprice it only to change what the small rail costs.
+- **The market is the one thing here that multiplies, and only a cap bounds it.**
+  Every game is held in check by having no positive expected value. The market
+  cannot be: the walk mean-reverts to a fixed anchor and `flx_cost` quotes one
+  price to buyer and seller, so buying low and selling high is a round trip that
+  completes on its own and pays a *percentage of the member's whole bank*. That
+  is the compounding shape `DAILY_PAYOUT_CAP` exists to stop, and before
+  `FLX_DAILY_BUY_CAP` nothing was stopping it — a season of casual band trading
+  turned $100k into $84 trillion, and no test could see it because
+  `tests/test_season.py` modelled no trading at all. It does now, and
+  `TestTheMarketIsBoundedToo` fails if the cap stops being what holds the season
+  together. Three things are load-bearing. The cap is **in coins, not dollars**,
+  so a day's gain is bounded in absolute dollars rather than as a share of a
+  balance, which is what makes the season linear; a dollar cap would let a rich
+  member buy the same *value* every day and compound anyway. Only **buying** is
+  capped — selling is bounded already by what a member bought or mined, and
+  selling must not refund the day's allowance or churning would dodge the cap
+  entirely. And `flx_purchases` survives `reset_account` while `purge_user`
+  clears it, exactly like the `resets` row: a limit a member can clear by
+  resetting is not a limit.
+- **A run needs state; a wider shock is not a run.** `next_flx_market` takes and
+  returns a whole `MarketState` because mean reversion erases a one-tick spike
+  within the hour — raising `FLX_VOLATILITY_PERCENT` gives a noisier flat line,
+  never a trend. Reversion is *suppressed but not zero* during a run, so the
+  drift meets a pull that grows with distance and the run decelerates under its
+  own weight; that is why a run needs no separate size cap and why the bounds
+  are a backstop rather than the mechanism. Set it to zero and a run rides the
+  bound for its whole length. The creator's run DM rides on
+  `creator_tax_user_id` and is a perk, not a mechanic: the run is stored before
+  the DM is attempted, and the cap above is what keeps the information from
+  being worth anything.
 - **A defense may never become an immunity.** Wallet security lowers `rob`'s success rate and
   nothing else — the top level still lets one robbery in ten through, and `rob_success_percent`
   clamps a level off the end of the table back onto it. A wallet that cannot be robbed removes

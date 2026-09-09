@@ -14,6 +14,7 @@ from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import (
     BetTooLargeError,
+    DailyBuyLimitError,
     FlyconomyError,
     InsufficientFundsError,
     RateLimitedError,
@@ -253,6 +254,16 @@ def describe_command_error(error: BaseException) -> str | None:
         case RateLimitedError():
             return (
                 f"You are using commands too quickly. Try again in {_humanize(error.retry_after)}."
+            )
+        case DailyBuyLimitError():
+            if error.remaining:
+                return (
+                    f"You can only buy {error.limit:,} Flyxcoin a day, and you have "
+                    f"{error.remaining:,} left today. Try again tomorrow for the rest."
+                )
+            return (
+                f"You have bought your {error.limit:,} Flyxcoin for today. "
+                "The limit resets at midnight."
             )
         case BetTooLargeError():
             return f"The table limit is {error.limit:,}. You cannot stake {error.bet:,} on one bet."

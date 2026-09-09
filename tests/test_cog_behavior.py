@@ -10,6 +10,7 @@ import random
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import discord
@@ -19,6 +20,7 @@ from flyconomy import economy
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.economy import Economy
 from flyconomy.cogs.gambling import Gambling
+from flyconomy.cogs.market import Market
 from flyconomy.cogs.mining import Mining
 from flyconomy.config import Settings
 from flyconomy.database import Database
@@ -98,6 +100,11 @@ class FakeContext:
         return " ".join(self.sent)
 
 
+def _FakeResponse() -> Any:  # noqa: N802 - reads as the class it stands in for
+    """A minimal stand-in for the HTTP response discord.py's errors carry."""
+    return SimpleNamespace(status=403, reason="Forbidden")
+
+
 class FakeBot:
     """The bot surface the cogs read: a database, settings, and a rate limiter."""
 
@@ -107,6 +114,7 @@ class FakeBot:
         settings: Settings,
         limiter: SlidingWindowLimiter | None = None,
         channels: dict[int, Any] | None = None,
+        users: dict[int, Any] | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
@@ -114,6 +122,8 @@ class FakeBot:
             rate=settings.rate_limit_actions, per=settings.rate_limit_seconds
         )
         self._channels = channels or {}
+        self._users = users or {}
+        self.presence: Any = None
 
     def get_channel(self, channel_id: int) -> Any:
         return self._channels.get(channel_id)
@@ -122,6 +132,20 @@ class FakeBot:
         # The gateway fallback in BaseCog.resolve_channel. Nothing here is
         # reachable over a network, so a cache miss is a miss for good.
         raise discord.InvalidData(f"no channel {channel_id}")
+
+    async def change_presence(self, *, activity: Any) -> None:
+        # The last thing a market tick does. Recorded rather than ignored so a
+        # test can tell a tick that finished from one that died partway: the
+        # tick swallows its own exceptions, so "no error" proves nothing.
+        self.presence = activity
+
+    def get_user(self, user_id: int) -> Any:
+        return self._users.get(user_id)
+
+    async def fetch_user(self, user_id: int) -> Any:
+        # The gateway fallback in BaseCog.resolve_user, unreachable here for the
+        # same reason fetch_channel is.
+        raise discord.NotFound(_FakeResponse(), f"no user {user_id}")
 
 
 #: Channel id the announcement tests configure. Any value works; it only has to
@@ -142,6 +166,36 @@ class FakeChannel(discord.abc.Messageable):
 
     async def send(self, *, embed: object) -> None:  # type: ignore[override]
         self.embeds.append(embed)
+
+
+class FakeRecipient:
+    """A stand-in for a member the bot DMs, such as the creator.
+
+    Records what it was sent instead of touching the gateway. ``fails`` models
+    the case that has to be survivable rather than exceptional: a bot may only
+    DM someone who shares a guild with it and accepts DMs from server members,
+    so a creator who has those closed refuses every DM forever.
+    """
+
+    def __init__(self, *, fails: bool = False) -> None:
+        self.embeds: list[object] = []
+        self._fails = fails
+
+    async def send(self, *, embed: object) -> None:
+        if self._fails:
+            raise discord.Forbidden(_FakeResponse(), "cannot send messages to this user")
+        self.embeds.append(embed)
+
+
+def make_market(bot: FakeBot) -> Market:
+    """Build the market cog without starting its price timer.
+
+    `Market.__init__` starts a `tasks.loop`, which wants a gateway. The tick is
+    driven directly in `TestMarketTick` instead. Same shape as `make_economy`.
+    """
+    cog = Market.__new__(Market)
+    BaseCog.__init__(cog, bot)
+    return cog
 
 
 def make_economy(bot: FakeBot) -> Economy:
@@ -1154,3 +1208,129 @@ class TestWar:
             await cog.war.callback(cog, ctx, 11)
 
         assert (await db.get_account(ALICE)).wallet == 10
+
+
+#: A creator to DM. Any id works; it only has to match FakeBot's user map.
+CREATOR_ID = 424_242_424_242_424_242
+
+
+def _with_creator(settings: Settings) -> Settings:
+    return settings.model_copy(update={"creator_tax_user_id": CREATOR_ID})
+
+
+class TestMarketTick:
+    """The scheduled tick, driven directly rather than through its timer."""
+
+    async def _tick_until_run_starts(self, cog: Market, limit: int = 20_000) -> bool:
+        """Tick until one starts a run, leaving only that tick's effects behind.
+
+        The recorded presence is cleared before every tick, so afterwards it
+        reflects the run-starting tick alone. Without that a value left by an
+        earlier calm tick would make a tick that died look like one that
+        finished.
+        """
+        for _ in range(limit):
+            before = await cog.db.get_market()
+            cog.bot.presence = None
+            await cog.tick_loop.coro(cog)
+            if before.regime == "calm" and (await cog.db.get_market()).regime != "calm":
+                return True
+        return False
+
+    async def test_a_tick_moves_and_stores_the_price(self, db, settings):
+        cog = make_market(FakeBot(db, settings))
+        cog.rng.seed(1)
+
+        await cog.tick_loop.coro(cog)
+
+        assert (await db.get_market()).price != 0
+
+    async def test_a_run_is_carried_across_ticks(self, db, settings):
+        # The whole reason the regime is persisted: a run has to survive the
+        # tick that started it, and a restart in the middle of one.
+        cog = make_market(FakeBot(db, settings))
+        cog.rng.seed(3)
+
+        assert await self._tick_until_run_starts(cog), "no run started"
+        started = await db.get_market()
+        await cog.tick_loop.coro(cog)
+        after = await db.get_market()
+
+        assert started.ticks_left > 0
+        assert after.regime == started.regime
+        assert after.ticks_left == started.ticks_left - 1
+
+    async def test_the_creator_is_dmed_when_a_run_starts(self, db, settings):
+        creator = FakeRecipient()
+        cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
+        cog.rng.seed(3)
+
+        assert await self._tick_until_run_starts(cog), "no run started"
+
+        assert len(creator.embeds) == 1
+
+    async def test_quiet_ticks_do_not_dm_the_creator(self, db, settings):
+        creator = FakeRecipient()
+        cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
+        cog.rng.seed(7)
+
+        # Seeded so the first handful of ticks are calm; a DM here would mean
+        # the creator is pinged every five minutes forever.
+        for _ in range(5):
+            await cog.tick_loop.coro(cog)
+            if (await db.get_market()).regime != "calm":
+                pytest.skip("this seed started a run immediately")
+
+        assert creator.embeds == []
+
+    async def test_a_continuing_run_does_not_dm_again(self, db, settings):
+        creator = FakeRecipient()
+        cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
+        cog.rng.seed(3)
+
+        assert await self._tick_until_run_starts(cog), "no run started"
+        while (await db.get_market()).regime != "calm":
+            await cog.tick_loop.coro(cog)
+
+        assert len(creator.embeds) == 1
+
+    async def test_no_creator_configured_means_no_dm_and_no_error(self, db, settings):
+        cog = make_market(FakeBot(db, settings))
+        cog.rng.seed(3)
+
+        assert await self._tick_until_run_starts(cog), "no run started"
+
+        assert (await db.get_market()).regime != "calm"
+
+    async def test_a_creator_who_blocks_dms_does_not_break_the_tick(self, db, settings):
+        # The contract every background job here keeps: the real work has
+        # already happened, so an unreachable recipient is logged, not raised.
+        creator = FakeRecipient(fails=True)
+        cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
+        cog.rng.seed(3)
+
+        assert await self._tick_until_run_starts(cog), "no run started"
+
+        # The status update comes after the DM attempt, so its presence here is
+        # what proves the Forbidden was contained rather than ending the tick.
+        assert cog.bot.presence is not None
+        assert (await db.get_market()).regime != "calm"
+
+    async def test_an_unreachable_creator_does_not_break_the_tick(self, db, settings):
+        # Not in the user cache and not fetchable, which is what an id for
+        # somebody who left every shared server looks like.
+        cog = make_market(FakeBot(db, _with_creator(settings)))
+        cog.rng.seed(3)
+
+        assert await self._tick_until_run_starts(cog), "no run started"
+
+        assert cog.bot.presence is not None
+        assert (await db.get_market()).regime != "calm"
+
+    async def test_a_tick_updates_the_status(self, db, settings):
+        cog = make_market(FakeBot(db, settings))
+        cog.rng.seed(1)
+
+        await cog.tick_loop.coro(cog)
+
+        assert "FLX" in cog.bot.presence.name

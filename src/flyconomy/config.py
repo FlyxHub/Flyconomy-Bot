@@ -103,8 +103,12 @@ class Settings(BaseSettings):
     creator_tax_user_id: Annotated[int, Field(gt=0)] | None = Field(
         default=None,
         description=(
-            "Bank account credited with creator_tax_rate of every casino loss. "
-            "Unset disables the tax outright, regardless of the configured rate."
+            "The creator: the Discord user who receives what the economy pays "
+            "its owner. Their bank is credited with creator_tax_rate of every "
+            "casino loss, and they are DMed when a Flyxcoin run starts. Unset "
+            "disables both, regardless of the configured rate -- one setting "
+            "rather than two because there is only one creator, the same reason "
+            "the daily interest shares the lottery's announcement channel."
         ),
     )
     transfer_tax_rate: Annotated[float, Field(ge=0, le=0.5)] = Field(
@@ -116,6 +120,17 @@ class Settings(BaseSettings):
             "destroyed; the creator's half is destroyed instead while that "
             "setting is unset. Bounded well below 1 so a transfer always "
             "delivers more than it is taxed."
+        ),
+    )
+    max_flx_buy: Annotated[int, Field(gt=0)] = Field(
+        default=100,
+        description=(
+            "Ceiling on the Flyxcoin one member may buy in a day, mirroring "
+            "economy.FLX_DAILY_BUY_CAP. The market mean-reverts and quotes one "
+            "price to buyer and seller, so buying low and selling high is a "
+            "round trip that pays a percentage of the member's whole bank. This "
+            "ceiling is what keeps that linear over a season rather than "
+            "compounding, in the same way max_daily_payout bounds the interest."
         ),
     )
     max_bet: Annotated[int, Field(gt=0)] = Field(
