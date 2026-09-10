@@ -121,9 +121,9 @@ A run climbs until it reaches about **$18,000** — or falls to **$6,000** for a
 bear — and then stops. About one in six runs out of time and stops short, so a
 run is never a sure thing. `/flx info` says which it is doing now.
 
-**Sell before it ends.** The price is hauled back to $10,000 within about three
-ticks of a run finishing — 15 minutes. A run is a spike, not a plateau, and
-holding through the end of one leaves you exactly where you started.
+**A run is a spike, not a plateau.** The price is hauled home within about three
+ticks of one ending — 15 minutes. Sell into a bull run before it turns; buy into
+a bear while it is down. Sit through either and you end up where you started.
 
 **You can buy at most 100 Flyxcoin a day**, resetting at midnight. Selling and
 sending are unlimited.

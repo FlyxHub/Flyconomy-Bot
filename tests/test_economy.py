@@ -164,69 +164,80 @@ class TestFlxRuns:
         near = sum(1 for p in prices if economy.FLX_PRICE * 0.9 <= p <= economy.FLX_PRICE * 1.1)
         assert near / len(prices) > 0.75
 
-    def _bull_ticks(self, seed: int, ticks: int = 200_000):
-        """Yield ``(before, after)`` for every tick spent inside a bull run."""
+    def _run_ticks(self, direction: str, seed: int, ticks: int = 200_000):
+        """Yield ``(before, after)`` for every tick spent inside a run of ``direction``."""
         rng = random.Random(seed)
         state = economy.MarketState(price=economy.FLX_PRICE)
         for _ in range(ticks):
             previous = state
             state = economy.next_flx_market(state, rng)
             # The regime is chosen before the shock, so a tick whose *previous*
-            # state was already bullish is one the run actually paid for. That
+            # state was already running is one the run actually paid for. That
             # misses the tick a run starts on and keeps the one it ends on,
             # which is immaterial to a share measured over thousands of them.
-            if previous.regime == "bull":
+            if previous.regime == direction:
                 yield previous, state
 
-    def test_a_bull_run_mostly_goes_up(self):
+    def _run_extremes(self, direction: str, seed: int, ticks: int = 200_000):
+        """Yield the furthest price each *completed* run of ``direction`` reached."""
+        furthest = None
+        for _, state in self._run_ticks(direction, seed, ticks):
+            pick = max if direction == "bull" else min
+            furthest = state.price if furthest is None else pick(furthest, state.price)
+            if state.regime == "calm":  # the tick this run ended on
+                yield furthest
+                furthest = None
+
+    @pytest.mark.parametrize("direction", ["bull", "bear"])
+    def test_a_run_mostly_goes_its_own_way(self, direction):
         # The point of a run is that it reads as a trend rather than as a choppy
-        # market that happens to end higher. A steady drift under a symmetric
-        # shock left a third of a bull run's ticks red -- which is exactly what
-        # a member watching it would call "not much of a run".
-        up = down = 0
-        for previous, state in self._bull_ticks(21):
-            if state.price > previous.price:
-                up += 1
-            elif state.price < previous.price:
-                down += 1
-        assert up + down > 1_000, "not enough bull ticks to draw a conclusion"
-        assert down / (up + down) < 0.25
+        # market that happens to end somewhere else. A steady drift under a
+        # symmetric shock left a third of a run's ticks against it -- which is
+        # exactly what a member watching would call "not much of a run".
+        with_run = against = 0
+        for previous, state in self._run_ticks(direction, 21):
+            if state.price == previous.price:
+                continue
+            rose = state.price > previous.price
+            if rose == (direction == "bull"):
+                with_run += 1
+            else:
+                against += 1
+        assert with_run + against > 1_000, "not enough run ticks to draw a conclusion"
+        assert against / (with_run + against) < 0.25
 
-        # But a run must never become a straight line. A bull run that cannot
-        # tick against itself is free money: the exit stops being a decision,
-        # and every member sells at the same obvious moment.
-        assert down > 0
+        # But a run must never become a straight line. One that cannot tick
+        # against itself is free money: the exit stops being a decision, and
+        # every member trades at the same obvious moment.
+        assert against > 0
 
-    def test_a_runs_moves_are_mostly_large_ones(self):
+    @pytest.mark.parametrize("direction", ["bull", "bear"])
+    def test_a_runs_moves_are_mostly_large_ones(self, direction):
         # "Bigger jumps" is a distribution shape, not a wider range. The
         # magnitude is drawn with its mode at the maximum, so most of a run's
         # ticks clear what the calm market could manage at its most extreme --
         # if this drops below half, a run has gone back to being ordinary
         # weather with a bias on it.
         large = total = 0
-        for previous, state in self._bull_ticks(22):
+        for previous, state in self._run_ticks(direction, 22):
             move = abs(state.price - previous.price) / previous.price
             large += move > economy.FLX_VOLATILITY_PERCENT / 100
             total += 1
-        assert total > 1_000, "not enough bull ticks to draw a conclusion"
+        assert total > 1_000, "not enough run ticks to draw a conclusion"
         assert large / total > 0.6
 
-    def test_the_bounds_stay_a_backstop_not_the_mechanism(self):
-        # A run ends by arriving at its goal, which sits far enough below the
-        # ceiling that the largest possible last tick still falls short of it.
-        # So the bound should now never fire at all -- if runs start reaching
-        # it, the goal has drifted up or the shock has grown, and the ceiling
-        # has quietly gone back to being the thing that shapes a run.
-        pinned = runs = 0
-        peak = 0
-        for _, state in self._bull_ticks(23):
-            peak = max(peak, state.price)
-            if state.regime == "calm":  # the tick this run ended on
-                runs += 1
-                pinned += peak >= economy.FLX_PRICE_CEILING
-                peak = 0
-        assert runs > 50, "not enough completed runs to draw a conclusion"
-        assert pinned == 0, f"{pinned} of {runs} runs reached the ceiling"
+    @pytest.mark.parametrize("direction", ["bull", "bear"])
+    def test_the_bounds_stay_a_backstop_not_the_mechanism(self, direction):
+        # A run ends by arriving at its goal, which sits far enough from the
+        # bound that the largest possible last tick still falls short of it. So
+        # a bound should never actually be reached -- if runs start reaching
+        # one, the goal has drifted out or the shock has grown, and the band has
+        # quietly gone back to being the thing that shapes a run.
+        bound = economy.FLX_PRICE_CEILING if direction == "bull" else economy.FLX_PRICE_FLOOR
+        runs = list(self._run_extremes(direction, 23))
+        assert len(runs) > 50, "not enough completed runs to draw a conclusion"
+        reached = [x for x in runs if (x >= bound if direction == "bull" else x <= bound)]
+        assert not reached, f"{len(reached)} of {len(runs)} runs reached ${bound:,}"
 
     def test_a_run_cannot_reach_its_bound_by_arithmetic(self):
         # The claim above, proved rather than sampled: a run ends on arriving at
@@ -239,34 +250,28 @@ class TestFlxRuns:
         smallest = economy.flx_run_goal("bear") * (1 - economy.FLX_RUN_VOLATILITY_PERCENT / 100)
         assert smallest > economy.FLX_PRICE_FLOOR
 
-    def test_most_runs_arrive_near_the_bound(self):
+    @pytest.mark.parametrize("direction", ["bull", "bear"])
+    def test_most_runs_arrive_near_the_bound(self, direction):
         # The point of a goal: a run should reliably take the price most of the
         # way to its bound, rather than stopping wherever its length ran out.
-        peaks = []
-        peak = 0
-        for _, state in self._bull_ticks(24):
-            peak = max(peak, state.price)
-            if state.regime == "calm":
-                peaks.append(peak)
-                peak = 0
-        assert len(peaks) > 50, "not enough completed runs to draw a conclusion"
-        goal = economy.flx_run_goal("bull")
-        assert sum(1 for p in peaks if p >= goal) / len(peaks) > 0.7
+        runs = list(self._run_extremes(direction, 24))
+        assert len(runs) > 50, "not enough completed runs to draw a conclusion"
+        goal = economy.flx_run_goal(direction)
+        arrived = sum(1 for x in runs if (x >= goal if direction == "bull" else x <= goal))
+        assert arrived / len(runs) > 0.7
 
-    def test_some_runs_still_fall_short(self):
-        # ...but not every one, or a run becomes a known quantity: buy at the
-        # announcement, sell at a price the member could have named in advance.
-        # The tick deadline is what keeps a run a gamble, so if this ever hits
-        # zero, FLX_RUN_MIN_TICKS has stopped doing its job.
-        peaks = []
-        peak = 0
-        for _, state in self._bull_ticks(24):
-            peak = max(peak, state.price)
-            if state.regime == "calm":
-                peaks.append(peak)
-                peak = 0
-        short = sum(1 for p in peaks if p < economy.flx_run_goal("bull"))
-        assert short / len(peaks) > 0.05
+    @pytest.mark.parametrize("direction", ["bull", "bear"])
+    def test_some_runs_still_fall_short(self, direction):
+        # ...but not every one, or a run becomes a known quantity: trade it on
+        # the announcement, close at a price the member could have named in
+        # advance. The tick deadline is what keeps a run a gamble, so if this
+        # ever hits zero, FLX_RUN_MIN_TICKS has stopped doing its job. A bear
+        # falls short less often than a bull -- the same shock covers the
+        # shorter distance to $6,000 in fewer ticks -- so the bar is the low one.
+        runs = list(self._run_extremes(direction, 24))
+        goal = economy.flx_run_goal(direction)
+        short = sum(1 for x in runs if (x < goal if direction == "bull" else x > goal))
+        assert short / len(runs) > 0.02
 
     def test_run_reversion_stays_below_the_calm_pull(self):
         # "Suppressed during a run" is the claim the deceleration argument
@@ -276,28 +281,30 @@ class TestFlxRuns:
         assert economy.FLX_RUN_REVERSION_PERCENT < economy.FLX_MEAN_REVERSION_PERCENT
         assert economy.FLX_RUN_REVERSION_PERCENT > 0
 
-    def test_the_price_comes_home_within_a_few_ticks_of_a_run(self):
+    @pytest.mark.parametrize("direction", ["bull", "bear"])
+    def test_the_price_comes_home_within_a_few_ticks_of_a_run(self, direction):
         # What a run leaves behind should be a spike, not a slope. The gentle
         # calm pull alone took a median of 37 ticks -- three hours -- to give
         # back a run's climb, which made the aftermath longer than the run and
-        # let a member who missed the run buy into the decline instead.
+        # let a member who missed the run trade the recovery instead.
         rng = random.Random(41)
         state = economy.MarketState(price=economy.FLX_PRICE)
         home = []
         for _ in range(400_000):
             previous = state
             state = economy.next_flx_market(state, rng)
-            if previous.regime != "calm" and state.regime == "calm":
-                ticks = 0
-                while abs(state.price - economy.FLX_PRICE) > economy.FLX_PRICE * 0.10:
-                    state = economy.next_flx_market(state, rng)
-                    ticks += 1
-                    if state.regime != "calm":  # a fresh run interrupted the walk home
-                        break
-                else:
-                    home.append(ticks)
+            if previous.regime != direction or state.regime != "calm":
+                continue
+            ticks = 0
+            while abs(state.price - economy.FLX_PRICE) > economy.FLX_PRICE * 0.10:
+                state = economy.next_flx_market(state, rng)
+                ticks += 1
+                if state.regime != "calm":  # a fresh run interrupted the walk home
+                    break
+            else:
+                home.append(ticks)
         assert len(home) > 50, "not enough completed runs to draw a conclusion"
-        assert max(home) <= 10, f"a run took {max(home)} ticks to come home"
+        assert max(home) <= 10, f"a {direction} run took {max(home)} ticks to come home"
         assert sum(home) / len(home) < 5
 
     def test_a_quiet_market_never_feels_the_snapback(self):

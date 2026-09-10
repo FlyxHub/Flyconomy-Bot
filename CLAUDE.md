@@ -363,6 +363,16 @@ Three further layers, all in place because they cover different failure modes:
   backstop that fires for about one run in six; that minority is the only thing
   keeping a run from being a quantity a member can price in advance, so don't
   narrow `FLX_RUN_MIN_TICKS`/`FLX_RUN_MAX_TICKS` to make runs more consistent.
+  Both directions run off the same goal and the same snapback, and
+  `tests/test_economy.py` parametrises every run property over the two rather
+  than checking bull and trusting the symmetry — the band is lopsided ($10,000
+  of room above the anchor, $5,000 below), so symmetric code does not by itself
+  give symmetric behaviour. It happens to here: a bear lands at $5,850 against
+  its $5,000 floor and comes home in two ticks. The one asymmetry left is that
+  a bear reaches its goal 94% of the time against a bull's 83%, because the
+  same shock covers the shorter distance to $6,000 in fewer ticks; that is why
+  `test_some_runs_still_fall_short` is pinned at the low bar and not the
+  measured one.
   The season figure is unmoved at $60-65M against a $10B ceiling either way:
   `FLX_DAILY_BUY_CAP` and the band bound the market, not the shape of a run.
 - **The calm pull is a threshold, not one rate.** `FLX_MEAN_REVERSION_PERCENT`
