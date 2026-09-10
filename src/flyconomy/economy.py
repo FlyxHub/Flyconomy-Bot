@@ -42,13 +42,33 @@ FLX_MEAN_REVERSION_PERCENT: Final = 5
 #: :data:`FLX_TICK_MINUTES` that is about one run every two days.
 FLX_RUN_ODDS: Final = 576
 
-#: How long a run lasts, in ticks. Forty minutes to two hours at five minutes a
-#: tick. Deliberately shorter than the drift-driven run this replaced: a tick
-#: now carries far more of the move, so the same distance is covered in fewer
-#: of them, and the shorter length is what buys the headroom to make each tick
-#: bigger without a run simply parking on the ceiling for an hour.
-FLX_RUN_MIN_TICKS: Final = 8
-FLX_RUN_MAX_TICKS: Final = 24
+#: A run's *deadline* in ticks -- an hour and a half or so at five minutes a
+#: tick, but rarely reached. A run normally ends by arriving at
+#: :func:`flx_run_goal`, and this only catches the unlucky one in six that has
+#: not got there in time. That is what it is for: without it every run would
+#: pay exactly the same, and a run a member can price in advance is not a
+#: gamble. Widening this band makes runs more uniform, not longer.
+FLX_RUN_MIN_TICKS: Final = 16
+FLX_RUN_MAX_TICKS: Final = 36
+
+#: How far a run travels from :data:`FLX_PRICE` toward its bound before it
+#: ends, as a percent of that distance -- $18,000 for a bull, $6,000 for a bear.
+#:
+#: This is what makes a run *arrive* somewhere. Nothing else does: the shock
+#: bias points a run at an equilibrium near $100,000, so within the band the
+#: price is still climbing hard (about +3% a tick at $18,000) and mean
+#: reversion is nowhere near strong enough to turn it. Left to run on ticks
+#: alone a run either stopped wherever its length ran out -- a median peak of
+#: $15,800, only one in seven anywhere near the ceiling -- or sailed into
+#: $20,000 and sat there, which one in eleven did.
+#:
+#: Set below 100 with room to spare, because ending *on* the bound is the thing
+#: to avoid: at 80 a run stops at $18,000 and the largest possible last tick
+#: leaves it at $19,440, so the clamp is unreachable and the ceiling goes back
+#: to being a backstop that never fires. Raising this without checking that
+#: arithmetic against :data:`FLX_RUN_VOLATILITY_PERCENT` puts runs back on the
+#: ceiling.
+FLX_RUN_TARGET_PERCENT: Final = 80
 
 #: Share of a run's ticks whose shock goes *with* the run rather than against
 #: it, as a percent. This is the whole trend engine: a run has no separate
@@ -62,17 +82,14 @@ FLX_RUN_MAX_TICKS: Final = 24
 #: what make timing an exit a real decision rather than a formality.
 FLX_RUN_WITH_TREND_PERCENT: Final = 85
 
-#: Mean reversion is suppressed but not switched off during a run. At zero a
-#: run would ride the bound for its whole length; leaving some in makes a run
-#: decelerate under its own weight, so its size falls out of the shock and the
-#: length instead of needing a separate cap.
-#:
-#: Higher than the 1% the old drift-driven run used, and for the same reason
-#: the run is shorter: the trend engine above is much stronger than the drift
-#: it replaced, so its brake has to scale with it or a run pins the ceiling.
-#: Still below the calm :data:`FLX_MEAN_REVERSION_PERCENT`, which is what keeps
-#: "suppressed during a run" true.
-FLX_RUN_REVERSION_PERCENT: Final = 4
+#: Mean reversion is suppressed but not switched off during a run, so a run
+#: still feels a pull home and a stalled one drifts back rather than hanging.
+#: It is deliberately weak: stopping a run is :data:`FLX_RUN_TARGET_PERCENT`'s
+#: job now, and a brake strong enough to stop one on its own would have to be
+#: stronger than the calm pull, which is incoherent -- a run would revert
+#: harder than a quiet market. Keep it below
+#: :data:`FLX_MEAN_REVERSION_PERCENT`.
+FLX_RUN_REVERSION_PERCENT: Final = 1
 
 #: Largest shock during a run, as a percent. Drawn with its mode at this
 #: maximum rather than uniformly, so large moves are the common case and a run
@@ -654,6 +671,23 @@ def parse_run_direction(raw: str) -> Literal["bull", "bear"] | None:
     return None
 
 
+def flx_run_goal(direction: Literal["bull", "bear"]) -> int:
+    """Return the price a run of ``direction`` travels to before it ends.
+
+    A run ends by arriving here rather than by exhausting its ticks, which is
+    what makes one land *near* a bound instead of either stopping wherever its
+    length happened to run out or pinning against the bound itself.
+
+    Args:
+        direction: Which way the run is going.
+
+    Returns:
+        The price that ends a run of that direction.
+    """
+    bound = FLX_PRICE_CEILING if direction == "bull" else FLX_PRICE_FLOOR
+    return round(FLX_PRICE + (bound - FLX_PRICE) * FLX_RUN_TARGET_PERCENT / 100)
+
+
 def start_run(
     state: MarketState,
     direction: Literal["bull", "bear"],
@@ -712,13 +746,21 @@ def next_flx_market(state: MarketState, rng: random.Random | None = None) -> Mar
     at :data:`FLX_RUN_VOLATILITY_PERCENT` rather than uniformly, so the moves
     that do land are mostly large ones.
 
-    A run is not separately capped. Reversion is suppressed during one rather
-    than switched off, so the trend meets a pull that grows with the distance
-    travelled and the run decelerates on its own; the bounds are the backstop,
-    not the mechanism. When the run expires the calm reversion drags the price
-    home over the next hour or two, which is what makes the move read as a run
-    and a recovery instead of a permanent step -- a run takes nothing with it,
-    and a member who does not sell before it ends keeps nothing from it.
+    A run ends by *arriving* at :func:`flx_run_goal` -- $18,000 for a bull,
+    $6,000 for a bear -- and only falls back on its tick deadline when it has
+    not got there in time, which about one run in six does not. Ending on
+    arrival is what makes a run land near a bound without ever reaching one:
+    the shock bias points the price at an equilibrium near $100,000, so at
+    $18,000 a bull tick is still worth about +3% and neither the reversion nor
+    the band is doing anything to stop it. Run on ticks alone, a run instead
+    stopped wherever its length ran out or sat clamped against $20,000.
+
+    The bounds are therefore a backstop that never fires rather than the
+    mechanism: the largest tick that can follow a price just under the goal
+    still lands short of the clamp. When the run ends the calm reversion drags
+    the price home over the next hour or two, which is what makes the move read
+    as a run and a recovery instead of a permanent step -- a run takes nothing
+    with it, and a member who does not sell before it ends keeps nothing.
 
     Args:
         state: The market before this tick.
@@ -752,12 +794,16 @@ def next_flx_market(state: MarketState, rng: random.Random | None = None) -> Mar
     moved = reverted * (1 + shock)
     clamped = min(FLX_PRICE_CEILING, max(FLX_PRICE_FLOOR, moved))
 
+    price = max(1, round(clamped))
+
     if regime != "calm":
         ticks_left -= 1
-        if ticks_left <= 0:
+        goal = flx_run_goal(regime)
+        arrived = price >= goal if regime == "bull" else price <= goal
+        if arrived or ticks_left <= 0:
             regime, ticks_left = "calm", 0
 
-    return MarketState(price=max(1, round(clamped)), regime=regime, ticks_left=ticks_left)
+    return MarketState(price=price, regime=regime, ticks_left=ticks_left)
 
 
 def flx_buy_allowance(bought_today: int, cap: int = FLX_DAILY_BUY_CAP) -> int:

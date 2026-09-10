@@ -212,11 +212,11 @@ class TestFlxRuns:
         assert large / total > 0.6
 
     def test_the_bounds_stay_a_backstop_not_the_mechanism(self):
-        # A run decelerates under its own weight because reversion is suppressed
-        # during one rather than switched off, so its size falls out of the
-        # shock and the length. If most runs instead end up pinned against the
-        # ceiling, the bound has quietly become the thing shaping a run, and
-        # retuning the shock would stop changing anything a member can see.
+        # A run ends by arriving at its goal, which sits far enough below the
+        # ceiling that the largest possible last tick still falls short of it.
+        # So the bound should now never fire at all -- if runs start reaching
+        # it, the goal has drifted up or the shock has grown, and the ceiling
+        # has quietly gone back to being the thing that shapes a run.
         pinned = runs = 0
         peak = 0
         for _, state in self._bull_ticks(23):
@@ -226,7 +226,47 @@ class TestFlxRuns:
                 pinned += peak >= economy.FLX_PRICE_CEILING
                 peak = 0
         assert runs > 50, "not enough completed runs to draw a conclusion"
-        assert pinned / runs < 0.3
+        assert pinned == 0, f"{pinned} of {runs} runs reached the ceiling"
+
+    def test_a_run_cannot_reach_its_bound_by_arithmetic(self):
+        # The claim above, proved rather than sampled: a run ends on arriving at
+        # its goal, so the worst case is a tick that lands exactly on the goal
+        # and is followed by the largest shock the run can draw. Reversion only
+        # helps here -- past the anchor it pulls back toward it -- so ignoring
+        # it is the conservative reading.
+        biggest = economy.flx_run_goal("bull") * (1 + economy.FLX_RUN_VOLATILITY_PERCENT / 100)
+        assert biggest < economy.FLX_PRICE_CEILING
+        smallest = economy.flx_run_goal("bear") * (1 - economy.FLX_RUN_VOLATILITY_PERCENT / 100)
+        assert smallest > economy.FLX_PRICE_FLOOR
+
+    def test_most_runs_arrive_near_the_bound(self):
+        # The point of a goal: a run should reliably take the price most of the
+        # way to its bound, rather than stopping wherever its length ran out.
+        peaks = []
+        peak = 0
+        for _, state in self._bull_ticks(24):
+            peak = max(peak, state.price)
+            if state.regime == "calm":
+                peaks.append(peak)
+                peak = 0
+        assert len(peaks) > 50, "not enough completed runs to draw a conclusion"
+        goal = economy.flx_run_goal("bull")
+        assert sum(1 for p in peaks if p >= goal) / len(peaks) > 0.7
+
+    def test_some_runs_still_fall_short(self):
+        # ...but not every one, or a run becomes a known quantity: buy at the
+        # announcement, sell at a price the member could have named in advance.
+        # The tick deadline is what keeps a run a gamble, so if this ever hits
+        # zero, FLX_RUN_MIN_TICKS has stopped doing its job.
+        peaks = []
+        peak = 0
+        for _, state in self._bull_ticks(24):
+            peak = max(peak, state.price)
+            if state.regime == "calm":
+                peaks.append(peak)
+                peak = 0
+        short = sum(1 for p in peaks if p < economy.flx_run_goal("bull"))
+        assert short / len(peaks) > 0.05
 
     def test_run_reversion_stays_below_the_calm_pull(self):
         # "Suppressed during a run" is the claim the deceleration argument

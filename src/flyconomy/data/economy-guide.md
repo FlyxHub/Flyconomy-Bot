@@ -114,14 +114,15 @@ The price moves every 5 minutes, usually drifting up to 3% a tick and pulled bac
 toward $10,000 — it sits between $9,000 and $11,000 seven ticks in eight.
 
 Every couple of days it breaks into a **bull run** or a **bear run**: an hour or
-two of hard movement one way, in lurches of up to 8% a tick. Roughly five ticks
-in six go with the run, so it climbs (or falls) far more often than not, and it
-can carry the price most of the way to $20,000 or down to $5,000. `/flx info`
-says which it is doing now, and it never leaves the $5,000–$20,000 band.
+so of hard movement one way, in lurches of up to 8% a tick, five ticks in six
+going with the run.
 
-A run always ends, and the price is pulled home to $10,000 over the hour or two
-after it does. Nothing is locked in until you sell — riding a bull run all the
-way back down leaves you exactly where you started.
+A run climbs until it reaches about **$18,000** — or falls to **$6,000** for a
+bear — and then stops. About one in six runs out of time and stops short, so a
+run is never a sure thing. `/flx info` says which it is doing now.
+
+Nothing is locked in until you sell: the price is pulled home to $10,000 once a
+run ends, so riding one all the way back down leaves you where you started.
 
 **You can buy at most 100 Flyxcoin a day**, resetting at midnight. Selling and
 sending are unlimited.

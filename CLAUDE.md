@@ -344,7 +344,27 @@ Three further layers, all in place because they cover different failure modes:
   run" stops being true — `tests/test_economy.py` pins that, the down-tick
   share, the large-move share, and the share of runs that reach a bound.
   Retuning the shock means re-checking all four, and re-describing the run in
-  the guide, which quotes both the tick size and the bias. The creator's run DM rides on
+  the guide, which quotes both the tick size and the bias.
+- **A run ends by arriving, not by running out of ticks.** `flx_run_goal` is
+  what makes a run land *near* a bound. Nothing else does, and no amount of
+  tuning substitutes: the shock bias points the price at an equilibrium around
+  $100,000, so inside the band a bull tick is still worth about +3% at $18,000
+  and neither the suppressed reversion nor the clamp is bending it. On ticks
+  alone a run's peak was just a function of the length it drew — a median peak
+  of $15,800, one in seven anywhere near the ceiling, and one in eleven sat
+  clamped against $20,000 for a median 12% of its length. With the goal, 84%
+  peak between $18,000 and $20,000 and none reach the bound.
+  `FLX_RUN_TARGET_PERCENT` is set to 80 rather than nearer 100 for a reason
+  worth keeping: a run stops *at* $18,000, so the largest tick that can follow
+  lands at $19,440 and the clamp is unreachable by arithmetic rather than by
+  luck — `test_a_run_cannot_reach_its_bound_by_arithmetic` is that proof, and
+  raising either the goal or `FLX_RUN_VOLATILITY_PERCENT` without re-checking
+  it puts runs back on the ceiling. The tick deadline stayed, demoted to a
+  backstop that fires for about one run in six; that minority is the only thing
+  keeping a run from being a quantity a member can price in advance, so don't
+  narrow `FLX_RUN_MIN_TICKS`/`FLX_RUN_MAX_TICKS` to make runs more consistent.
+  The season figure is unmoved at $60-65M against a $10B ceiling either way:
+  `FLX_DAILY_BUY_CAP` and the band bound the market, not the shape of a run. The creator's run DM rides on
   `creator_tax_user_id` and is a perk, not a mechanic: the run is stored before
   the DM is attempted, and the cap above is what keeps the information from
   being worth anything.
