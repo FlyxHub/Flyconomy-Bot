@@ -276,6 +276,47 @@ class TestFlxRuns:
         assert economy.FLX_RUN_REVERSION_PERCENT < economy.FLX_MEAN_REVERSION_PERCENT
         assert economy.FLX_RUN_REVERSION_PERCENT > 0
 
+    def test_the_price_comes_home_within_a_few_ticks_of_a_run(self):
+        # What a run leaves behind should be a spike, not a slope. The gentle
+        # calm pull alone took a median of 37 ticks -- three hours -- to give
+        # back a run's climb, which made the aftermath longer than the run and
+        # let a member who missed the run buy into the decline instead.
+        rng = random.Random(41)
+        state = economy.MarketState(price=economy.FLX_PRICE)
+        home = []
+        for _ in range(400_000):
+            previous = state
+            state = economy.next_flx_market(state, rng)
+            if previous.regime != "calm" and state.regime == "calm":
+                ticks = 0
+                while abs(state.price - economy.FLX_PRICE) > economy.FLX_PRICE * 0.10:
+                    state = economy.next_flx_market(state, rng)
+                    ticks += 1
+                    if state.regime != "calm":  # a fresh run interrupted the walk home
+                        break
+                else:
+                    home.append(ticks)
+        assert len(home) > 50, "not enough completed runs to draw a conclusion"
+        assert max(home) <= 10, f"a run took {max(home)} ticks to come home"
+        assert sum(home) / len(home) < 5
+
+    def test_a_quiet_market_never_feels_the_snapback(self):
+        # The hard pull is meant to be invisible except on the way back from a
+        # run. If a quiet market spends real time outside the band, the snapback
+        # has become the calm market's character rather than a run's aftermath,
+        # and the gentle reversion is no longer doing the work it claims to.
+        rng = random.Random(42)
+        state = economy.MarketState(price=economy.FLX_PRICE)
+        calm = outside = 0
+        for _ in range(200_000):
+            state = economy.next_flx_market(state, rng)
+            if state.regime == "calm":
+                calm += 1
+                gap = abs(state.price - economy.FLX_PRICE)
+                outside += gap > economy.FLX_PRICE * economy.FLX_CALM_BAND_PERCENT / 100
+        assert calm > 10_000
+        assert outside / calm < 0.05
+
 
 class TestFlxBuyAllowance:
     @pytest.mark.parametrize(

@@ -364,7 +364,22 @@ Three further layers, all in place because they cover different failure modes:
   keeping a run from being a quantity a member can price in advance, so don't
   narrow `FLX_RUN_MIN_TICKS`/`FLX_RUN_MAX_TICKS` to make runs more consistent.
   The season figure is unmoved at $60-65M against a $10B ceiling either way:
-  `FLX_DAILY_BUY_CAP` and the band bound the market, not the shape of a run. The creator's run DM rides on
+  `FLX_DAILY_BUY_CAP` and the band bound the market, not the shape of a run.
+- **The calm pull is a threshold, not one rate.** `FLX_MEAN_REVERSION_PERCENT`
+  (5%) applies inside `FLX_CALM_BAND_PERCENT` of the anchor and
+  `FLX_SNAPBACK_REVERSION_PERCENT` (60%) outside it. The second exists because
+  a run's aftermath was longer than the run: the gentle pull took a median 37
+  ticks -- three hours -- to give back a climb that took one, so the shape a
+  member actually saw was a spike followed by an afternoon of sag they could
+  buy into. It is three ticks now, and a run reads as a spike. The obvious
+  alternative is a pull that ramps with distance, and it does not work: a ramp
+  is weakest over the last and slowest stretch, so even a steep one still took
+  seven ticks. A threshold is also why this is invisible in normal play -- a
+  quiet market is inside the band 98% of ticks and never feels it, which
+  `tests/test_economy.py` pins alongside the time home. Note the side effect
+  worth keeping in mind: the calm band is now genuinely tight, so buying a dip
+  between runs is close to pointless, and a run is the only time the market is
+  worth trading. That is the intended shape, not an accident. The creator's run DM rides on
   `creator_tax_user_id` and is a perk, not a mechanic: the run is stored before
   the DM is attempted, and the cap above is what keeps the information from
   being worth anything.

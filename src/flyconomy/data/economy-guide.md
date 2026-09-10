@@ -110,8 +110,8 @@ hour for free — the only income that keeps earning while you sleep.
 - `/flx sell [amount]` — sells at the current price, into your bank.
 - `/flx send @someone <amount>` — hand coins to another member.
 
-The price moves every 5 minutes, usually drifting up to 3% a tick and pulled back
-toward $10,000 — it sits between $9,000 and $11,000 seven ticks in eight.
+The price moves every 5 minutes, drifting up to 3% a tick and pulled back toward
+$10,000 — it almost always sits between $9,000 and $11,000.
 
 Every couple of days it breaks into a **bull run** or a **bear run**: an hour or
 so of hard movement one way, in lurches of up to 8% a tick, five ticks in six
@@ -121,8 +121,9 @@ A run climbs until it reaches about **$18,000** — or falls to **$6,000** for a
 bear — and then stops. About one in six runs out of time and stops short, so a
 run is never a sure thing. `/flx info` says which it is doing now.
 
-Nothing is locked in until you sell: the price is pulled home to $10,000 once a
-run ends, so riding one all the way back down leaves you where you started.
+**Sell before it ends.** The price is hauled back to $10,000 within about three
+ticks of a run finishing — 15 minutes. A run is a spike, not a plateau, and
+holding through the end of one leaves you exactly where you started.
 
 **You can buy at most 100 Flyxcoin a day**, resetting at midnight. Selling and
 sending are unlimited.

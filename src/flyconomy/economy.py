@@ -33,10 +33,33 @@ FLX_PRICE_CEILING: Final = FLX_PRICE * 2
 #: it to :data:`FLX_RUN_VOLATILITY_PERCENT`.
 FLX_VOLATILITY_PERCENT: Final = 3
 
-#: Percent of the gap back to FLX_PRICE that each tick closes, before the
+#: Percent of the gap back to FLX_PRICE that each calm tick closes, before the
 #: random shock is applied. Keeps the walk oscillating around the anchor
-#: instead of drifting out to a bound and sitting there.
+#: instead of drifting out to a bound and sitting there. Applies while the
+#: price is inside :data:`FLX_CALM_BAND_PERCENT` of the anchor.
 FLX_MEAN_REVERSION_PERCENT: Final = 5
+
+#: How far the price may sit from :data:`FLX_PRICE` before a calm tick stops
+#: pulling gently and starts hauling it home. The band a quiet market lives in:
+#: $9,000 to $11,000.
+FLX_CALM_BAND_PERCENT: Final = 10
+
+#: The pull home on a calm tick *outside* that band, as a percent of the gap.
+#:
+#: This is what ends a run's aftermath. A run leaves the price around $18,000
+#: and the gentle 5% took a median of 37 ticks -- three hours -- to give that
+#: back, so the run's real shape was an hour of climbing followed by an
+#: afternoon of sag, and a member who missed the run could still buy into the
+#: decline. At 60% the price is home in about three ticks, so what a run leaves
+#: behind is a spike rather than a slope.
+#:
+#: Deliberately a threshold rather than a ramp that grows with distance. A ramp
+#: is the more natural-looking rule and it does not work: it is weakest exactly
+#: where the last and slowest stretch of the journey is, so even a very steep
+#: one still took seven ticks. This one is only ever felt on the way back from
+#: a run -- a quiet market is inside the band about 99 ticks in 100 and never
+#: touches it.
+FLX_SNAPBACK_REVERSION_PERCENT: Final = 60
 
 #: One in this many calm ticks starts a bull or bear run. At
 #: :data:`FLX_TICK_MINUTES` that is about one run every two days.
@@ -724,11 +747,13 @@ def start_run(
 def next_flx_market(state: MarketState, rng: random.Random | None = None) -> MarketState:
     """Advance the market by one tick.
 
-    A calm tick behaves exactly as the market always has: pull
-    :data:`FLX_MEAN_REVERSION_PERCENT` of the gap back toward :data:`FLX_PRICE`,
-    apply a shock of up to :data:`FLX_VOLATILITY_PERCENT`, and clamp to
-    ``[FLX_PRICE_FLOOR, FLX_PRICE_CEILING]``. That keeps the price hovering near
-    the anchor, which is where it sits about seven ticks in eight.
+    A calm tick pulls the gap back toward :data:`FLX_PRICE`, applies a shock of
+    up to :data:`FLX_VOLATILITY_PERCENT`, and clamps to
+    ``[FLX_PRICE_FLOOR, FLX_PRICE_CEILING]``. The pull is
+    :data:`FLX_MEAN_REVERSION_PERCENT` inside :data:`FLX_CALM_BAND_PERCENT` of
+    the anchor and :data:`FLX_SNAPBACK_REVERSION_PERCENT` outside it, which is
+    the difference between hovering and being hauled home: a quiet market only
+    ever feels the gentle one, and a run's aftermath only ever feels the other.
 
     One calm tick in :data:`FLX_RUN_ODDS` instead starts a run, which lasts
     between :data:`FLX_RUN_MIN_TICKS` and :data:`FLX_RUN_MAX_TICKS`. Raising
@@ -778,7 +803,10 @@ def next_flx_market(state: MarketState, rng: random.Random | None = None) -> Mar
         regime, ticks_left = started.regime, started.ticks_left
 
     if regime == "calm":
-        reversion = FLX_MEAN_REVERSION_PERCENT
+        # Gentle inside the band, hard outside it -- so an ordinary quiet tick
+        # is unchanged and only a run's aftermath is hauled back.
+        adrift = abs(FLX_PRICE - state.price) > FLX_PRICE * FLX_CALM_BAND_PERCENT / 100
+        reversion = FLX_SNAPBACK_REVERSION_PERCENT if adrift else FLX_MEAN_REVERSION_PERCENT
         shock = source.uniform(-FLX_VOLATILITY_PERCENT, FLX_VOLATILITY_PERCENT) / 100
     else:
         reversion = FLX_RUN_REVERSION_PERCENT
