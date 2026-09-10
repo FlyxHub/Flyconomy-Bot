@@ -516,6 +516,14 @@ class Database:
             return economy.FLX_PRICE
         return int(row["price"])
 
+    async def top_crypto(self, limit: int = economy.FLX_HOLDERS_SHOWN) -> list[LeaderboardEntry]:
+        """Return the largest Flyxcoin holdings, highest first.
+
+        The amount is a coin count rather than a money figure, so a caller
+        renders it with :func:`embeds.coins` and not :func:`embeds.money`.
+        """
+        return await self._ranked("crypto", limit=limit)
+
     async def top_wallets(self, limit: int = economy.LEADERBOARD_SIZE) -> list[LeaderboardEntry]:
         """Return the largest undeposited wallets, highest first."""
         return await self._ranked("wallet", limit=limit)

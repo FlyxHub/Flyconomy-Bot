@@ -601,9 +601,23 @@ class TestLeaderboards:
         second = await db.top_wallets()
         assert [entry.user_id for entry in first] == [entry.user_id for entry in second]
 
+    async def test_coin_ranking_counts_coins_not_money(self, db: Database):
+        await db.add_bank(ALICE, 1_000_000)
+        await db.add_crypto(BOB, 3)
+        await db.add_crypto(CAROL, 7)
+
+        entries = await db.top_crypto()
+        assert [(entry.user_id, entry.amount) for entry in entries] == [(CAROL, 7), (BOB, 3)]
+
+    async def test_coin_ranking_is_shorter_than_the_leaderboard(self, db: Database):
+        for index in range(10):
+            await db.add_crypto(ALICE + index, index + 1)
+        assert len(await db.top_crypto()) == economy.FLX_HOLDERS_SHOWN
+
     async def test_empty_rankings_are_empty_lists(self, db: Database):
         assert await db.top_net_worth() == []
         assert await db.top_wallets() == []
+        assert await db.top_crypto() == []
 
 
 class TestSelfReset:

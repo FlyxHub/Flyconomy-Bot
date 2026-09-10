@@ -411,6 +411,11 @@ DAILY_PAYOUT_PERIOD_SECONDS: Final = 60 * 60 * 24
 #: How many entries the leaderboard commands return.
 LEADERBOARD_SIZE: Final = 10
 
+#: How many holders the ``flx`` info embed names. Shorter than the leaderboard
+#: on purpose: the embed's job is the market, and the holdings are context
+#: beside it rather than a board of their own.
+FLX_HOLDERS_SHOWN: Final = 3
+
 RockPaperScissors = Literal["rock", "paper", "scissors"]
 RPS_MOVES: Final[tuple[RockPaperScissors, ...]] = ("rock", "paper", "scissors")
 

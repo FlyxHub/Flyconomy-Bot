@@ -152,7 +152,13 @@ def market_run_embed(state: economy.MarketState, timezone: str) -> discord.Embed
     return embed
 
 
-def circulation_embed(total: int, price: int, timezone: str, daily_cap: int) -> discord.Embed:
+def circulation_embed(
+    total: int,
+    price: int,
+    timezone: str,
+    daily_cap: int,
+    holders: list[LeaderboardEntry] | None = None,
+) -> discord.Embed:
     """Build the embed shown by ``flx`` with no action.
 
     Takes the price rather than the whole :class:`economy.MarketState` on
@@ -167,6 +173,9 @@ def circulation_embed(total: int, price: int, timezone: str, daily_cap: int) -> 
         price: The live Flyxcoin price.
         timezone: IANA timezone for the embed timestamp.
         daily_cap: The most one member may buy in a day.
+        holders: The largest holdings, highest first. Amounts are coin counts,
+            not money. An empty list is shown as such rather than omitted, so
+            the embed keeps the same shape on a server nobody has mined on.
 
     Returns:
         A populated embed.
@@ -181,6 +190,15 @@ def circulation_embed(total: int, price: int, timezone: str, daily_cap: int) -> 
     embed.add_field(
         name="Total value of all circulating FLX:",
         value=money(economy.flx_cost(total, price)),
+    )
+    ranking = "\n".join(
+        f"{rank}. {coins(entry.amount)} - <@{entry.user_id}>"
+        for rank, entry in enumerate(holders or [], start=1)
+    )
+    embed.add_field(
+        name="Largest FLX holders:",
+        value=ranking or "Nobody is holding any Flyxcoin.",
+        inline=False,
     )
     embed.set_footer(text=f"You can buy up to {daily_cap:,} Flyxcoin a day.")
     return embed

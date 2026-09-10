@@ -178,6 +178,20 @@ class TestEmbeds:
         assert embed.fields[0].value == "$5,000"
         assert embed.fields[2].value == "$15,000"
 
+    def test_the_circulation_embed_ranks_the_largest_holders(self):
+        from flyconomy.database import LeaderboardEntry
+
+        holders = [
+            LeaderboardEntry(user_id=1, amount=40),
+            LeaderboardEntry(user_id=2, amount=9),
+        ]
+        embed = embeds.circulation_embed(49, 10_000, "UTC", 100, holders)
+        assert embed.fields[3].value == "1. 40 - <@1>\n2. 9 - <@2>"
+
+    def test_the_circulation_embed_says_when_nobody_holds_any(self):
+        embed = embeds.circulation_embed(0, 10_000, "UTC", 100, [])
+        assert "Nobody" in (embed.fields[3].value or "")
+
     def test_the_circulation_embed_names_the_daily_limit(self):
         embed = embeds.circulation_embed(3, 12_000, "UTC", 100)
         assert "100" in (embed.footer.text or "")

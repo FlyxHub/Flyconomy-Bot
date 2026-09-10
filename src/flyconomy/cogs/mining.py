@@ -68,8 +68,11 @@ class Mining(BaseCog, name="Flyxcoin"):
         """Show how much Flyxcoin is in circulation and its current price."""
         total = await self.db.total_crypto()
         price = await self.db.get_flx_price()
+        holders = await self.db.top_crypto()
         await ctx.send(
-            embed=embeds.circulation_embed(total, price, self.timezone, self.settings.max_flx_buy)
+            embed=embeds.circulation_embed(
+                total, price, self.timezone, self.settings.max_flx_buy, holders
+            )
         )
 
     def _today(self) -> str:
