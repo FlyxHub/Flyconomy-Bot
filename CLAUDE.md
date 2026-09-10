@@ -141,8 +141,8 @@ adding it to the guide in the same commit.
   that reached its goal takes. Putting the price back by hand would be a jump no tick can produce,
   and a cancelled run has to be indistinguishable from a finished one for the same reason a
   triggered one has to be indistinguishable from a spontaneous one. That command is only safe
-  because `FLX_DAILY_BUY_CAP` exists — crash, buy, pump, sell is worth $219M over a season with
-  the cap and $2.07 quadrillion without it. Don't keep one without the other.
+  because `FLX_DAILY_BUY_CAP` exists — crash, buy, pump, sell is worth $489M over a season with
+  the cap and $4.09 quadrillion without it. Don't keep one without the other.
 - **`self.rng`** on `BaseCog` is the random source for game outcomes, so tests can seed it.
 - **Interactive components** live in `views.py`. Keep the button callbacks trivial: each one calls an
   `apply_*` coroutine that takes no `Interaction`, then redraws. **Discord caps an action row at
@@ -384,7 +384,7 @@ Three further layers, all in place because they cover different failure modes:
   same shock covers the shorter distance to $6,000 in fewer ticks; that is why
   `test_some_runs_still_fall_short` is pinned at the low bar and not the
   measured one.
-  The season figure is unmoved at $60-65M against a $10B ceiling either way:
+  The season figure is unmoved at $65M against a $10B ceiling either way:
   `FLX_DAILY_BUY_CAP` and the band bound the market, not the shape of a run.
 - **The calm pull is a threshold, not one rate.** `FLX_MEAN_REVERSION_PERCENT`
   (5%) applies inside `FLX_CALM_BAND_PERCENT` of the anchor and

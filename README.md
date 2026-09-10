@@ -17,12 +17,26 @@ classic prefix command, such as `$balance`.
 - [Upgrade from version 1](#upgrade-from-version-1)
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
+  - [Banking and income](#banking-and-income)
+  - [Flyxcoin](#flyxcoin)
+  - [Casino](#casino)
+  - [Tic-tac-toe](#tic-tac-toe)
+  - [Jackpot](#jackpot)
+  - [Lottery](#lottery)
+  - [Owner commands](#owner-commands)
 - [The member guide](#the-member-guide)
 - [Economy reference](#economy-reference)
+  - [Currency](#currency)
+  - [Miner levels](#miner-levels)
+  - [Wallet security levels](#wallet-security-levels)
+  - [Casino payouts](#casino-payouts)
   - [Keeping the economy honest](#keeping-the-economy-honest)
   - [Surviving a season](#surviving-a-season)
+  - [The market is the only place money multiplies](#the-market-is-the-only-place-money-multiplies)
+  - [Steering the market](#steering-the-market)
   - [Transfers](#transfers)
   - [The lottery](#the-lottery)
+  - [Creator tax](#creator-tax)
   - [Blackjack](#blackjack)
   - [Crash](#crash)
   - [Slot machine paytable](#slot-machine-paytable)
@@ -192,9 +206,9 @@ Use this path for production on a Linux host.
    docker compose logs -f
    ```
 
-Prefer to run the steps yourself instead of the script? Create `.env` from
-`.env.example`, `chmod 600 .env` because it holds your bot token, then run
-`docker compose up -d --build`.
+To run the steps yourself instead of the script, create `.env` from
+`.env.example`, run `chmod 600 .env` because the file holds your bot token,
+then run `docker compose up -d --build`.
 
 ### Operate the deployment
 
@@ -230,8 +244,8 @@ docker compose up -d
 ```
 
 SQLite in write-ahead logging mode keeps recent writes in a `bot.db-wal` file
-alongside the database. Stopping the bot first, as shown above, checkpoints that
-file so the copy is complete.
+alongside the database. Stopping the bot first, as in the preceding commands,
+checkpoints that file so the copy is complete.
 
 ## Upgrade from version 1
 
@@ -349,7 +363,7 @@ Every game stakes money from your wallet.
 
 `tictactoe @member <bet>` challenges one member. Leave the member out and
 `tictactoe <bet>` posts an open challenge instead, which the first member to
-press **Accept** takes — useful when nobody in particular is around.
+press **Accept** takes—useful when nobody in particular is around.
 
 Nothing is staked until somebody accepts, at which point both stakes are taken
 together and the board replaces the challenge on the same message. A challenge
@@ -426,7 +440,7 @@ which is the wrong place to advertise a command nobody else can run.
 | `$adminme` | Gives you the admin miner, level 999. |
 | `$adminmine <amount>` | Adds Flyxcoin to your own account. A negative amount removes coins. |
 | `$reset <member>` | Deletes a member's account, resetting them to a new player. Clears their `resetme` history too, so their next self-reset seeds the full starting bank again. |
-| `$purge <id>` | Deletes a user id from every table, taking the id itself or a mention. Use this for a row whose id no longer resolves to a member, which `$reset` cannot take. |
+| `$purge <id>` | Deletes a user ID from every table, taking the ID itself or a mention. Use this for a row whose ID no longer resolves to a member, which `$reset` cannot take. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
 | `$guide [repost]` | Publishes the member guide now instead of at the next restart. `repost` re-sends it, moving it to the bottom of the channel. |
@@ -446,7 +460,7 @@ bot edits the messages it already posted. Nothing is copied and pasted, and the
 channel is never a stale snapshot of an older economy.
 
 - The file is split into one Discord message per block, on the `═══ n of n ═══`
-  separator lines. The numbering in those lines is decorative — sections are
+  separator lines. The numbering in those lines is decorative—sections are
   published in file order, so inserting one never means renumbering the rest.
 - Everything above the first separator is a note to whoever edits the file. It
   is never posted.
@@ -456,13 +470,13 @@ channel is never a stale snapshot of an older economy.
 
 **An unchanged guide costs nothing.** Every posted message is stored with a
 checksum of its text, so a restart that finds the guide already correct makes no
-API calls at all — restarting the bot repeatedly cannot spam or churn the
+API calls at all—restarting the bot repeatedly cannot spam or churn the
 channel.
 
 **Order is never sacrificed to save an edit.** A new Discord message always
 lands at the bottom of a channel, so anything that would leave the sections out
-of order — a section added or removed, a message somebody deleted, a changed
-channel — reposts the whole guide instead of patching it. Editing in place only
+of order—a section added or removed, a message somebody deleted, a changed
+channel—reposts the whole guide instead of patching it. Editing in place only
 happens when the sections still line up exactly.
 
 Run `$guide` to publish without restarting, or `$guide repost` to delete and
@@ -475,7 +489,7 @@ A guide that lies about the odds is worse than no guide, and it lies silently.
 `tests/test_guide.py` fails if a command exists that the guide never mentions,
 or if the security prices, miner prices, maximum bet, daily cap, ticket price,
 starting balance, transfer tax, or daily Flyxcoin buying limit in the code no
-longer appear in the text — or if it stops describing the market's bull and bear
+longer appear in the text—or if it stops describing the market's bull and bear
 runs. Add a command or retune a number and the build tells you the guide needs
 the same edit.
 
@@ -487,10 +501,12 @@ the same edit.
 | --- | --- |
 | Starting wallet | $0 |
 | Starting bank | $1,000 |
-| Flyxcoin price | Starts at $10,000, both buying and selling always trade at the current live price |
+| Flyxcoin price | Starts at $10,000; buying and selling both trade at the current live price |
 | Flyxcoin price range | $5,000 to $20,000 (50% to 200% of the starting price) |
-| Flyxcoin price tick | Every 5 minutes: a random move of up to 3%, pulled 5% of the way back toward $10,000 first |
-| Flyxcoin bull/bear run | One calm tick in 576 (about one run every two days) starts a run of 12-36 ticks (1-3 hours), drifting 1.5% a tick with reversion cut to 1% and the shock widened to 5% |
+| Flyxcoin price tick | Every 5 minutes: the price is pulled 5% of the way back toward $10,000, then moved up to 3% at random |
+| Flyxcoin calm band | $9,000 to $11,000. Outside the band a calm tick pulls the price 60% of the way home instead of 5%, so a run's aftermath is over in about three ticks |
+| Flyxcoin bull or bear run | One calm tick in 576, or about one run every two days, starts one. A run's ticks move up to 8%, 85% of them going the run's way, and mean reversion drops to 1% |
+| Flyxcoin run length | A run ends when it reaches $18,000, or $6,000 for a bear, which takes about 15 ticks. A run that hasn't arrived by its deadline of 16 to 36 ticks ends there instead: about one bull run in six, and one bear run in sixteen |
 | Flyxcoin daily buy limit | 100 coins per member per day, resetting at midnight. Selling and sending are uncapped |
 | Net worth | wallet + bank + (Flyxcoin x the live Flyxcoin price) |
 
@@ -530,13 +546,13 @@ which makes it the only upgrade that is a pure money sink.
 
 Wallet security is not a substitute for `deposit`. Banked money cannot be
 stolen at all, and the top level still lets one robbery in ten through. What it
-buys is the ability to keep a bankroll in the wallet — where every wager is
-staked from — without handing it to the first member who runs `wallets`.
+buys is the ability to keep a bankroll in the wallet—where every wager is
+staked from—without handing it to the first member who runs `wallets`.
 
 ### Casino payouts
 
-Each game debits your stake when you place the bet, then credits the return
-below if you win. The profit column is what you gain overall.
+Each game debits your stake when you place the bet, then credits the return in
+this table if you win. The profit column is what you gain overall.
 
 | Game | Win chance | Returned | Net profit | House edge |
 | --- | --- | --- | --- | --- |
@@ -547,7 +563,7 @@ below if you win. The profit column is what you gain overall.
 | Roulette, color | 18 in 38 | 2x stake | 1x stake | 5.26% |
 | Roulette, single pocket | 1 in 38 | 35x stake | 34x stake | 7.89% |
 | Rock paper scissors | 1 in 3 | 3x stake | 2x stake | 0% |
-| Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.4% to 15.8% |
+| Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.8% to 15.6% |
 | Crash | Depends on when you cash out | Whatever multiplier you cash out at | Multiplier minus 1, times stake | 3%, flat at every cash-out target |
 | Jackpot | Your share of the pot | 95% of the pot | Pot less your ante and the cut | 5%, flat at every ante size |
 | Tic-tac-toe | However well you play | 95% of both stakes | Their stake, less the cut | 5% against an even opponent |
@@ -567,9 +583,9 @@ failure modes, so none of them substitutes for the others.
 
 **No game has a positive expected value.** This is the one that matters. A game
 that profits per play is a money printer, and slowing it down with a cooldown
-only changes how long the printing takes. Every payout in the table above is
-either fair or favours the house, and `tests/test_antiabuse.py` fails if that
-stops being true.
+only changes how long the printing takes. Every payout in
+[Casino payouts](#casino-payouts) is either fair or favours the house, and
+`tests/test_antiabuse.py` fails if that stops being true.
 
 **Faucets are slower than mining.** `beg` is the only command that creates money
 with no stake and no real limit, so its cooldown is what bounds it. At 60 seconds
@@ -581,8 +597,8 @@ paid the full $1,000 starting bank per invocation, about $2.1 million an hour at
 the shared rate limit, which is what made gambling everything and starting over a
 strategy rather than a loss.
 
-It is still never refused — losing everything should be a bad day, not an error
-message — so the bound is in the payout instead. Resets less than 24 hours apart
+It is still never refused—losing everything should be a bad day, not an error
+message—so the bound is in the payout instead. Resets less than 24 hours apart
 are one chain, and each link seeds half the one before: $1,000, then $500, then
 $250, then nothing at all. A whole chain totals $1,750 however many resets are in
 it, which is less than a day of begging and less than a single capped day's
@@ -624,7 +640,7 @@ Every game is bounded by having no positive expected value. The market cannot be
 bounded that way, so it is bounded by a daily buying limit instead. See
 [The market is the only place money multiplies](#the-market-is-the-only-place-money-multiplies).
 
-A doubling strategy will still end most short sessions slightly ahead. That is
+A doubling strategy still ends most short sessions slightly ahead. That is
 true of any fair game and cannot be designed away without making the games
 unfair. What matters is the average, which is now zero or negative everywhere.
 
@@ -646,7 +662,7 @@ straight line.
 
 Because nobody claims it, the run posts a notice to
 `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` naming the total paid and how many
-accounts it reached — otherwise the only sign it happened is a balance that
+accounts it reached—otherwise the only sign it happened is a balance that
 went up. A run that credited nobody is not announced, and an unreachable
 channel is logged rather than raised: the money has already moved by then, so
 the post cannot be allowed to fail the payout or leave the day unrecorded.
@@ -655,20 +671,21 @@ The cap is **per account per day**, and stayed exactly that when the payout
 became automatic. What automation changed is who collects: every row in `bank`
 is paid rather than only the members who typed a command, and a row lasts
 forever, so total issuance now scales with the number of accounts. That is
-linear in accounts and capped per account, so it stays inside a season —
-`tests/test_season.py` pins both halves, including a 500-account server nobody
-plays on. It does mean an account left alone all year still grows, which is
-what makes a seeded second account a straight multiplier on the only faucet
+linear in accounts and capped per account, so it stays inside a
+season—`tests/test_season.py` pins both halves, including a 500-account server
+nobody plays on. It does mean an account left alone all year still grows, which
+is what makes a seeded second account a straight multiplier on the only faucet
 that compounds.
 
 | | Total supply after 365 days | Richest member |
 | --- | --- | --- |
-| Uncapped | 72,576,191,108,407,800,168 | 50,200,674,449,656,928,049 |
-| Capped at $10,000 | 90,953,611 | 22,221,190 |
+| Uncapped | 51,428,843,900,457,344,083 | 43,341,997,375,060,885,477 |
+| Capped at $10,000 | 44,793,883 | 19,264,866 |
 
-Measured over a simulated year with forty members, a third of them grinding.
-`tests/test_season.py` runs a season on every commit and fails if the supply or
-the richest member leaves sane bounds, or if growth stops looking linear.
+Measured with `run_season(players=40)` from `tests/test_season.py`: a simulated
+year with forty members, a third of them grinding. That file runs a season on
+every commit and fails if the supply or the richest member leaves sane bounds,
+or if growth stops looking linear.
 
 To make a season shorter or longer, move the cap: it is very close to the only
 number that decides how big the endgame gets.
@@ -682,22 +699,24 @@ Flyxcoin market is not a game and cannot be checked that way.
 The price mean-reverts toward a fixed $10,000 anchor, and `flx_cost` quotes one
 price to buyer and seller alike. So buying below the anchor and selling above it
 is a round trip that completes on its own and pays every time. Worse, it pays a
-*percentage* of whatever bank the member brought to it — which is exactly the
+*percentage* of whatever bank the member brought to it—which is exactly the
 compounding shape [`DAILY_PAYOUT_CAP`](#surviving-a-season) exists to stop, in
 the one place nothing was stopping it.
 
-Simulated over a full season, a member who simply buys under $9,000 and sells
-over $11,000, checking every few hours, turns $100,000 into this:
+Simulated over a full season, a member who buys under $9,000 and sells over
+$11,000, checking on every tick, turns $100,000 into this:
 
 | | Season-end net worth |
 | --- | --- |
-| No daily limit | $84,227,406,998,223 |
-| **100 coins a day** | **$67,048,494** |
+| No daily limit | $477,061,296,868,804 |
+| **100 coins a day** | **$65,003,777** |
 | `RICHEST_CEILING` in `tests/test_season.py` | $10,000,000,000 |
+
+Each figure is the median of seven seeds, which vary by under 10%.
 
 The limit is denominated in **coins rather than dollars** on purpose. A day's
 profit is then bounded by coins times the widest possible price swing, which is
-an absolute number of dollars rather than a share of a balance — so a season of
+an absolute number of dollars rather than a share of a balance—so a season of
 trading grows linearly instead of exponentially, whatever the trader is worth.
 It also tightens on its own as the price rises, and cannot be dodged by waiting
 for a dip.
@@ -713,34 +732,35 @@ the $1,000 starting balance cannot buy a single coin at any price. The market is
 already the rich end of the game; the cap changes nothing at the other end.
 
 What the cap does **not** do is close the wealth gap. It compresses the top of
-the distribution — trading falls from roughly 55x the next-best path to 16x —
-but the largest source of inequality in this economy is the lottery, which is
-winner-take-all and pays its whole pot to one member. That is a separate problem
-from this one.
+the distribution: in `run_season`, the best trader ends a season 13 times richer
+than the best member who never trades, against 70 million times richer with no
+cap. But the largest source of inequality in this economy is the lottery, which
+is winner-take-all and pays its whole pot to one member. That is a separate
+problem from this one.
 
 ### Steering the market
 
 `$market bull` and `$market bear` start a Flyxcoin run on demand, and `$market
 neutral` calls one off. It is owner-only like the rest of `cogs/admin.py`, and
-additionally `hidden`, so it does not appear in `$help` even for the owner — the
+additionally `hidden`, so it does not appear in `$help` even for the owner—the
 other admin commands are merely uninteresting to a member, while this one
 changes how a run should be read. Every prefix command works in a DM with the
 bot, and nothing here needs a guild: the market is server-wide, and the caller
 is identified by `is_owner` rather than by any membership.
 
 **A triggered run is indistinguishable from a spontaneous one.** Both go through
-`economy.start_run`, which draws the length from the same 12-36 tick
-distribution, and both then play out through the ordinary scheduled tick — the
+`economy.start_run`, which draws the deadline from the same 16-to-36-tick
+distribution, and both then play out through the ordinary scheduled tick—the
 command arms the regime and moves no price itself. The creator's run DM does not
 fire for one either, which falls out of the design rather than being
 special-cased: by the time the tick runs, the market is already in the regime
 that notice watches for. A run already in flight is refused rather than
-replaced, since overwriting it would cut it short for everyone watching.
+replaced, because overwriting it would cut it short for everyone watching.
 
 **Calling a run off ends the regime and moves no price either.** `$market
 neutral` is `economy.end_run`, the mirror of `start_run`: it clears the regime
 and leaves the price where the run left it, so the ordinary calm tick's
-snapback hauls it home over the next two or three ticks — the same walk home a
+snapback hauls it home over the next two or three ticks—the same walk home a
 run that reached its goal takes. Setting the price back to $10,000 by hand
 would be quicker and would be a jump no tick can produce, which is exactly the
 tell a cancelled run must not leave. `economy.flx_snapback_ticks` counts that
@@ -748,28 +768,31 @@ walk, and is what the confirmation quotes back. Calling off a market that is
 already calm does nothing rather than pretending to.
 
 **Nothing member-facing names the regime.** `flx info` used to carry a
-`Market: 📈 Bull run` field, which meant a member never had to notice a run —
-the thing the market is actually asking them to do. `embeds.circulation_embed`
-now takes the price rather than the whole `MarketState`, so the regime cannot
-leak back into it by accident, and `tests/test_bot.py` fails if the embed ever
-says "bull", "bear", or "run" again. The bot's status ticker still shows the
-price and the last move, which is the tell members are meant to read. The
-creator's run DM is the one exception, and is a perk of
-`creator_tax_user_id` rather than something a member can reach.
+`Market: 📈 Bull run` field, which meant a member never had to notice a
+run—the thing the market is actually asking them to do.
+`embeds.circulation_embed` now takes the price rather than the whole
+`MarketState`, so the regime cannot leak back into it by accident, and
+`tests/test_bot.py` fails if the embed ever says "bull", "bear", or "run"
+again. The bot's status ticker still shows the price and the last move, which
+is the tell members are meant to read. The creator's run DM is the one
+exception, and is a perk of `creator_tax_user_id` rather than something a
+member can reach.
 
 **It is safe only because buying is capped.** Being able to crash the price,
-buy, pump it, and sell is the strongest possible position in this market, and it
-is worth surprisingly little: the daily limit bounds the profit to 100 coins
-times the swing, whatever the timing. Simulated over a season from $1,000,000:
+buy, pump it, and sell is the strongest possible position in this market, and
+the daily limit bounds what it pays to 100 coins times the swing, whatever the
+timing. Simulated over a season from $1,000,000, arming a bear run to buy into
+and a bull run to sell into:
 
 | | Season-end net worth |
 | --- | --- |
-| Band trading, no trigger | $65,252,100 |
-| **Trigger, with the 100/day cap** | **$219,237,500** |
-| Trigger, with no buy cap | $2,074,087,592,668,720 |
+| Band trading, no trigger | $67,505,300 |
+| **Trigger, with the 100-coin daily cap** | **$488,929,800** |
+| Trigger, with no buy cap | $4,088,292,851,717,387 |
 
-A 3.4x edge, still 45x under `RICHEST_CEILING`. Remove the cap and the same
-command is an unbounded money printer. Do not add one without the other.
+A 7x edge over trading the band, and still 20 times under `RICHEST_CEILING`.
+Remove the cap and the same command is an unbounded money printer. Do not add
+one without the other.
 
 ### Transfers
 
@@ -785,16 +808,16 @@ sum should use it.
 
 **The cash rail owns the small end, because Flyxcoin cannot reach it.** Coins
 move in whole units, so Flyxcoin cannot carry anything smaller than one coin's
-price — between $5,000 and $20,000, depending on the market. Below that, `pay` is
+price—between $5,000 and $20,000, depending on the market. Below that, `pay` is
 the only way to move money at all, and the 5% is the price of that convenience.
 
 **The daily buying limit narrows the free rail without closing it.** Building a
 new position is capped at 100 coins a day, so about $1,000,000 of new transfer
 capacity a day; coins already held send freely and instantly, and selling is
 uncapped. A large transfer is therefore still free but is planned a few days
-ahead rather than executed in one command. That is a real cost, accepted because
-the limit is load-bearing for something else — see *The market is the only place
-money multiplies* below.
+ahead rather than executed in one command. That is a real cost, accepted
+because the limit is load-bearing for something else—see
+[The market is the only place money multiplies](#the-market-is-the-only-place-money-multiplies).
 
 This means the tax rate does not steer anything. Any rate above zero already
 sends large transfers to Flyxcoin, because the alternative there is free;
@@ -803,7 +826,7 @@ place. What splits the two rails is the coin price, not the rate.
 
 **The tax is redistributed, not destroyed.** Half of it is added to the lottery
 pot and half is credited to the creator's bank, so unlike `secure` a transfer
-removes nothing from the economy — it only moves money around, and creates
+removes nothing from the economy—it only moves money around, and creates
 none. Two members passing money back and forth lose 5% on every pass, and even
 a pair that includes the creator's own account cannot get back more than half
 of what each pass costs them. When `FLYCONOMY_CREATOR_TAX_USER_ID` is unset,
@@ -814,7 +837,7 @@ One thing the tax does **not** do is stop money being funnelled into a second
 account, because the Flyxcoin rail was already free before `pay` existed. That
 matters because the daily interest is capped per account rather than per
 person and is now paid without anyone claiming it, so a seeded second account
-is a straightforward multiplier on the only faucet that compounds — and one
+is a straightforward multiplier on the only faucet that compounds—and one
 that needs no attention after the day it is seeded. It is a Discord-level problem rather than an economy-level one, and
 no transfer tax is the tool that fixes it.
 
@@ -835,22 +858,23 @@ untouched, so a jackpot builds on a quiet server. `$draw` runs one immediately.
 Set `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` to have the winner announced in a
 channel; a rollover is not announced, and a missing or unreachable channel is
 logged and otherwise does not affect the draw. The same channel carries the
-daily interest notice, on the same terms — see below.
+daily interest notice, on the same terms—see
+[Surviving a season](#surviving-a-season).
 
 **Odds cannot be bought.** Everyone entered has exactly one entry, enforced by a
 primary key on `(draw, user)` rather than by application code.
 
 **A win never shrinks the pot, and a loss always feeds it.** The rake is
 computed per wager from what the house won on that one hand, signed so a
-player win contributes nothing — but a win is never clawed back out of the pot
-either, since `add_to_pot` ignores non-positive amounts. That is a deliberate
+player win contributes nothing—but a win is never clawed back out of the pot
+either, because `add_to_pot` ignores non-positive amounts. That is a deliberate
 trade-off, not a closed loophole: because the rake reads the gross result of
 each wager rather than a player's net result across many, a game with 0% edge
 still feeds the pot on every loss. Churning coinflip at the table limit is
 "free" in the sense that wins and losses cancel out for the player, but every
 individual loss along the way still pays its share into the pot. It stays this
 way anyway because protecting a winner's payout from being retroactively taken
-back matters more than closing that narrow farming path — see
+back matters more than closing that narrow farming path—see
 `FLYCONOMY_MAX_BET` and the shared rate limit for what actually bounds it.
 
 The pot's share tracks how often a game loses outright, not its average edge,
@@ -876,21 +900,21 @@ The pot is floored at zero, so a run of player wins cannot take it negative.
 A second, optional cut of the same house take that the lottery rake reads,
 paid into a single configured member's *bank* balance instead of the pot.
 Because it reads the same per-wager figure, it applies to every game's every
-loss exactly like the table above — coinflip and war included, not just the
+loss exactly like the table in [The lottery](#the-lottery)—coinflip and war included, not just the
 games with a listed house edge. It is carved out of the share the lottery
 rake leaves for destruction, so turning it on does not change how much a loss
-takes from the loser or how much the pot receives — it only redirects part of
+takes from the loser or how much the pot receives—it only redirects part of
 what would otherwise be destroyed. It follows the same wins-contribute-nothing
 rule as the lottery rake: a player win never pays it, and there is nothing to
 claw back.
 
 The same account also receives half of every `pay` transfer's tax, which is a
-separate flow with its own rate — see [Transfers](#transfers). The casino cut
+separate flow with its own rate—see [Transfers](#transfers). The casino cut
 and the transfer cut share only the account they are paid into.
 
 The same account also gets a DM whenever the Flyxcoin market breaks into a bull
 or bear run, naming the direction and roughly how long it has left. It is a
-perk, not a mechanic — one setting names the creator, the same way the daily
+perk, not a mechanic—one setting names the creator, the same way the daily
 interest shares the lottery's announcement channel rather than taking a second
 one. Nothing about the market depends on it: the run is already stored by the
 time the DM is attempted, so a creator who is unset, unreachable, or has DMs
@@ -900,7 +924,7 @@ Note what the DM is worth, which is deliberately not much. Knowing a run has
 started only helps to the extent you can act on it, and the daily buying limit
 bounds that to the same 100 coins anybody else could have bought. Simulated over
 a season, a trader who acts on every run the moment it starts ends up level with
-one who just watches the price — the cap binds first, so the information is
+one who only watches the price—the cap binds first, so the information is
 flavour rather than an edge.
 
 Off by default in the sense that matters: `FLYCONOMY_CREATOR_TAX_USER_ID` is
@@ -928,15 +952,15 @@ Doubling down debits a second stake equal to your first. If your wallet cannot
 cover it, the hand is left untouched rather than dealt a free card.
 
 Blackjack is the only game here whose house edge depends on how you play, so
-there is no single figure to quote. Measured over 300,000 hands against this
-ruleset:
+there is no single figure to quote. Measured against this ruleset over three
+runs of 100,000 hands each:
 
 | How you play | House edge |
 | --- | --- |
-| Stand on everything | 15.8% |
-| Copy the dealer, hitting below 17 | 6.1% |
-| Simple basic strategy | 3.1% |
-| Simple basic strategy, doubling on 9 to 11 | 1.4% |
+| Stand on everything | 15.6% |
+| Copy the dealer, hitting below 17 | 5.8% |
+| Stand on 17 or more, and on 12 to 16 when the dealer shows a bust card | 2.9% |
+| The same, doubling down on 9 to 11 | 1.8% |
 
 Played well, blackjack is the best bet in the casino. Played badly, it is the
 worst. That is the point of it.
@@ -961,7 +985,7 @@ House rules:
 Unlike blackjack, crash's house edge does not depend on how you play: cashing
 out at any fixed target multiplier has the same expected profit, a flat **3%**
 of the stake. That is a property of the formula the crash point is drawn from,
-not an average over strategies — see `crash.Game.deal`'s docstring for the
+not an average over strategies—see `crash.Game.deal`'s docstring for the
 derivation, and `tests/test_crash.py` for the simulation that checks the
 sampler actually matches it.
 
@@ -1027,7 +1051,11 @@ The suite is organized by concern:
 | `test_lottery.py` | The pot, entries, draws, and the rake. |
 | `test_blackjack.py` | The blackjack ruleset: hand values, soft aces, dealer policy, payouts. |
 | `test_crash.py` | The crash ruleset: the multiplier curve, the crash-point sampler, and its house edge. |
-| `test_views.py` | The blackjack and crash buttons, ownership, timeout, and settlement. |
+| `test_jackpot.py` | The jackpot ruleset: the weighted draw, the house cut, and the single-entrant refund. |
+| `test_tictactoe.py` | The tic-tac-toe ruleset: wins, draws, and the best-of-three match. |
+| `test_matches.py` | The shared head-to-head half: escrow, challenges, settlement, and refunds. |
+| `test_views.py` | The buttons behind blackjack, crash, the jackpot, and a match: ownership, timeout, and settlement. |
+| `test_guide.py` | That the guide fits Discord's limits, names every command, and quotes the tuned figures. |
 | `test_cog_behavior.py` | The command bodies, against a real database. |
 | `test_admin_and_startup.py` | Owner commands, logging, and process exit codes. |
 | `test_config.py`, `test_bot.py` | Settings validation and error message translation. |
@@ -1039,7 +1067,9 @@ The suite is organized by concern:
    prefix command.
 2. Put any new tunable number in `src/flyconomy/economy.py` rather than inline.
 3. Add a test to `tests/`.
-4. Restart the bot and run `$sync` so Discord learns about the new command.
+4. Add the command to `src/flyconomy/data/economy-guide.md`. A member-facing
+   command the guide never names fails `tests/test_guide.py`.
+5. Restart the bot and run `$sync` so Discord learns about the new command.
 
 ### Change the database schema
 
@@ -1061,13 +1091,15 @@ src/flyconomy/
 ├── database.py       SQLite access and schema migrations
 ├── blackjack.py      The blackjack ruleset, also free of any discord import
 ├── crash.py          The crash ruleset, also free of any discord import
+├── jackpot.py        The jackpot ruleset, also free of any discord import
+├── tictactoe.py      The tic-tac-toe ruleset, also free of any discord import
 ├── economy.py        Every tunable number and the pure rules that use them
 ├── guide.py          Splits the member guide into messages, free of any discord import
 ├── embeds.py         Message and embed builders
 ├── errors.py         Exceptions the bot raises deliberately
 ├── logging_config.py Logging setup
 ├── ratelimit.py      A sliding window limiter, with an injectable clock
-├── views.py          Interactive buttons: the blackjack table and the crash round
+├── views.py          Interactive buttons: the blackjack table, the crash round, the jackpot, and a match board
 ├── data/             Package data: the member guide the bot publishes
 └── cogs/             One module per command group
 ```
@@ -1125,7 +1157,7 @@ Compose. Run `./scripts/deploy.sh`, which installs the plugin, or install
 
 ### `apt-get install docker-compose-plugin` says "Unable to locate package"
 
-Your distro's own repos never carried `docker-compose-plugin` — it's only
+Your distro's own repos never carried `docker-compose-plugin`—it's only
 published in Docker's official apt repo, which isn't configured on your host.
 This is common on an end-of-life release (Ubuntu 23.04/lunar and older, whose
 sources have moved to `old-releases.ubuntu.com`). `./scripts/deploy.sh`
@@ -1158,7 +1190,7 @@ changed on purpose.
 | The daily payout is capped at $10,000 an account per day. | It paid 10% of the bank, compounding, which is a factor of 1.28e15 over a year. It was the only source that compounded, and the only thing standing between the bot and hyperinflation. |
 | `daily` was withdrawn; the payout is automatic. | The claim was gated by an in-memory cooldown that every restart reset, so it could be collected more than once a day. A scheduled job at `FLYCONOMY_DAILY_PAYOUT_TIME` pays every account instead, once per calendar day, with the day as a primary key so a restart cannot buy a second run. |
 | A lottery was added. | Gives the casino's winnings somewhere to go besides deletion, without creating money. See [The lottery](#the-lottery). |
-| Three games were added: `blackjack`, `slots`, and `war`. | The casino had no game of skill, no jackpot game, and no game with a push. All three are documented in the payout tables above. |
+| Three games were added: `blackjack`, `slots`, and `war`. | The casino had no game of skill, no jackpot game, and no game with a push. All three are documented in [Casino payouts](#casino-payouts). |
 | Mining odds at levels 2 through 5 are now 5%, 10%, 15%, and 20%. | Version 1 tested `randint(1, 100) in range(1, 5)`, which is 4%, not the 5% it announced. Every level was short by one point. The odds now match what the bot has always claimed. |
 | Roulette has a real `00` pocket. | Python reads the literal `00` as `0`, so version 1's wheel held two `0` pockets and no `00`. Betting on `0` paid at double the correct rate. |
 | Negative bets are rejected. | Version 1 compared `bet > wallet` and then subtracted the bet, so a negative bet added money to the wallet. |
