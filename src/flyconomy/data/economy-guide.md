@@ -113,10 +113,15 @@ hour for free — the only income that keeps earning while you sleep.
 The price moves every 5 minutes, usually drifting up to 3% a tick and pulled back
 toward $10,000 — it sits between $9,000 and $11,000 seven ticks in eight.
 
-Every couple of days it breaks into a **bull run** or a **bear run**: one to
-three hours of hard movement one way, which can carry it most of the way to
-$20,000 or down to $5,000 before settling back. `/flx info` says which it is
-doing now, and it never leaves the $5,000–$20,000 band.
+Every couple of days it breaks into a **bull run** or a **bear run**: an hour or
+two of hard movement one way, in lurches of up to 8% a tick. Roughly five ticks
+in six go with the run, so it climbs (or falls) far more often than not, and it
+can carry the price most of the way to $20,000 or down to $5,000. `/flx info`
+says which it is doing now, and it never leaves the $5,000–$20,000 band.
+
+A run always ends, and the price is pulled home to $10,000 over the hour or two
+after it does. Nothing is locked in until you sell — riding a bull run all the
+way back down leaves you exactly where you started.
 
 **You can buy at most 100 Flyxcoin a day**, resetting at midnight. Selling and
 sending are unlimited.

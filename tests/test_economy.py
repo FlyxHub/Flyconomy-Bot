@@ -164,6 +164,78 @@ class TestFlxRuns:
         near = sum(1 for p in prices if economy.FLX_PRICE * 0.9 <= p <= economy.FLX_PRICE * 1.1)
         assert near / len(prices) > 0.75
 
+    def _bull_ticks(self, seed: int, ticks: int = 200_000):
+        """Yield ``(before, after)`` for every tick spent inside a bull run."""
+        rng = random.Random(seed)
+        state = economy.MarketState(price=economy.FLX_PRICE)
+        for _ in range(ticks):
+            previous = state
+            state = economy.next_flx_market(state, rng)
+            # The regime is chosen before the shock, so a tick whose *previous*
+            # state was already bullish is one the run actually paid for. That
+            # misses the tick a run starts on and keeps the one it ends on,
+            # which is immaterial to a share measured over thousands of them.
+            if previous.regime == "bull":
+                yield previous, state
+
+    def test_a_bull_run_mostly_goes_up(self):
+        # The point of a run is that it reads as a trend rather than as a choppy
+        # market that happens to end higher. A steady drift under a symmetric
+        # shock left a third of a bull run's ticks red -- which is exactly what
+        # a member watching it would call "not much of a run".
+        up = down = 0
+        for previous, state in self._bull_ticks(21):
+            if state.price > previous.price:
+                up += 1
+            elif state.price < previous.price:
+                down += 1
+        assert up + down > 1_000, "not enough bull ticks to draw a conclusion"
+        assert down / (up + down) < 0.25
+
+        # But a run must never become a straight line. A bull run that cannot
+        # tick against itself is free money: the exit stops being a decision,
+        # and every member sells at the same obvious moment.
+        assert down > 0
+
+    def test_a_runs_moves_are_mostly_large_ones(self):
+        # "Bigger jumps" is a distribution shape, not a wider range. The
+        # magnitude is drawn with its mode at the maximum, so most of a run's
+        # ticks clear what the calm market could manage at its most extreme --
+        # if this drops below half, a run has gone back to being ordinary
+        # weather with a bias on it.
+        large = total = 0
+        for previous, state in self._bull_ticks(22):
+            move = abs(state.price - previous.price) / previous.price
+            large += move > economy.FLX_VOLATILITY_PERCENT / 100
+            total += 1
+        assert total > 1_000, "not enough bull ticks to draw a conclusion"
+        assert large / total > 0.6
+
+    def test_the_bounds_stay_a_backstop_not_the_mechanism(self):
+        # A run decelerates under its own weight because reversion is suppressed
+        # during one rather than switched off, so its size falls out of the
+        # shock and the length. If most runs instead end up pinned against the
+        # ceiling, the bound has quietly become the thing shaping a run, and
+        # retuning the shock would stop changing anything a member can see.
+        pinned = runs = 0
+        peak = 0
+        for _, state in self._bull_ticks(23):
+            peak = max(peak, state.price)
+            if state.regime == "calm":  # the tick this run ended on
+                runs += 1
+                pinned += peak >= economy.FLX_PRICE_CEILING
+                peak = 0
+        assert runs > 50, "not enough completed runs to draw a conclusion"
+        assert pinned / runs < 0.3
+
+    def test_run_reversion_stays_below_the_calm_pull(self):
+        # "Suppressed during a run" is the claim the deceleration argument
+        # rests on. Raising it above the calm pull would make a run revert
+        # harder than a quiet market, which is incoherent however well it
+        # happened to tune.
+        assert economy.FLX_RUN_REVERSION_PERCENT < economy.FLX_MEAN_REVERSION_PERCENT
+        assert economy.FLX_RUN_REVERSION_PERCENT > 0
+
 
 class TestFlxBuyAllowance:
     @pytest.mark.parametrize(

@@ -322,10 +322,29 @@ Three further layers, all in place because they cover different failure modes:
   returns a whole `MarketState` because mean reversion erases a one-tick spike
   within the hour — raising `FLX_VOLATILITY_PERCENT` gives a noisier flat line,
   never a trend. Reversion is *suppressed but not zero* during a run, so the
-  drift meets a pull that grows with distance and the run decelerates under its
+  trend meets a pull that grows with distance and the run decelerates under its
   own weight; that is why a run needs no separate size cap and why the bounds
   are a backstop rather than the mechanism. Set it to zero and a run rides the
-  bound for its whole length. The creator's run DM rides on
+  bound for its whole length.
+- **A run's trend is a sign bias, not a drift.** The first version added a
+  steady `FLX_RUN_DRIFT_PERCENT` under a symmetric shock, and the arithmetic of
+  that is unavoidable: a drift small enough not to pin the ceiling still leaves
+  roughly a third of a bull run's ticks red, so it read as a choppy market that
+  happened to end higher. `FLX_RUN_WITH_TREND_PERCENT` biases *which way the
+  shock points* instead (85% with the run), and the magnitude is drawn
+  `triangular` with its mode at the maximum so the moves that land are mostly
+  large ones. Down-ticks fell from 37% to 16% and the median run tick roughly
+  doubled. Three things are load-bearing. The bias may never reach 100 — a run
+  that cannot tick against itself is free money, because timing the exit stops
+  being a decision. The trend engine and its brake scale together, so
+  `FLX_RUN_REVERSION_PERCENT` went 1 → 4 and the run got *shorter* (8–24 ticks,
+  from 12–36); a stronger trend on the old brake and the old length just pins
+  the ceiling, which is the one failure the deceleration argument above does
+  not survive. And the brake stays below the calm pull, or "suppressed during a
+  run" stops being true — `tests/test_economy.py` pins that, the down-tick
+  share, the large-move share, and the share of runs that reach a bound.
+  Retuning the shock means re-checking all four, and re-describing the run in
+  the guide, which quotes both the tick size and the bias. The creator's run DM rides on
   `creator_tax_user_id` and is a perk, not a mechanic: the run is stored before
   the DM is attempted, and the cap above is what keeps the information from
   being worth anything.

@@ -42,24 +42,43 @@ FLX_MEAN_REVERSION_PERCENT: Final = 5
 #: :data:`FLX_TICK_MINUTES` that is about one run every two days.
 FLX_RUN_ODDS: Final = 576
 
-#: How long a run lasts, in ticks. One to three hours at five minutes a tick.
-FLX_RUN_MIN_TICKS: Final = 12
-FLX_RUN_MAX_TICKS: Final = 36
+#: How long a run lasts, in ticks. Forty minutes to two hours at five minutes a
+#: tick. Deliberately shorter than the drift-driven run this replaced: a tick
+#: now carries far more of the move, so the same distance is covered in fewer
+#: of them, and the shorter length is what buys the headroom to make each tick
+#: bigger without a run simply parking on the ceiling for an hour.
+FLX_RUN_MIN_TICKS: Final = 8
+FLX_RUN_MAX_TICKS: Final = 24
 
-#: Per-tick drift during a run, as a percent, signed by its direction. Over a
-#: typical run this compounds to roughly a 40% move.
-FLX_RUN_DRIFT_PERCENT: Final = 1.5
+#: Share of a run's ticks whose shock goes *with* the run rather than against
+#: it, as a percent. This is the whole trend engine: a run has no separate
+#: drift term, because a steady drift plus a symmetric shock produces a run
+#: that still falls a third of the time, which does not read as a run to
+#: anyone watching it. Biasing which way the shock points is what makes a bull
+#: run mostly go up.
+#:
+#: It cannot be 100. A run that never once ticks down is a straight line, which
+#: is both dull to watch and perfectly safe to trade -- the counter-moves are
+#: what make timing an exit a real decision rather than a formality.
+FLX_RUN_WITH_TREND_PERCENT: Final = 85
 
-#: Mean reversion is suppressed but not switched off during a run. At the calm
-#: 5% the pull cancels the drift within a few ticks and the price never goes
-#: anywhere; at zero a run would ride the bound for its whole length. Leaving a
-#: little in makes a run decelerate under its own weight, so its size falls out
-#: of the drift and the length instead of needing a separate cap.
-FLX_RUN_REVERSION_PERCENT: Final = 1
+#: Mean reversion is suppressed but not switched off during a run. At zero a
+#: run would ride the bound for its whole length; leaving some in makes a run
+#: decelerate under its own weight, so its size falls out of the shock and the
+#: length instead of needing a separate cap.
+#:
+#: Higher than the 1% the old drift-driven run used, and for the same reason
+#: the run is shorter: the trend engine above is much stronger than the drift
+#: it replaced, so its brake has to scale with it or a run pins the ceiling.
+#: Still below the calm :data:`FLX_MEAN_REVERSION_PERCENT`, which is what keeps
+#: "suppressed during a run" true.
+FLX_RUN_REVERSION_PERCENT: Final = 4
 
-#: Shock size during a run. Wider than the calm market, so a run reads as
-#: volatile rather than as a smooth ramp.
-FLX_RUN_VOLATILITY_PERCENT: Final = 5
+#: Largest shock during a run, as a percent. Drawn with its mode at this
+#: maximum rather than uniformly, so large moves are the common case and a run
+#: reads as a series of lurches instead of a smooth ramp. Over half a run's
+#: ticks clear 4%, against under a quarter before.
+FLX_RUN_VOLATILITY_PERCENT: Final = 8
 
 #: The most Flyxcoin one member may buy in a day.
 #:
@@ -678,18 +697,28 @@ def next_flx_market(state: MarketState, rng: random.Random | None = None) -> Mar
     the anchor, which is where it sits about seven ticks in eight.
 
     One calm tick in :data:`FLX_RUN_ODDS` instead starts a run, which lasts
-    between :data:`FLX_RUN_MIN_TICKS` and :data:`FLX_RUN_MAX_TICKS` and carries a
-    steady drift in one direction. Raising :data:`FLX_VOLATILITY_PERCENT` alone
-    could never produce this: mean reversion erases a one-tick spike within the
-    hour, so a *run* needs state that survives the tick, which is why this takes
-    and returns a whole :class:`MarketState` rather than a price.
+    between :data:`FLX_RUN_MIN_TICKS` and :data:`FLX_RUN_MAX_TICKS`. Raising
+    :data:`FLX_VOLATILITY_PERCENT` alone could never produce this: mean
+    reversion erases a one-tick spike within the hour, so a *run* needs state
+    that survives the tick, which is why this takes and returns a whole
+    :class:`MarketState` rather than a price.
+
+    A run's trend is a bias on which way its shock points --
+    :data:`FLX_RUN_WITH_TREND_PERCENT` of its ticks go with it -- and not a
+    drift added underneath a symmetric shock. That distinction is the whole
+    character of a run: a drift big enough to be felt still leaves a third of
+    its ticks red, so it reads as a choppy market that happens to end higher,
+    while biasing the sign reads as a run. The magnitude is drawn with its mode
+    at :data:`FLX_RUN_VOLATILITY_PERCENT` rather than uniformly, so the moves
+    that do land are mostly large ones.
 
     A run is not separately capped. Reversion is suppressed during one rather
-    than switched off, so the drift meets a pull that grows with the distance
+    than switched off, so the trend meets a pull that grows with the distance
     travelled and the run decelerates on its own; the bounds are the backstop,
     not the mechanism. When the run expires the calm reversion drags the price
     home over the next hour or two, which is what makes the move read as a run
-    and a recovery instead of a permanent step.
+    and a recovery instead of a permanent step -- a run takes nothing with it,
+    and a member who does not sell before it ends keeps nothing from it.
 
     Args:
         state: The market before this tick.
@@ -708,17 +737,19 @@ def next_flx_market(state: MarketState, rng: random.Random | None = None) -> Mar
 
     if regime == "calm":
         reversion = FLX_MEAN_REVERSION_PERCENT
-        volatility = FLX_VOLATILITY_PERCENT
-        drift = 0.0
+        shock = source.uniform(-FLX_VOLATILITY_PERCENT, FLX_VOLATILITY_PERCENT) / 100
     else:
         reversion = FLX_RUN_REVERSION_PERCENT
-        volatility = FLX_RUN_VOLATILITY_PERCENT
-        drift = FLX_RUN_DRIFT_PERCENT if regime == "bull" else -FLX_RUN_DRIFT_PERCENT
+        # Mode at the maximum, so a run's ticks cluster near the top of its
+        # range: big jumps are the common case rather than the tail.
+        magnitude = source.triangular(0, FLX_RUN_VOLATILITY_PERCENT, FLX_RUN_VOLATILITY_PERCENT)
+        # The trend is the *sign* bias, not a drift term added underneath it.
+        towards = 1 if regime == "bull" else -1
+        with_trend = source.randint(1, 100) <= FLX_RUN_WITH_TREND_PERCENT
+        shock = magnitude / 100 * (towards if with_trend else -towards)
 
     reverted = state.price + (FLX_PRICE - state.price) * reversion / 100
-    drifted = reverted * (1 + drift / 100)
-    shock = source.uniform(-volatility, volatility) / 100
-    moved = drifted * (1 + shock)
+    moved = reverted * (1 + shock)
     clamped = min(FLX_PRICE_CEILING, max(FLX_PRICE_FLOOR, moved))
 
     if regime != "calm":
