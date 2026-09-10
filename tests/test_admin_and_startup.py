@@ -415,6 +415,45 @@ class TestTriggeredRuns:
         assert (state.regime, state.ticks_left) == ("bull", 6)
         assert "already" in ctx.last.lower()
 
+    async def test_a_run_is_called_off(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.set_market(economy.MarketState(price=18_000, regime="bull", ticks_left=7))
+
+        await cog.market.callback(cog, ctx, "neutral")
+
+        state = await db.get_market()
+        assert (state.regime, state.ticks_left) == ("calm", 0)
+        assert "called off" in ctx.last.lower()
+
+    async def test_calling_off_a_run_does_not_move_the_price(self, db, settings, ctx):
+        # The snapback brings it home over the next few ticks. Putting it back
+        # here would be a jump no tick could produce.
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.set_market(economy.MarketState(price=18_000, regime="bear", ticks_left=7))
+
+        await cog.market.callback(cog, ctx, "neutral")
+
+        assert (await db.get_market()).price == 18_000
+
+    async def test_calling_off_a_run_says_how_long_the_price_takes_to_come_home(
+        self, db, settings, ctx
+    ):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.set_market(economy.MarketState(price=18_000, regime="bull", ticks_left=7))
+
+        await cog.market.callback(cog, ctx, "neutral")
+
+        minutes = economy.flx_snapback_ticks(18_000) * economy.FLX_TICK_MINUTES
+        assert f"{minutes} minutes" in ctx.last
+
+    async def test_calling_off_nothing_is_refused_rather_than_done(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+
+        await cog.market.callback(cog, ctx, "NEUTRAL")
+
+        assert (await db.get_market()).regime == "calm"
+        assert "no run" in ctx.last.lower()
+
     async def test_the_command_is_hidden_from_help(self, db, settings):
         # Owner-only already keeps it out of a member's listing. Hidden keeps it
         # out of everyone's, including the owner's: knowing the market can be

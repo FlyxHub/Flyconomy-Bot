@@ -126,15 +126,6 @@ def flx_ticker(price: int, previous: int) -> str:
     return f"{money(price)} {arrow}{change:+.1f}%"
 
 
-#: How each market regime reads to a member. Shared by the info embed and the
-#: creator's run DM so the two always describe a run the same way.
-_REGIME_LABELS: Final = {
-    "calm": "▶ Steady",
-    "bull": "📈 Bull run",
-    "bear": "📉 Bear run",
-}
-
-
 def market_run_embed(state: economy.MarketState, timezone: str) -> discord.Embed:
     """Build the DM sent to the creator when a run starts.
 
@@ -146,8 +137,9 @@ def market_run_embed(state: economy.MarketState, timezone: str) -> discord.Embed
         A populated embed.
     """
     bull = state.regime == "bull"
+    label = "📈 Bull run" if bull else "📉 Bear run"
     embed = discord.Embed(
-        title=f"{_REGIME_LABELS[state.regime]} has started",
+        title=f"{label} has started",
         description=(
             f"Flyxcoin is {'climbing' if bull else 'falling'} for roughly the next "
             f"{state.ticks_left * economy.FLX_TICK_MINUTES} minutes."
@@ -160,27 +152,30 @@ def market_run_embed(state: economy.MarketState, timezone: str) -> discord.Embed
     return embed
 
 
-def circulation_embed(
-    total: int, state: economy.MarketState, timezone: str, daily_cap: int
-) -> discord.Embed:
+def circulation_embed(total: int, price: int, timezone: str, daily_cap: int) -> discord.Embed:
     """Build the embed shown by ``flx`` with no action.
+
+    Takes the price rather than the whole :class:`economy.MarketState` on
+    purpose. This embed used to name the regime, which told a member a run was
+    on rather than leaving them to read it off the price -- a bull run is a
+    thing to notice and act on, and a label saying so removed the noticing.
+    Passing only the price makes the regime impossible to leak back in here by
+    accident.
 
     Args:
         total: Flyxcoin in circulation.
-        state: The live market: price, regime, and run length left.
+        price: The live Flyxcoin price.
         timezone: IANA timezone for the embed timestamp.
         daily_cap: The most one member may buy in a day.
 
     Returns:
         A populated embed.
     """
-    price = state.price
     embed = discord.Embed(
         title="Total Flyxcoin in circulation.",
         color=BRAND_COLOR,
         timestamp=now(timezone),
     )
-    embed.add_field(name="Market:", value=_REGIME_LABELS[state.regime], inline=False)
     embed.add_field(name="Current FLX price:", value=money(price), inline=False)
     embed.add_field(name="Total FLX in circulation:", value=coins(total), inline=False)
     embed.add_field(

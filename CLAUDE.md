@@ -130,14 +130,19 @@ adding it to the guide in the same commit.
 - **Owner commands stay prefix-only** (`@commands.command` in `cogs/admin.py`). A slash command is
   published to every member, including those who can't run it. `$sync` republishes the tree. They
   all work in a DM with the bot, which needs nothing special — no command in that cog carries a
-  guild-only check, and `is_owner` takes a `User` as happily as a `Member`. `$market bull|bear` is
-  additionally `hidden`, so it is absent from `$help` even for the owner: the rest of the cog is
-  merely uninteresting to a member, while knowing the market can be steered changes how a run
-  reads. It arms `economy.start_run` and moves no price itself, so a triggered run is drawn from
+  guild-only check, and `is_owner` takes a `User` as happily as a `Member`.
+  `$market bull|bear|neutral` is additionally `hidden`, so it is absent from `$help` even for the
+  owner: the rest of the cog is merely uninteresting to a member, while knowing the market can be
+  steered changes how a run reads. It arms `economy.start_run` and moves no price itself, so a triggered run is drawn from
   the same length distribution and plays out through the same tick as a spontaneous one, and the
-  creator's run DM does not fire for it. That command is only safe because `FLX_DAILY_BUY_CAP`
-  exists — crash, buy, pump, sell is worth $219M over a season with the cap and $2.07 quadrillion
-  without it. Don't keep one without the other.
+  creator's run DM does not fire for it. `neutral` is `economy.end_run`, and moves no price
+  either: it clears the regime and leaves the calm tick's snapback to haul the price home over
+  the two or three ticks `economy.flx_snapback_ticks` counts, which is the same walk home a run
+  that reached its goal takes. Putting the price back by hand would be a jump no tick can produce,
+  and a cancelled run has to be indistinguishable from a finished one for the same reason a
+  triggered one has to be indistinguishable from a spontaneous one. That command is only safe
+  because `FLX_DAILY_BUY_CAP` exists — crash, buy, pump, sell is worth $219M over a season with
+  the cap and $2.07 quadrillion without it. Don't keep one without the other.
 - **`self.rng`** on `BaseCog` is the random source for game outcomes, so tests can seed it.
 - **Interactive components** live in `views.py`. Keep the button callbacks trivial: each one calls an
   `apply_*` coroutine that takes no `Interaction`, then redraws. **Discord caps an action row at
@@ -318,6 +323,12 @@ Three further layers, all in place because they cover different failure modes:
   entirely. And `flx_purchases` survives `reset_account` while `purge_user`
   clears it, exactly like the `resets` row: a limit a member can clear by
   resetting is not a limit.
+- **Nothing member-facing names the regime.** `flx info` once carried a `Market: Bull run` field,
+  which meant a member never had to notice a run — the one thing the market asks of them.
+  `embeds.circulation_embed` takes the price rather than the whole `MarketState` so the regime
+  cannot leak back in, and `tests/test_bot.py` fails if that embed ever says "bull", "bear", or
+  "run" again. The status ticker's price and last move is the tell members are meant to read; the
+  creator's run DM is the one exception and is a perk, not a mechanic.
 - **A run needs state; a wider shock is not a run.** `next_flx_market` takes and
   returns a whole `MarketState` because mean reversion erases a one-tick spike
   within the hour — raising `FLX_VOLATILITY_PERCENT` gives a noisier flat line,

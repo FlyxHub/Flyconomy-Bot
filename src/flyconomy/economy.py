@@ -677,20 +677,27 @@ def roll_rob(security_level: int, rng: random.Random | None = None) -> bool:
     return source.randint(1, 100) <= rob_success_percent(security_level)
 
 
-def parse_run_direction(raw: str) -> Literal["bull", "bear"] | None:
-    """Parse a raw run direction, mirroring :func:`parse_roulette_bet`.
+def parse_market_target(raw: str) -> MarketRegime | None:
+    """Parse what the owner is asking the market to do, mirroring :func:`parse_roulette_bet`.
+
+    ``neutral`` is the member-facing word for :data:`MarketRegime` ``calm``:
+    the regimes are named for what the price is doing, but the owner asking for
+    one is asking for a run to *stop*, and "calm" reads like a description
+    rather than an instruction.
 
     Args:
-        raw: User input, such as ``"bull"`` or ``"BEAR"``.
+        raw: User input, such as ``"bull"``, ``"BEAR"``, or ``"neutral"``.
 
     Returns:
-        The direction, or ``None`` if it is neither.
+        The regime asked for, or ``None`` if the input is none of them.
     """
     cleaned = raw.strip().lower()
     if cleaned == "bull":
         return "bull"
     if cleaned == "bear":
         return "bear"
+    if cleaned == "neutral":
+        return "calm"
     return None
 
 
@@ -742,6 +749,53 @@ def start_run(
         regime=direction,
         ticks_left=source.randint(FLX_RUN_MIN_TICKS, FLX_RUN_MAX_TICKS),
     )
+
+
+def end_run(state: MarketState) -> MarketState:
+    """Return ``state`` with any run over, at the same price.
+
+    The counterpart to :func:`start_run`, and deliberately as small: it ends
+    the *regime*, and moves no price. What brings the price home is the calm
+    tick's snapback -- :data:`FLX_SNAPBACK_REVERSION_PERCENT` of the gap while
+    the price is outside :data:`FLX_CALM_BAND_PERCENT` -- which is the same
+    path a run that ended on its own takes, and takes
+    :func:`flx_snapback_ticks` to finish.
+
+    Setting the price back to :data:`FLX_PRICE` here would be quicker and
+    wrong: no tick can move the price that far at once, so a member watching
+    would see a jump the market cannot otherwise produce, which is exactly the
+    kind of tell a cancelled run should not leave behind.
+
+    Args:
+        state: The market to calm. Already calm is fine, and is a no-op.
+
+    Returns:
+        The market with no run in flight, at the same price.
+    """
+    return MarketState(price=state.price, regime="calm", ticks_left=0)
+
+
+def flx_snapback_ticks(price: int) -> int:
+    """Return how many calm ticks it takes ``price`` to reach the calm band.
+
+    Ignores the shock, which is small next to the snapback and points either
+    way, so this is the shape of the return home rather than a promise about
+    one. Used to tell the owner how long a cancelled run takes to unwind.
+
+    Args:
+        price: The price the run left behind.
+
+    Returns:
+        Ticks until the price is back inside :data:`FLX_CALM_BAND_PERCENT` of
+        the anchor. Zero if it is already there.
+    """
+    band = FLX_PRICE * FLX_CALM_BAND_PERCENT / 100
+    gap = float(abs(FLX_PRICE - price))
+    ticks = 0
+    while gap > band:
+        gap *= 1 - FLX_SNAPBACK_REVERSION_PERCENT / 100
+        ticks += 1
+    return ticks
 
 
 def next_flx_market(state: MarketState, rng: random.Random | None = None) -> MarketState:

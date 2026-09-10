@@ -67,9 +67,9 @@ class Mining(BaseCog, name="Flyxcoin"):
     async def flx(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """Show how much Flyxcoin is in circulation and its current price."""
         total = await self.db.total_crypto()
-        state = await self.db.get_market()
+        price = await self.db.get_flx_price()
         await ctx.send(
-            embed=embeds.circulation_embed(total, state, self.timezone, self.settings.max_flx_buy)
+            embed=embeds.circulation_embed(total, price, self.timezone, self.settings.max_flx_buy)
         )
 
     def _today(self) -> str:

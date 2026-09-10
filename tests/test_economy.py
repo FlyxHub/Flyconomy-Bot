@@ -325,6 +325,74 @@ class TestFlxRuns:
         assert outside / calm < 0.05
 
 
+class TestEndingARun:
+    @pytest.mark.parametrize("direction", ["bull", "bear"])
+    def test_a_run_is_over(self, direction):
+        state = economy.MarketState(price=17_000, regime=direction, ticks_left=9)
+
+        ended = economy.end_run(state)
+
+        assert (ended.regime, ended.ticks_left) == ("calm", 0)
+
+    def test_the_price_is_left_where_the_run_left_it(self):
+        # Putting the price back by hand would be a move no tick can make, so
+        # a called-off run would be visible as a jump. The snapback brings it
+        # home instead, over the ticks flx_snapback_ticks counts.
+        state = economy.MarketState(price=18_240, regime="bull", ticks_left=4)
+
+        assert economy.end_run(state).price == 18_240
+
+    def test_calming_a_calm_market_changes_nothing(self):
+        state = economy.MarketState(price=10_400)
+
+        assert economy.end_run(state) == state
+
+    def test_an_ended_run_walks_home_like_one_that_finished(self):
+        # The claim end_run rests on: what follows is an ordinary calm walk,
+        # so nothing distinguishes a cancelled run from a completed one.
+        rng = random.Random(3)
+        state = economy.end_run(economy.MarketState(price=18_000, regime="bull", ticks_left=12))
+        ticks = 0
+        while abs(state.price - economy.FLX_PRICE) > economy.FLX_PRICE * 0.10:
+            state = economy.next_flx_market(state, rng)
+            ticks += 1
+            assert ticks < 20, "the price never came home"
+        assert ticks <= economy.flx_snapback_ticks(18_000) + 2
+
+
+class TestSnapbackTicks:
+    @pytest.mark.parametrize("price", [economy.FLX_PRICE, 10_900, 9_100])
+    def test_a_price_inside_the_band_is_already_home(self, price):
+        assert economy.flx_snapback_ticks(price) == 0
+
+    @pytest.mark.parametrize("price", [18_000, 6_000, economy.FLX_PRICE_CEILING])
+    def test_a_run_unwinds_in_a_handful_of_ticks(self, price):
+        # The figure the guide quotes, and the one the owner is told when a run
+        # is called off. If this grows, a run has stopped reading as a spike.
+        assert 1 <= economy.flx_snapback_ticks(price) <= 3
+
+    def test_further_out_is_never_quicker(self):
+        gaps = [
+            economy.flx_snapback_ticks(economy.FLX_PRICE + gap) for gap in range(0, 10_000, 250)
+        ]
+        assert gaps == sorted(gaps)
+
+
+class TestParsingAMarketTarget:
+    @pytest.mark.parametrize(
+        ("written", "expected"),
+        [("bull", "bull"), ("BEAR", "bear"), (" Bull ", "bull"), ("neutral", "calm")],
+    )
+    def test_a_regime_is_read_forgivingly(self, written, expected):
+        assert economy.parse_market_target(written) == expected
+
+    @pytest.mark.parametrize("written", ["calm", "sideways", "up", ""])
+    def test_anything_else_is_refused(self, written):
+        # "calm" included: the regime's internal name is not the word the
+        # command takes, and accepting both would leave two spellings to keep.
+        assert economy.parse_market_target(written) is None
+
+
 class TestFlxBuyAllowance:
     @pytest.mark.parametrize(
         ("bought", "expected"),

@@ -168,21 +168,30 @@ class TestEmbeds:
         assert embeds.now("UTC").tzinfo is not None
 
     def test_the_circulation_embed_values_the_supply(self):
-        embed = embeds.circulation_embed(3, economy.MarketState(price=10_000), "UTC", 100)
-        assert embed.fields[1].value == "$10,000"
-        assert embed.fields[2].value == "3"
-        assert embed.fields[3].value == "$30,000"
+        embed = embeds.circulation_embed(3, 10_000, "UTC", 100)
+        assert embed.fields[0].value == "$10,000"
+        assert embed.fields[1].value == "3"
+        assert embed.fields[2].value == "$30,000"
 
     def test_the_circulation_embed_uses_the_price_it_is_given(self):
-        embed = embeds.circulation_embed(3, economy.MarketState(price=5_000), "UTC", 100)
-        assert embed.fields[1].value == "$5,000"
-        assert embed.fields[3].value == "$15,000"
+        embed = embeds.circulation_embed(3, 5_000, "UTC", 100)
+        assert embed.fields[0].value == "$5,000"
+        assert embed.fields[2].value == "$15,000"
 
-    def test_the_circulation_embed_names_the_regime_and_the_daily_limit(self):
-        state = economy.MarketState(price=12_000, regime="bull", ticks_left=9)
-        embed = embeds.circulation_embed(3, state, "UTC", 100)
-        assert "Bull run" in (embed.fields[0].value or "")
+    def test_the_circulation_embed_names_the_daily_limit(self):
+        embed = embeds.circulation_embed(3, 12_000, "UTC", 100)
         assert "100" in (embed.footer.text or "")
+
+    def test_the_circulation_embed_never_names_a_run(self):
+        # A member reads a run off the price or not at all. A label saying one
+        # is on removes the noticing, which is the whole game the market has.
+        embed = embeds.circulation_embed(3, 18_000, "UTC", 100)
+        text = " ".join(
+            [embed.title or "", embed.description or "", embed.footer.text or ""]
+            + [f"{field.name} {field.value}" for field in embed.fields]
+        ).lower()
+        for tell in ("bull", "bear", "run", "steady", "market"):
+            assert tell not in text, f"the info embed gives away the regime with {tell!r}"
 
     def test_the_run_dm_says_which_way_and_for_how_long(self):
         state = economy.MarketState(price=12_000, regime="bear", ticks_left=10)

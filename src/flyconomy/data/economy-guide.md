@@ -119,7 +119,8 @@ going with the run.
 
 A run climbs until it reaches about **$18,000** — or falls to **$6,000** for a
 bear — and then stops. About one in six runs out of time and stops short, so a
-run is never a sure thing. `/flx info` says which it is doing now.
+run is never a sure thing. Nothing announces a run: the price is the only tell,
+so watch it.
 
 **A run is a spike, not a plateau.** The price is hauled home within about three
 ticks of one ending — 15 minutes. Sell into a bull run before it turns; buy into

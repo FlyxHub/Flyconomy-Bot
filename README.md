@@ -321,7 +321,7 @@ mentioning the bot works as a prefix too.
 | --- | --- |
 | `mine` | Mines Flyxcoin with your miner. Requires a miner. Cooldown: 1 hour. |
 | `upgrade` | Raises your miner one level, paid from your bank balance. |
-| `flx` | Shows the current Flyxcoin price, what the market is doing, how much is in circulation, and what it is worth. |
+| `flx` | Shows the current Flyxcoin price, how much is in circulation, and what it is worth. It deliberately does not say whether a run is on; see [Steering the market](#steering-the-market). |
 | `flx buy [amount]` | Buys Flyxcoin with bank money, up to 100 a day. Defaults to as many as you can afford within that. |
 | `flx sell [amount]` | Sells Flyxcoin into your bank. Defaults to everything you hold. |
 | `flx send <member> <amount>` | Sends Flyxcoin to another member. |
@@ -430,7 +430,7 @@ which is the wrong place to advertise a command nobody else can run.
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
 | `$guide [repost]` | Publishes the member guide now instead of at the next restart. `repost` re-sends it, moving it to the bottom of the channel. |
-| `$market <bull\|bear>` | Starts a Flyxcoin run on demand. Hidden from `$help` as well as owner-only; see [Steering the market](#steering-the-market). |
+| `$market <bull\|bear\|neutral>` | Starts a Flyxcoin run on demand, or calls a running one off. Hidden from `$help` as well as owner-only; see [Steering the market](#steering-the-market). |
 
 Every prefix command works in a DM with the bot as well as in a channel, which
 is the intended home of `$market`.
@@ -720,13 +720,13 @@ from this one.
 
 ### Steering the market
 
-`$market bull` and `$market bear` start a Flyxcoin run on demand. It is
-owner-only like the rest of `cogs/admin.py`, and additionally `hidden`, so it
-does not appear in `$help` even for the owner — the other admin commands are
-merely uninteresting to a member, while this one changes how a run should be
-read. Every prefix command works in a DM with the bot, and nothing here needs a
-guild: the market is server-wide, and the caller is identified by `is_owner`
-rather than by any membership.
+`$market bull` and `$market bear` start a Flyxcoin run on demand, and `$market
+neutral` calls one off. It is owner-only like the rest of `cogs/admin.py`, and
+additionally `hidden`, so it does not appear in `$help` even for the owner — the
+other admin commands are merely uninteresting to a member, while this one
+changes how a run should be read. Every prefix command works in a DM with the
+bot, and nothing here needs a guild: the market is server-wide, and the caller
+is identified by `is_owner` rather than by any membership.
 
 **A triggered run is indistinguishable from a spontaneous one.** Both go through
 `economy.start_run`, which draws the length from the same 12-36 tick
@@ -736,6 +736,26 @@ fire for one either, which falls out of the design rather than being
 special-cased: by the time the tick runs, the market is already in the regime
 that notice watches for. A run already in flight is refused rather than
 replaced, since overwriting it would cut it short for everyone watching.
+
+**Calling a run off ends the regime and moves no price either.** `$market
+neutral` is `economy.end_run`, the mirror of `start_run`: it clears the regime
+and leaves the price where the run left it, so the ordinary calm tick's
+snapback hauls it home over the next two or three ticks — the same walk home a
+run that reached its goal takes. Setting the price back to $10,000 by hand
+would be quicker and would be a jump no tick can produce, which is exactly the
+tell a cancelled run must not leave. `economy.flx_snapback_ticks` counts that
+walk, and is what the confirmation quotes back. Calling off a market that is
+already calm does nothing rather than pretending to.
+
+**Nothing member-facing names the regime.** `flx info` used to carry a
+`Market: 📈 Bull run` field, which meant a member never had to notice a run —
+the thing the market is actually asking them to do. `embeds.circulation_embed`
+now takes the price rather than the whole `MarketState`, so the regime cannot
+leak back into it by accident, and `tests/test_bot.py` fails if the embed ever
+says "bull", "bear", or "run" again. The bot's status ticker still shows the
+price and the last move, which is the tell members are meant to read. The
+creator's run DM is the one exception, and is a perk of
+`creator_tax_user_id` rather than something a member can reach.
 
 **It is safe only because buying is capped.** Being able to crash the price,
 buy, pump it, and sell is the strongest possible position in this market, and it
