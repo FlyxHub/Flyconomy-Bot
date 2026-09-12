@@ -11,7 +11,7 @@ order, not by the numbers, so renumbering by hand is never required.
 Every number here comes from `README.md`. If you retune the economy, retune
 this too — a guide that lies about the odds is worse than no guide.
 
-════════════════════════════════════ 1 of 7 ════════════════════════════════════
+════════════════════════════════════ 1 of 8 ════════════════════════════════════
 
 # 💵 The Flyconomy
 
@@ -39,7 +39,7 @@ bank is where it grows.
 
 -# Stuck? `$help` lists every command. `/resetme` starts you over from nothing — read the house rules before you reach for it.
 
-════════════════════════════════════ 2 of 7 ════════════════════════════════════
+════════════════════════════════════ 2 of 8 ════════════════════════════════════
 
 # 🏦 Wallet vs. bank
 
@@ -79,7 +79,7 @@ Four things worth knowing:
 
 Your level shows on `/balance`, right next to your miner.
 
-════════════════════════════════════ 3 of 7 ════════════════════════════════════
+════════════════════════════════════ 3 of 8 ════════════════════════════════════
 
 # ⛏️ Flyxcoin
 
@@ -130,7 +130,7 @@ sending are unlimited.
 
 -# Flyxcoin can't be robbed — only cash can. Coins are the safest place to park a fortune, if you can stomach the price moving.
 
-════════════════════════════════════ 4 of 7 ════════════════════════════════════
+════════════════════════════════════ 4 of 8 ════════════════════════════════════
 
 # 💸 Sending money to people
 
@@ -144,7 +144,7 @@ in one go.
 
 -# The tax on `/pay` is not destroyed: half of it feeds the lottery pot, so every transfer makes somebody's draw a little richer.
 
-════════════════════════════════════ 5 of 7 ════════════════════════════════════
+════════════════════════════════════ 5 of 8 ════════════════════════════════════
 
 # 🎰 The casino
 
@@ -158,8 +158,11 @@ Every game stakes from your wallet. Maximum bet is **$100,000** a wager.
 - `/war 500` — high card wins 2x, a tie gives your stake back.
 - `/blackjack 500` — buttons to hit, stand, or double down. Alias `/bj`.
 - `/crash 500` — a multiplier climbs from 1.00x. Cash out before it crashes.
+- `/mines 500` — turn over tiles on a 4x4 board. Every safe one pays more; one mine takes the lot.
 
-## What each game actually costs you
+════════════════════════════════════ 6 of 8 ════════════════════════════════════
+
+# 🎲 What each game actually costs you
 
 "House edge" is the share of every dollar staked that the bot keeps on average.
 
@@ -171,6 +174,7 @@ Rock paper scis.   1 in 3          3x          0%
 War                47%, 6% tie     2x          0%
 Blackjack          how you play    2x / 2.5x   1.4% – 15.8%
 Crash              when you stop   your target 3%
+Mines              when you stop   up to 100x  3%
 Slots              1 in 6          2x – 55x    4.17%
 Roulette, colour   18 in 38        2x          5.26%
 Roulette, pocket   1 in 38         35x         7.89%
@@ -185,7 +189,20 @@ Blackjack is the exception worth studying: played well it's the best bet in the
 casino at 1.4%, and played badly it's the worst thing on the list at 15.8%.
 Same game, same table, ten times the cost.
 
-════════════════════════════════════ 6 of 7 ════════════════════════════════════
+## Mines, and why the mine count doesn't matter
+
+`/mines 500 3` hides three mines among sixteen tiles. Turn one over and the
+multiplier rises; turn over a mine and the round is done. Cash out whenever you
+like — the board tells you what the next tile is worth before you press it.
+
+You can ask for **1 to 8 mines**, and it makes no difference to what the game
+costs you: more mines pay more per tile precisely because you are likelier to
+hit one, and the two cancel out exactly. Stopping early and going deep cost the
+same 3% too. The mine count buys a different *shape* of gamble, never a better
+one. The multiplier is capped at **100x**, and a board reaching it cashes itself
+out — past that point the tiles can only lose.
+
+════════════════════════════════════ 7 of 8 ════════════════════════════════════
 
 # 🏆 Playing against each other
 
@@ -223,7 +240,7 @@ The pot is fed by ticket sales *and* by a quarter of everything the casino
 wins. Nobody enters, nobody wins, and the pot rolls over — so a quiet week
 builds something worth showing up for.
 
-════════════════════════════════════ 7 of 7 ════════════════════════════════════
+════════════════════════════════════ 8 of 8 ════════════════════════════════════
 
 # 📋 House rules & cheat sheet
 
@@ -233,7 +250,7 @@ builds something worth showing up for.
 - **Daily interest:** paid automatically at 8:00 AM to every account, 10% of your bank up to $10,000. You don't claim it, and you can't miss it.
 - **`/resetme` is a last resort, not a comeback.** It deletes everything you own — cash, coins, miner, security — and seeds you a fresh account. Reset again straight away and you get less: $1,000, then $500, then $250, then nothing. Leave it 24 hours and you're back to the full $1,000. Gambling it all away and starting over is allowed; doing it four times in a day just leaves you with nothing.
 - **Balances can't go negative.** A bet you can't cover is refused, not overdrawn.
-- **Nothing is stranded.** Every button — blackjack, crash, tic-tac-toe — pays out or refunds on its own if you walk away mid-hand.
+- **Nothing is stranded.** Every button — blackjack, crash, mines, tic-tac-toe — pays out or refunds on its own if you walk away mid-hand. A mines board you abandon cashes out at whatever it had reached.
 - **The season resets each January.** Everything you build is for the year.
 
 ```
@@ -243,7 +260,7 @@ DEFENCE     /secure
 ROBBERY     /rob @member
 FLYXCOIN    /flx info  /flx buy  /flx sell  /flx send
 CASINO      /coinflip  /dice  /rps  /roulette  /slots  /war
-            /blackjack  /crash
+            /blackjack  /crash  /mines
 TOGETHER    /jackpot  /tictactoe  /lottery info  /lottery enter
 ```
 

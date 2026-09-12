@@ -16,7 +16,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# The mines module is aliased because the command's own argument is called
+# `mines` -- that is the word the game uses for the count, and the member sees
+# the parameter name in the slash command, so the argument keeps it.
 from flyconomy import blackjack, crash, economy, embeds, tictactoe
+from flyconomy import mines as mines_rules
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.errors import BetTooLargeError
@@ -26,6 +30,7 @@ from flyconomy.views import (
     JackpotView,
     MatchChallengeView,
     MatchView,
+    MinesView,
     TicTacToeView,
 )
 
@@ -285,6 +290,35 @@ class Gambling(BaseCog, name="Casino"):
 
         view.message = await ctx.send(embed=view.embed(), view=view)
         view.start_ticking()
+
+    @commands.hybrid_command(name="mines")  # type: ignore[arg-type]
+    @app_commands.describe(
+        bet="Dollars to stake.",
+        mines=f"How many mines to hide, {mines_rules.MIN_MINES}-{mines_rules.MAX_MINES}. "
+        f"More mines pay faster. Default {mines_rules.DEFAULT_MINES}.",
+    )
+    async def mines_command(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        bet: commands.Range[int, 1],
+        mines: commands.Range[int, mines_rules.MIN_MINES, mines_rules.MAX_MINES] = (
+            mines_rules.DEFAULT_MINES
+        ),
+    ) -> None:
+        """Turn over tiles for a rising multiplier. Cash out before you hit a mine."""
+        await self._stake(ctx, bet)
+        game = mines_rules.Game.deal(bet, mines, self.rng)
+
+        view = MinesView(
+            db=self.db,
+            game=game,
+            player=ctx.author,
+            timezone=self.timezone,
+            rake=self.settings.lottery_rake,
+            creator_tax_rate=self.settings.creator_tax_rate,
+            creator_tax_user_id=self.settings.creator_tax_user_id,
+        )
+        view.message = await ctx.send(embed=view.embed(), view=view)
 
     @commands.hybrid_command(name="jackpot", aliases=["jp"])  # type: ignore[arg-type]
     @app_commands.describe(ante="Dollars to ante into the pot.")

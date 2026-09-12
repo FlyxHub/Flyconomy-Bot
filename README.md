@@ -39,6 +39,7 @@ classic prefix command, such as `$balance`.
   - [Creator tax](#creator-tax)
   - [Blackjack](#blackjack)
   - [Crash](#crash)
+  - [Mines](#mines)
   - [Slot machine paytable](#slot-machine-paytable)
 - [Develop and test](#develop-and-test)
 - [Architecture](#architecture)
@@ -60,7 +61,7 @@ classic prefix command, such as `$balance`.
   minutes on a bounded random walk that occasionally breaks into a bull or bear
   run, and the bot's status shows it live as a `FLX: $10,340 ▲2.1%` stock
   ticker. Buying is capped at 100 coins a day per member.
-- **Casino.** Blackjack with hit, stand, and double-down buttons, a crash
+- **Casino.** Blackjack with hit, stand, and double-down buttons, a mines board, a crash
   multiplier to cash out of, plus a slot machine, card war, coin flip, rock
   paper scissors, dice, and American roulette.
 - **Jackpot.** A player-funded pot anyone can ante into for a minute, then one
@@ -354,6 +355,7 @@ Every game stakes money from your wallet.
 | `roulette <red\|black\|0-36\|00> <bet>` | Returns 2x on a color and 35x on a single pocket. |
 | `blackjack <bet>` | Deals a hand against the dealer, with buttons to hit, stand, or double down. Alias: `bj`. |
 | `crash <bet>` | A multiplier climbs from 1.00x. Press Cash Out before it crashes to lock in the payout. |
+| `mines <bet> [mines]` | Turn over tiles on a 4x4 board for a rising multiplier. One mine ends the round. Not to be confused with `mine`, which mines Flyxcoin. |
 | `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 | `jackpot <ante>` | Antes into a shared pot that anyone can join for 60 seconds. One entrant wins it all. Alias: `jp`. |
@@ -565,6 +567,7 @@ this table if you win. The profit column is what you gain overall.
 | Rock paper scissors | 1 in 3 | 3x stake | 2x stake | 0% |
 | Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.8% to 15.6% |
 | Crash | Depends on when you cash out | Whatever multiplier you cash out at | Multiplier minus 1, times stake | 3%, flat at every cash-out target |
+| Mines | Depends on when you cash out | The multiplier the board reached, up to 100x | Multiplier minus 1, times stake | 3%, flat at every depth and mine count |
 | Jackpot | Your share of the pot | 95% of the pot | Pot less your ante and the cut | 5%, flat at every ante size |
 | Tic-tac-toe | However well you play | 95% of both stakes | Their stake, less the cut | 5% against an even opponent |
 
@@ -989,6 +992,43 @@ not an average over strategies—see `crash.Game.deal`'s docstring for the
 derivation, and `tests/test_crash.py` for the simulation that checks the
 sampler actually matches it.
 
+### Mines
+
+Sixteen tiles in a 4x4 grid, with 1 to 8 mines hidden among them (3 by default).
+Every safe tile raises the multiplier; one mine ends the round and takes the
+stake. Cash out at any point.
+
+| Rule | This table |
+| --- | --- |
+| Board | 16 tiles, 4x4 |
+| Mines | 1 to 8, chosen by the player, 3 by default |
+| Maximum multiplier | 100x, at which the board cashes itself out |
+| Decision timeout | 180 seconds, after which the board cashes out where it stands |
+
+Like crash and unlike blackjack, the house edge does not depend on how you play.
+The multiplier after `k` safe tiles is `(1 - 0.03) / P(surviving k)`, so a
+strategy of "turn over exactly `k` tiles, then stop" returns 97% of the stake for
+every `k`, and for every mine count. Choosing more mines buys a steeper climb
+against a shorter expected round—variance, never edge.
+
+The 100x cap is the one thing that bends that. It can only ever pay a very deep
+board *less* than fair, so it raises the realized edge rather than lowering it,
+which is the same argument crash's 20x cap rests on. It exists because the
+uncapped payout for clearing an eight-mine board is 12,484x: fair, but $1.2B at
+the default table limit, from a single press. Because pressing on past the cap
+can only lose, the view cashes out on the player's behalf when a board reaches
+it.
+
+The board is 16 tiles rather than the 25 the game is usually played on, and that
+is a Discord limit rather than a design choice: an action row holds five
+components and a message holds five rows, so 25 tiles would fill the entire
+budget and leave nowhere to put the Cash Out button. Sixteen tiles take four rows
+and leave the fifth for it.
+
+`tests/test_mines.py` enumerates every mine count at every depth—the outcome
+space is small enough to check exactly rather than sample—and fails if any depth
+returns more than 97%.
+
 ### Slot machine paytable
 
 Three identical reels, each carrying six equally likely symbols, for 216
@@ -1051,6 +1091,7 @@ The suite is organized by concern:
 | `test_lottery.py` | The pot, entries, draws, and the rake. |
 | `test_blackjack.py` | The blackjack ruleset: hand values, soft aces, dealer policy, payouts. |
 | `test_crash.py` | The crash ruleset: the multiplier curve, the crash-point sampler, and its house edge. |
+| `test_mines.py` | The mines ruleset and its view: the multiplier ladder, the flat edge at every depth, and the board's fit inside Discord's component budget. |
 | `test_jackpot.py` | The jackpot ruleset: the weighted draw, the house cut, and the single-entrant refund. |
 | `test_tictactoe.py` | The tic-tac-toe ruleset: wins, draws, and the best-of-three match. |
 | `test_matches.py` | The shared head-to-head half: escrow, challenges, settlement, and refunds. |
@@ -1091,6 +1132,7 @@ src/flyconomy/
 ├── database.py       SQLite access and schema migrations
 ├── blackjack.py      The blackjack ruleset, also free of any discord import
 ├── crash.py          The crash ruleset, also free of any discord import
+├── mines.py          The mines ruleset, also free of any discord import
 ├── jackpot.py        The jackpot ruleset, also free of any discord import
 ├── tictactoe.py      The tic-tac-toe ruleset, also free of any discord import
 ├── economy.py        Every tunable number and the pure rules that use them
@@ -1099,7 +1141,7 @@ src/flyconomy/
 ├── errors.py         Exceptions the bot raises deliberately
 ├── logging_config.py Logging setup
 ├── ratelimit.py      A sliding window limiter, with an injectable clock
-├── views.py          Interactive buttons: the blackjack table, the crash round, the jackpot, and a match board
+├── views.py          Interactive buttons: the blackjack table, the crash round, the mines board, the jackpot, and a match board
 ├── data/             Package data: the member guide the bot publishes
 └── cogs/             One module per command group
 ```

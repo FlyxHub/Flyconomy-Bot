@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from flyconomy import crash, economy, jackpot, tictactoe
+from flyconomy import crash, economy, jackpot, mines, tictactoe
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
@@ -35,6 +35,7 @@ WAGER_COMMANDS = [
     ("war", ()),
     ("blackjack_command", ()),
     ("crash_command", ()),
+    ("mines_command", ()),
     ("jackpot_command", ()),
     ("tictactoe_command", (FakeUser(id=BOB),)),
 ]
@@ -116,6 +117,31 @@ class TestNoGameIsProfitable:
         edge = (staked - returned) / staked
         assert edge > 0, f"target {target}x gave the player an edge"
 
+    @pytest.mark.parametrize("mine_count", list(range(mines.MIN_MINES, mines.MAX_MINES + 1)))
+    def test_mines_favours_the_house_at_every_depth(self, mine_count):
+        """Mines is the second game whose edge has to hold across strategies
+        rather than at one point, and unlike crash its outcome space is small
+        enough to enumerate exactly: every board, every depth, no sampling.
+
+        A player picks how deep to go, so a depth that paid better than fair
+        would be a best strategy, and a best strategy is what turns a casino
+        game into a faucet. The detailed argument lives in tests/test_mines.py;
+        this is the invariant stated where the rest of them are."""
+        for depth in range(1, mines.safe_tiles(mine_count) + 1):
+            returned = mines.survival_probability(mine_count, depth) * mines.multiplier_for(
+                mine_count, depth
+            )
+            assert returned <= 1, f"{mine_count} mines at depth {depth} returns {returned:.4f}"
+
+    def test_mines_cannot_pay_an_unbounded_multiple_of_the_table_limit(self):
+        """The cap is the only thing bounding a cleared board. Uncapped, eight
+        mines fully cleared pays 12,484x -- fair, but $1.2B at the table limit,
+        which is a fifth of the season's whole supply ceiling from one press."""
+        assert mines.MAX_MULTIPLIER <= 100
+        for mine_count in range(mines.MIN_MINES, mines.MAX_MINES + 1):
+            for depth in range(1, mines.safe_tiles(mine_count) + 1):
+                assert mines.multiplier_for(mine_count, depth) <= mines.MAX_MULTIPLIER
+
     @pytest.mark.parametrize("bet", [1, 100, 10_000, 1_000_000])
     @pytest.mark.parametrize("game", [tictactoe])
     def test_a_head_to_head_match_cannot_pay_out_more_than_was_staked(self, game, bet):
@@ -150,6 +176,11 @@ class TestNoGameIsProfitable:
             / 10_000,
             # Two evenly matched players each win half the time.
             "tictactoe": (0.5 * tictactoe.payout(20_000) - 10_000) / 10_000,
+            # Mines at its default board, stopped halfway. Any other depth or
+            # mine count gives the same figure, which is the point of it.
+            "mines": mines.survival_probability(mines.DEFAULT_MINES, 6)
+            * mines.multiplier_for(mines.DEFAULT_MINES, 6)
+            - 1,
         }
         for name, edge in edges.items():
             assert edge <= 1e-9, f"{name} pays players {edge:+.4f} per unit staked"

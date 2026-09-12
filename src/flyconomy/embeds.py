@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import blackjack, crash, economy, jackpot, tictactoe
+from flyconomy import blackjack, crash, economy, jackpot, mines, tictactoe
 from flyconomy.database import (
     Account,
     DailyPayout,
@@ -497,6 +497,98 @@ def crash_embed(
         )
     else:
         embed.set_footer(text="Cash out before it crashes.")
+    return embed
+
+
+#: What a mines tile shows for each state. A live board keeps its mines hidden
+#: behind the same blank the untouched tiles use, so nothing leaks from the
+#: labels; a settled one turns them face up.
+_MINES_LABELS: Final = {
+    mines.HIDDEN: "\N{ZERO WIDTH SPACE}",
+    mines.SAFE: "\N{GEM STONE}",
+    mines.BUSTED: "\N{COLLISION SYMBOL}",
+    mines.MINE: "\N{BOMB}",
+}
+
+#: What a mines tile looks like for each state. The mine that ended the round
+#: is the only red one, so a lost board says at a glance which press did it.
+_MINES_STYLES: Final = {
+    mines.HIDDEN: discord.ButtonStyle.secondary,
+    mines.SAFE: discord.ButtonStyle.success,
+    mines.BUSTED: discord.ButtonStyle.danger,
+    mines.MINE: discord.ButtonStyle.secondary,
+}
+
+
+def mines_label(state: str) -> str:
+    """Return the label a mines tile shows for ``state``."""
+    return _MINES_LABELS[state]
+
+
+def mines_style(state: str) -> discord.ButtonStyle:
+    """Return the style a mines tile takes for ``state``."""
+    return _MINES_STYLES[state]
+
+
+def mines_result_line(game: mines.Game, *, cashed_out_multiplier: float | None) -> str:
+    """Describe how a round of mines ended, or prompt if it hasn't.
+
+    Args:
+        game: The round.
+        cashed_out_multiplier: The multiplier the player locked in, or ``None``
+            if they have not cashed out.
+
+    Returns:
+        One line for the embed's result field, or a prompt if still live.
+    """
+    if game.busted:
+        return f"**Boom.** You lose {money(game.stake)}"
+    if cashed_out_multiplier is not None:
+        won = mines.payout(game.stake, cashed_out_multiplier)
+        if not game.revealed:
+            return f"Round abandoned. Your {money(won)} is back."
+        return f"Cashed out at **{cashed_out_multiplier:.2f}x**. You win {money(won)}"
+    return f"Next tile pays **{game.next_multiplier:.2f}x**"
+
+
+def mines_embed(
+    game: mines.Game,
+    user: discord.abc.User,
+    timezone: str,
+    *,
+    cashed_out_multiplier: float | None,
+) -> discord.Embed:
+    """Build the embed for a round of mines, live or decided.
+
+    Args:
+        game: The round.
+        user: The player.
+        timezone: IANA timezone for the embed timestamp.
+        cashed_out_multiplier: The multiplier the player locked in, or ``None``
+            if they have not cashed out.
+
+    Returns:
+        A populated embed.
+    """
+    finished = game.busted or cashed_out_multiplier is not None
+    colour = ERROR_COLOR if game.busted else BRAND_COLOR
+
+    embed = discord.Embed(
+        title=f"Mines - {user.display_name}",
+        color=colour,
+        timestamp=now(timezone),
+    )
+    banked = cashed_out_multiplier if cashed_out_multiplier is not None else game.multiplier
+    embed.add_field(name="Multiplier", value=f"{banked:.2f}x", inline=True)
+    embed.add_field(name="Stake", value=money(game.stake), inline=True)
+    embed.add_field(name="Mines", value=f"{game.mine_count} of {mines.TILES}", inline=True)
+    embed.add_field(
+        name="Result",
+        value=mines_result_line(game, cashed_out_multiplier=cashed_out_multiplier),
+        inline=False,
+    )
+    if not finished:
+        embed.set_footer(text="Turn over a tile, or cash out while you are ahead.")
     return embed
 
 

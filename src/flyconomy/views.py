@@ -17,7 +17,7 @@ from collections.abc import Callable
 import discord
 from discord.ext import tasks
 
-from flyconomy import blackjack, crash, embeds, jackpot, tictactoe
+from flyconomy import blackjack, crash, embeds, jackpot, mines, tictactoe
 from flyconomy.database import Database, JackpotState
 from flyconomy.errors import InsufficientFundsError
 from flyconomy.ratelimit import SlidingWindowLimiter
@@ -448,6 +448,259 @@ class CrashView(discord.ui.View):
             )
             return
         await self._redraw(interaction)
+
+
+class MinesView(discord.ui.View):
+    """A board of mines tiles, plus a Cash Out button.
+
+    Sixteen tiles in four rows of four, with Cash Out alone on the fifth: the
+    layout is Discord's five-rows-of-five component budget used up to its
+    edge, which is why the board is sixteen tiles rather than the twenty-five
+    the game is usually played on. Twenty-five tiles would fill every row and
+    leave nowhere for the button that ends the round.
+
+    Unlike :class:`CrashView` there is no clock in the game, so there is no
+    tick loop and no elapsed time to read: the round only moves when the
+    player presses something. The view's timeout is therefore the real end of
+    an abandoned round rather than a safety net, and it cashes out instead of
+    busting -- see :func:`flyconomy.mines.abandoned_multiplier`.
+
+    Attributes:
+        game: The round in play.
+        message: The message the buttons live on, set by the caller after
+            sending so the timeout can redraw it.
+    """
+
+    def __init__(
+        self,
+        *,
+        db: Database,
+        game: mines.Game,
+        player: discord.abc.User,
+        timezone: str,
+        rake: float = 0.0,
+        creator_tax_rate: float = 0.0,
+        creator_tax_user_id: int | None = None,
+    ) -> None:
+        """Build a view for a freshly dealt board.
+
+        Args:
+            db: Open database, used to credit the payout.
+            game: The dealt round.
+            player: The member who owns the round. Nobody else may press.
+            timezone: IANA timezone for the embed timestamp.
+            rake: Share of the house's take on this round to send to the
+                lottery pot. A round the player wins contributes nothing and
+                never pulls the pot back down.
+            creator_tax_rate: Share of the house's take on this round to send
+                to ``creator_tax_user_id``. Ignored when that user ID is unset.
+            creator_tax_user_id: Bank account credited with the creator tax,
+                or ``None`` to disable it outright.
+        """
+        super().__init__(timeout=mines.DECISION_TIMEOUT_SECONDS)
+        self.db = db
+        self.game = game
+        self.player = player
+        self.timezone = timezone
+        self.rake = rake
+        self.creator_tax_rate = creator_tax_rate
+        self.creator_tax_user_id = creator_tax_user_id
+        self.message: discord.Message | None = None
+        self._settled = False
+        self._cashed_out_multiplier: float | None = None
+        for tile in range(mines.TILES):
+            self.add_item(_TileButton(tile))
+        self._refresh_buttons()
+
+    # ----------------------------------------------------------- rendering --
+
+    def embed(self) -> discord.Embed:
+        """Return the embed for the round as it currently stands."""
+        return embeds.mines_embed(
+            self.game,
+            self.player,
+            self.timezone,
+            cashed_out_multiplier=self._cashed_out_multiplier,
+        )
+
+    def _refresh_buttons(self) -> None:
+        """Draw the board onto the tiles, and gate the Cash Out button.
+
+        Cashing out is refused until something has been turned over, because
+        a round with no presses in it has no multiplier to bank -- walking
+        away from one is a refund rather than a result.
+        """
+        for child in self.children:
+            if isinstance(child, _TileButton):
+                state = mines.tile_state(self.game, child.tile, finished=self._settled)
+                child.label = embeds.mines_label(state)
+                child.style = embeds.mines_style(state)
+                child.disabled = self._settled or state != mines.HIDDEN
+            elif isinstance(child, discord.ui.Button):
+                child.disabled = self._settled or not self.game.revealed
+
+    # ------------------------------------------------------------- actions --
+
+    async def settle(self, *, multiplier: float) -> None:
+        """Credit the payout once the round is decided.
+
+        Safe to call more than once: only the first call moves money, so a
+        press racing the timeout can never pay twice.
+
+        Args:
+            multiplier: The multiplier to pay out at, or ``0.0`` for a bust.
+        """
+        if self._settled:
+            return
+        self._settled = True
+
+        amount = mines.payout(self.game.stake, multiplier)
+        if amount:
+            await self.db.add_wallet(self.player.id, amount)
+
+        house_take = self.game.stake - amount
+        share = int(house_take * self.rake)
+        if share > 0:
+            await self.db.add_to_pot(share)
+
+        if self.creator_tax_user_id is not None:
+            cut = int(house_take * self.creator_tax_rate)
+            if cut > 0:
+                await self.db.add_bank(self.creator_tax_user_id, cut)
+        self.stop()
+
+    async def apply_reveal(self, tile: int) -> str | None:
+        """Turn a tile over, settling the round if that decided it.
+
+        A board with nothing left worth pressing -- every safe tile turned
+        over, or the multiplier clamped to the cap -- cashes out on the
+        player's behalf rather than leaving a button up that can only lose.
+
+        Args:
+            tile: The tile pressed, counting left to right and top to bottom.
+
+        Returns:
+            ``None`` on success, or a message explaining the refusal.
+        """
+        if self._settled:
+            return "That round is already over."
+        if not self.game.can_reveal(tile):
+            return "That tile is already turned over."
+
+        if not self.game.reveal(tile):
+            await self.settle(multiplier=0.0)
+        elif self.game.exhausted:
+            self._cashed_out_multiplier = self.game.multiplier
+            await self.settle(multiplier=self.game.multiplier)
+        self._refresh_buttons()
+        return None
+
+    async def apply_cashout(self) -> str | None:
+        """Bank the multiplier the board has reached.
+
+        Returns:
+            ``None`` on success, or a message explaining the refusal.
+        """
+        if self._settled:
+            return "That round is already over."
+        if not self.game.revealed:
+            return "Turn over a tile first — there is nothing to cash out yet."
+
+        multiplier = self.game.multiplier
+        self._cashed_out_multiplier = multiplier
+        await self.settle(multiplier=multiplier)
+        self._refresh_buttons()
+        return None
+
+    # -------------------------------------------------------------- events --
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Let only the member who started the round press.
+
+        Args:
+            interaction: The button press.
+
+        Returns:
+            Whether the press should be handled.
+        """
+        if interaction.user.id == self.player.id:
+            return True
+        await interaction.response.send_message(
+            embed=embeds.error_embed("That is not your round."), ephemeral=True
+        )
+        return False
+
+    async def on_timeout(self) -> None:
+        """Settle a walked-away round instead of stranding the stake.
+
+        Cashing out rather than busting, because the player did nothing wrong
+        by stopping: every stopping rule meets the same edge, so paying one
+        out is not a concession. An untouched board is refunded outright.
+        """
+        if self._settled:
+            return
+        multiplier = mines.abandoned_multiplier(self.game)
+        self._cashed_out_multiplier = multiplier
+        await self.settle(multiplier=multiplier)
+        self._refresh_buttons()
+        if self.message is not None:
+            try:
+                await self.message.edit(embed=self.embed(), view=self)
+            except discord.HTTPException:
+                log.warning("Could not redraw a timed-out mines round", exc_info=True)
+
+    # ------------------------------------------------------------- buttons --
+
+    @discord.ui.button(
+        label="Cash Out",
+        style=discord.ButtonStyle.success,
+        custom_id="mines:cashout",
+        row=mines.ROWS,
+    )
+    async def cash_out(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[MinesView]
+    ) -> None:
+        """Bank what the board has reached."""
+        problem = await self.apply_cashout()
+        if problem is not None:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(problem), ephemeral=True
+            )
+            return
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+
+class _TileButton(discord.ui.Button["MinesView"]):
+    """One tile of the mines board.
+
+    Four to a row, four rows, leaving the fifth row for Cash Out.
+    """
+
+    def __init__(self, tile: int) -> None:
+        """Build the button for one tile.
+
+        Args:
+            tile: The tile, counting left to right and top to bottom.
+        """
+        super().__init__(
+            label=embeds.mines_label(mines.HIDDEN),
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"mines:tile:{tile}",
+            row=tile // mines.COLUMNS,
+        )
+        self.tile = tile
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        """Turn this tile over."""
+        view = self.view
+        assert view is not None  # noqa: S101 - a button always has its view
+        problem = await view.apply_reveal(self.tile)
+        if problem is not None:
+            await interaction.response.send_message(
+                embed=embeds.error_embed(problem), ephemeral=True
+            )
+            return
+        await interaction.response.edit_message(embed=view.embed(), view=view)
 
 
 class JackpotView(discord.ui.View):

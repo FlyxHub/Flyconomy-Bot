@@ -51,6 +51,7 @@ ADDED_COMMANDS = {
     "slots": ("slot",),
     "war": (),
     "crash": (),
+    "mines": (),
     "jackpot": ("jp",),
     "tictactoe": ("ttt",),
     "lottery": (),

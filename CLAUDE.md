@@ -114,6 +114,14 @@ deleted, the channel changed — reposts the guide whole rather than patching th
 `_is_reusable` is the single place that decision is made; editing in place is only safe when the
 stored rows line up exactly with the sections that exist now.
 
+**A section is capped at 2,000 characters, which is what actually limits adding a game.** Each
+section is one Discord message, so a section near the cap cannot absorb another paragraph. Adding
+mines pushed the casino section to 2,744 and the fix was to split it in two — the games, then what
+they cost — rather than to cut the explanation. The `N of M` numbering in the separators is
+decorative and `guide.load_sections` ignores it, so splitting needs no code change, but members
+read those numbers: renumber them anyway. A split also adds a section, which by the rule above
+reposts the guide whole rather than editing it.
+
 **The guide is prose, so only a test stops it lying.** `tests/test_guide.py` fails if a member
 command exists that the guide never names, or if a tuned figure (security and miner prices, max
 bet, daily cap, ticket price, starting bank, transfer tax) no longer appears in the text. Retuning
@@ -147,11 +155,15 @@ adding it to the guide in the same commit.
 - **Interactive components** live in `views.py`. Keep the button callbacks trivial: each one calls an
   `apply_*` coroutine that takes no `Interaction`, then redraws. **Discord caps an action row at
   five components**, and a select menu fills a row on its own — this is a hard API limit, not a
-  discord.py one, and dropping the embed does not change it. Design a board to that number rather
-  than against it: tic-tac-toe's nine squares are three rows of three, where the wrap *is* the
+  discord.py one, and dropping the embed does not change it. A message holds five such rows, so
+  25 components is the whole budget. Design a board to those numbers rather than against them:
+  tic-tac-toe's nine squares are three rows of three, where the wrap *is* the
   grid. A Connect 4 was built here and then removed over exactly this — seven columns wrapped two
   buttons onto a second row, and narrowing the board to five to fit made it a worse game than the
-  one people expected. Check a board's controls against the five before designing the board. That split is what lets
+  one people expected. Mines is the case where the budget set the board size outright: it is
+  played on 25 tiles everywhere else, but 25 buttons *is* all five rows, leaving nowhere for Cash
+  Out, so the board here is 4x4 and the fifth row is the button. A board's controls are part of
+  its budget — count them before designing the board. That split is what lets
   `tests/test_views.py` drive a whole hand against a real database with no gateway. A view that
   moves money must be idempotent — a click and a timeout can both reach it, so `BlackjackView.settle`
   guards with a `_settled` flag.
@@ -404,6 +416,27 @@ Three further layers, all in place because they cover different failure modes:
   `creator_tax_user_id` and is a perk, not a mechanic: the run is stored before
   the DM is attempted, and the cap above is what keeps the information from
   being worth anything.
+- **A game where the player picks when to stop needs a flat edge, not a good average.** Crash and
+  mines both hand the stopping decision to the player, so it is not enough that the game loses
+  money on average over some assumed behaviour: *every* stopping rule has to meet the same edge,
+  or the best one is a strategy, and a strategy on a game the house is meant to win is a faucet
+  with extra steps. Mines gets there the same way crash does, by paying
+  `(1 - HOUSE_EDGE) / P(survive)` — so turning over exactly `k` tiles returns 97% for every `k`
+  and every mine count, and the mine count buys variance rather than edge. `tests/test_mines.py`
+  enumerates all eight mine counts at every depth rather than sampling, and
+  `tests/test_antiabuse.py` restates the bound where the other games' are. A payout schedule that
+  is merely negative *on average* is not the same property and does not substitute.
+- **A player-chosen multiplier needs a cap, and the cap is not decoration.** Mines' schedule is
+  fair at every depth, which means a cleared eight-mine board fairly pays 12,484x — $1.2B at the
+  table limit, a fifth of the season's supply ceiling, from one press. `mines.MAX_MULTIPLIER`
+  (100x) is the whole bound on that, exactly as crash's 20x is on its tail, and the argument that
+  it is safe is the same one: clamping only ever pays a deep board *less* than fair, so it raises
+  the realized edge and can never push it negative. Two things follow. Because pressing past the
+  cap is strictly losing, `MinesView` cashes out on the player's behalf when a board reaches it
+  rather than leaving a button up that can only take money — a capped game has to stop being
+  playable at the cap, or the cap becomes a trap instead of a bound. And the game's *own* timeout
+  cashes out rather than busting, because the player choosing to stop is a stopping rule the edge
+  already covers, so honouring it concedes nothing; an untouched board is refunded outright.
 - **A defense may never become an immunity.** Wallet security lowers `rob`'s success rate and
   nothing else — the top level still lets one robbery in ten through, and `rob_success_percent`
   clamps a level off the end of the table back onto it. A wallet that cannot be robbed removes

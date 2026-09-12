@@ -123,6 +123,7 @@ module = [
     "tests.test_cog_behavior",
     "tests.test_admin_and_startup",
     "tests.test_views",
+    "tests.test_mines",
     "tests.test_antiabuse",
     "tests.test_lottery",
     "tests.test_jackpot",
