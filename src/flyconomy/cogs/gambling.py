@@ -308,6 +308,19 @@ class Gambling(BaseCog, name="Casino"):
         """Turn over tiles for a rising multiplier. Cash out before you hit a mine."""
         await self._stake(ctx, bet)
         game = mines_rules.Game.deal(bet, mines, self.rng)
+        # Logged at deal time, before a tile is pressed, so the board can be
+        # read while the round is still live. That is the point of it and also
+        # its whole cost: anyone reading the log during those
+        # DECISION_TIMEOUT_SECONDS plays a solved board -- every safe tile,
+        # then Cash Out -- which is the one way this game pays better than its
+        # 3% edge. Keep the log where only the host can see it.
+        log.info(
+            "mines board for %s: stake=%d mines=%s safe=%s",
+            ctx.author.id,
+            bet,
+            sorted(game.mine_tiles),
+            sorted(set(range(mines_rules.TILES)) - game.mine_tiles),
+        )
 
         view = MinesView(
             db=self.db,
