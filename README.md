@@ -356,7 +356,7 @@ Every game stakes money from your wallet.
 | `blackjack <bet>` | Deals a hand against the dealer, with buttons to hit, stand, or double down. Alias: `bj`. |
 | `crash <bet>` | A multiplier climbs from 1.00x. Press Cash Out before it crashes to lock in the payout. |
 | `mines <bet> [mines]` | Turn over tiles on a 4x4 board for a rising multiplier. One mine ends the round. Not to be confused with `mine`, which mines Flyxcoin. |
-| `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Alias: `slot`. |
+| `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Cooldown: 5 minutes. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 | `jackpot <ante>` | Antes into a shared pot that anyone can join for 60 seconds. One entrant wins it all. Alias: `jp`. |
 | `tictactoe [member] <bet>` | Challenges a member to best-of-three tic-tac-toe, or leaves the offer open to anyone. Alias: `ttt`. |

@@ -23,7 +23,7 @@ from flyconomy import blackjack, crash, economy, embeds, tictactoe
 from flyconomy import mines as mines_rules
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
-from flyconomy.errors import BetTooLargeError
+from flyconomy.errors import BetTooLargeError, FlyconomyError
 from flyconomy.views import (
     BlackjackView,
     CrashView,
@@ -210,10 +210,16 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send(f"You rolled a **{roll}**. You lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="slots", aliases=["slot"])  # type: ignore[arg-type]
+    @commands.cooldown(1, economy.SLOTS_COOLDOWN_SECONDS, commands.BucketType.user)
     @app_commands.describe(bet="Dollars to stake.")
     async def slots(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
         """Spin the slot machine. Three of a kind returns up to 55x your stake."""
-        await self._stake(ctx, bet)
+        try:
+            await self._stake(ctx, bet)
+        except FlyconomyError:
+            # A refused bet costs nothing, and that includes the cooldown.
+            ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
+            raise
         reels = economy.spin_slots(self.rng)
         multiplier = economy.slots_payout_multiplier(reels)
 

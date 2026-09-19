@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from discord.ext import commands
 
+from flyconomy import economy
 from flyconomy.bot import EXTENSIONS, FlyconomyBot, build_intents
 from flyconomy.config import Settings
 from flyconomy.database import Database
@@ -149,12 +150,21 @@ class TestAddedGames:
         assert bot.get_command("draw") is not None
         assert "draw" not in published
 
-    @pytest.mark.parametrize("name", sorted(ADDED_COMMANDS))
+    @pytest.mark.parametrize("name", sorted(set(ADDED_COMMANDS) - {"slots"}))
     async def test_the_new_games_have_no_cooldown(self, bot: FlyconomyBot, name: str):
         # Casino games are limited by the wallet, not by a timer.
         command = bot.get_command(name)
         assert command is not None
         assert command._buckets._cooldown is None
+
+    async def test_slots_has_its_own_cooldown(self, bot: FlyconomyBot):
+        # The exception: slots was being spammed, so it spins once a window.
+        command = bot.get_command("slots")
+        assert command is not None
+        cooldown = command._buckets._cooldown
+        assert cooldown is not None
+        assert (cooldown.rate, cooldown.per) == (1, economy.SLOTS_COOLDOWN_SECONDS)
+        assert economy.SLOTS_COOLDOWN_SECONDS == 5 * 60
 
 
 class TestAddedUtilities:

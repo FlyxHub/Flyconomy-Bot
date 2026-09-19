@@ -401,6 +401,12 @@ BEG_COOLDOWN_SECONDS: Final = 60
 MINE_COOLDOWN_SECONDS: Final = 60 * 60
 ROB_COOLDOWN_SECONDS: Final = 60 * 60
 
+#: Slots is the one game with a timer of its own. Its edge is negative like
+#: every other game's, so this is not what keeps it from printing money; it is
+#: there because members were spamming it, and a spin every five minutes turns
+#: it from a grind back into a game.
+SLOTS_COOLDOWN_SECONDS: Final = 5 * 60
+
 #: The daily payout has no cooldown because it is no longer claimed. It is paid
 #: to every account on a schedule, and bounded by :data:`DAILY_PAYOUT_CAP` once
 #: per calendar day -- see :data:`DAILY_PAYOUT_PERIOD_SECONDS`.
