@@ -165,6 +165,32 @@ class TestAdminCommands:
         assert "1 lottery entry" in ctx.last
         assert await db.lottery_entrants() == []
 
+    async def test_pot_sets_the_lottery_pot_outright(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.add_to_pot(20_000_000)
+
+        await cog.pot.callback(cog, ctx, 250_000)
+
+        assert (await db.lottery_state()).pot == 250_000
+        assert "$250,000" in ctx.last
+        assert "$20,000,000" in ctx.last
+
+    async def test_pot_can_empty_the_pot(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.add_to_pot(5_000)
+
+        await cog.pot.callback(cog, ctx, 0)
+
+        assert (await db.lottery_state()).pot == 0
+
+    async def test_the_pot_cannot_be_set_negative(self, db):
+        await db.add_to_pot(5_000)
+
+        with pytest.raises(ValueError):
+            await db.set_pot(-1)
+
+        assert (await db.lottery_state()).pot == 5_000
+
     async def test_purge_says_when_an_id_is_not_in_the_database(self, db, settings, ctx):
         cog = Admin(FakeAdminBot(db, settings))
 

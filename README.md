@@ -445,6 +445,7 @@ which is the wrong place to advertise a command nobody else can run.
 | `$purge <id>` | Deletes a user ID from every table, taking the ID itself or a mention. Use this for a row whose ID no longer resolves to a member, which `$reset` cannot take. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
+| `$pot <amount>` | Sets the lottery pot to an exact amount, and reports what it was. For cutting back a pot inflated by abuse. |
 | `$guide [repost]` | Publishes the member guide now instead of at the next restart. `repost` re-sends it, moving it to the bottom of the channel. |
 | `$market <bull\|bear\|neutral>` | Starts a Flyxcoin run on demand, or calls a running one off. Hidden from `$help` as well as owner-only; see [Steering the market](#steering-the-market). |
 

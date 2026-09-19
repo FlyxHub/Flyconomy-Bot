@@ -1109,6 +1109,30 @@ class Database:
                 row = await cursor.fetchone()
             return int(row["pot"]) if row else 0
 
+    async def set_pot(self, amount: int) -> int:
+        """Overwrite the pot, for the owner to undo a pot that grew by abuse.
+
+        The one write that sets the pot outright instead of adding to it. That
+        is safe only because it is an owner action: nothing a member does
+        reaches it, so "only a draw takes money out" still holds for members.
+
+        Args:
+            amount: The new pot, in dollars. Must not be negative.
+
+        Returns:
+            The pot as it stood before the change.
+
+        Raises:
+            ValueError: If ``amount`` is negative.
+        """
+        if amount < 0:
+            raise ValueError("the pot cannot be negative")
+        async with self._transaction() as db:
+            async with db.execute("SELECT pot FROM lottery WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+            await db.execute("UPDATE lottery SET pot = ? WHERE id = 1", (amount,))
+            return int(row["pot"]) if row else 0
+
     async def enter_lottery(self, user_id: int, price: int) -> bool:
         """Buy this member's single entry into the open draw.
 
