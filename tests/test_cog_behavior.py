@@ -430,7 +430,7 @@ class TestResetMe:
         await cog.resetme.callback(cog, ctx)
 
         assert "don't have an account" in ctx.last.lower()
-        assert await db.resets_in_cycle(ALICE, now=0.0) == 0
+        assert (await db.reset_account(ALICE, now=0.0)).resets == 1
 
     async def test_a_second_reset_is_allowed_and_seeds_half(self, db, settings, ctx):
         cog = make_economy(FakeBot(db, settings))
@@ -560,17 +560,6 @@ class TestDailyInterest:
 
         assert (await db.get_account(ALICE)).bank == 12_100
 
-    async def test_the_last_run_is_readable_afterwards(self, db, settings):
-        assert await db.last_daily_payout() is None
-        await db.add_bank(ALICE, 9_000)
-
-        await db.pay_daily_interest("2026-01-02", settings.max_daily_payout)
-        await db.pay_daily_interest("2026-01-03", settings.max_daily_payout)
-
-        last = await db.last_daily_payout()
-        assert last is not None
-        assert last.day == "2026-01-03"
-
     async def test_the_cog_pays_todays_interest_once(self, db, settings):
         cog = make_economy(FakeBot(db, settings))
         await db.add_bank(ALICE, 9_000)
@@ -657,7 +646,6 @@ class TestDailyInterestIsAnnounced:
         await cog.pay_daily_interest()
 
         assert (await db.get_account(ALICE)).bank == 11_000
-        assert (await db.last_daily_payout()) is not None
 
 
 class TestRob:

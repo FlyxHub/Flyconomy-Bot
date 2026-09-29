@@ -346,34 +346,26 @@ class TestLiveFlxPrice:
     async def test_a_new_database_starts_at_the_base_price(self, db: Database):
         assert await db.get_flx_price() == economy.FLX_PRICE
 
-    async def test_set_flx_price_updates_the_live_price(self, db: Database):
-        await db.set_flx_price(7_500)
-        assert await db.get_flx_price() == 7_500
-
-    async def test_a_non_positive_price_is_rejected(self, db: Database):
-        with pytest.raises(ValueError, match="must be positive"):
-            await db.set_flx_price(0)
-
     async def test_buying_charges_the_live_price(self, db: Database):
-        await db.set_flx_price(5_000)
+        await db.set_market(economy.MarketState(price=5_000))
         await db.add_bank(ALICE, 15_000)
         cost = await db.buy_crypto(ALICE, 3, DAY, 100)
         assert cost == 15_000
         assert (await db.get_account(ALICE)).crypto == 3
 
     async def test_selling_credits_the_live_price(self, db: Database):
-        await db.set_flx_price(20_000)
+        await db.set_market(economy.MarketState(price=20_000))
         await db.add_crypto(ALICE, 2)
         proceeds = await db.sell_crypto(ALICE, 2)
         assert proceeds == 40_000
 
     async def test_get_account_reports_the_price_it_was_read_at(self, db: Database):
-        await db.set_flx_price(6_000)
+        await db.set_market(economy.MarketState(price=6_000))
         assert (await db.get_account(ALICE)).flx_price == 6_000
 
     async def test_net_worth_reflects_the_live_price(self, db: Database):
         await db.add_crypto(ALICE, 2)
-        await db.set_flx_price(6_000)
+        await db.set_market(economy.MarketState(price=6_000))
         account = await db.get_account(ALICE)
         assert account.net_worth == economy.STARTING_BANK + 12_000
 
@@ -573,7 +565,7 @@ class TestLeaderboards:
 
     async def test_net_worth_ranking_uses_the_live_price(self, db: Database):
         await db.add_crypto(ALICE, 2)
-        await db.set_flx_price(6_000)
+        await db.set_market(economy.MarketState(price=6_000))
         entries = await db.top_net_worth()
         assert entries[0].amount == economy.STARTING_BANK + 12_000
 
@@ -693,15 +685,6 @@ class TestSelfReset:
         outcome = await db.reset_account(ALICE, now=0.0)
         assert outcome.next_seed == economy.STARTING_BANK // 2
 
-    async def test_the_live_chain_length_expires_on_its_own(self, db):
-        await db.reset_account(ALICE, now=0.0)
-
-        assert await db.resets_in_cycle(ALICE, now=60.0) == 1
-        assert await db.resets_in_cycle(ALICE, now=economy.RESET_CYCLE_SECONDS) == 0
-
-    async def test_a_member_who_never_reset_holds_no_chain(self, db):
-        assert await db.resets_in_cycle(ALICE, now=0.0) == 0
-
     async def test_the_history_survives_a_reopen(self, db_path):
         database = await Database.connect(db_path)
         try:
@@ -712,7 +695,6 @@ class TestSelfReset:
         reopened = await Database.connect(db_path)
         try:
             # A restart must not hand back a full stake; the chain is on disk.
-            assert await reopened.resets_in_cycle(ALICE, now=60.0) == 1
             assert (await reopened.reset_account(ALICE, now=60.0)).seed == 500
         finally:
             await reopened.close()
@@ -723,8 +705,8 @@ class TestSelfReset:
 
         await db.reset_account(ALICE, now=0.0)
 
-        assert await db.resets_in_cycle(BOB, now=0.0) == 1
         assert (await db.get_account(BOB)).bank == economy.STARTING_BANK
+        assert (await db.reset_account(BOB, now=0.0)).resets == 2
 
     async def test_a_reset_refunds_an_opponent_the_way_a_purge_does(self, db):
         await db.add_wallet(ALICE, 5_000)
@@ -742,20 +724,11 @@ class TestSelfReset:
 
         await db.purge_user(ALICE)
 
-        assert await db.resets_in_cycle(ALICE, now=0.0) == 0
         assert (await db.get_account(ALICE)).bank == economy.STARTING_BANK
+        assert (await db.reset_account(ALICE, now=0.0)).resets == 1
 
 
 class TestLifecycle:
-    async def test_the_database_works_as_a_context_manager(self, db_path):
-        async with await Database.connect(db_path) as database:
-            await database.get_account(ALICE)
-        reopened = await Database.connect(db_path)
-        try:
-            assert (await reopened.find_account(ALICE)) is not None
-        finally:
-            await reopened.close()
-
     async def test_the_parent_directory_is_created(self, tmp_path):
         path = tmp_path / "nested" / "deeper" / "bot.db"
         database = await Database.connect(path)

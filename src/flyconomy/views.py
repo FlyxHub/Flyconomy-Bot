@@ -25,7 +25,31 @@ from flyconomy.ratelimit import SlidingWindowLimiter
 log = logging.getLogger(__name__)
 
 
-class BlackjackView(discord.ui.View):
+class _PlayerView(discord.ui.View):
+    """A view only its own player may press, which every one-player game is."""
+
+    player: discord.abc.User
+    #: What to call the game when someone else presses, as in "not your hand".
+    _owned: str = "round"
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Let only the player press, and tell anyone else why nothing happened.
+
+        Args:
+            interaction: The button press.
+
+        Returns:
+            Whether the press should be handled.
+        """
+        if interaction.user.id == self.player.id:
+            return True
+        await interaction.response.send_message(
+            embed=embeds.error_embed(f"That is not your {self._owned}."), ephemeral=True
+        )
+        return False
+
+
+class BlackjackView(_PlayerView):
     """Hit, stand, and double-down buttons for one hand of blackjack.
 
     The view owns settling the hand, and guards against paying out twice if a
@@ -36,6 +60,8 @@ class BlackjackView(discord.ui.View):
         message: The message the buttons live on, set by the caller after
             sending so the timeout can redraw it.
     """
+
+    _owned = "hand"
 
     def __init__(
         self,
@@ -163,22 +189,6 @@ class BlackjackView(discord.ui.View):
 
     # -------------------------------------------------------------- events --
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Let only the member who was dealt the hand press the buttons.
-
-        Args:
-            interaction: The button press.
-
-        Returns:
-            Whether the press should be handled.
-        """
-        if interaction.user.id == self.player.id:
-            return True
-        await interaction.response.send_message(
-            embed=embeds.error_embed("That is not your hand."), ephemeral=True
-        )
-        return False
-
     async def on_timeout(self) -> None:
         """Stand automatically so a walked-away hand still pays out."""
         if self.game.finished:
@@ -230,7 +240,7 @@ class BlackjackView(discord.ui.View):
         await self._redraw(interaction)
 
 
-class CrashView(discord.ui.View):
+class CrashView(_PlayerView):
     """A single Cash Out button on a round of crash.
 
     The round's outcome is always computed from elapsed wall-clock time, via
@@ -393,22 +403,6 @@ class CrashView(discord.ui.View):
 
     # -------------------------------------------------------------- events --
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Let only the member who started the round press the button.
-
-        Args:
-            interaction: The button press.
-
-        Returns:
-            Whether the press should be handled.
-        """
-        if interaction.user.id == self.player.id:
-            return True
-        await interaction.response.send_message(
-            embed=embeds.error_embed("That is not your round."), ephemeral=True
-        )
-        return False
-
     async def on_timeout(self) -> None:
         """Force a bust so a walked-away round still settles.
 
@@ -450,7 +444,7 @@ class CrashView(discord.ui.View):
         await self._redraw(interaction)
 
 
-class MinesView(discord.ui.View):
+class MinesView(_PlayerView):
     """A board of mines tiles, plus a Cash Out button.
 
     Sixteen tiles in four rows of four, with Cash Out alone on the fifth: the
@@ -613,22 +607,6 @@ class MinesView(discord.ui.View):
         return None
 
     # -------------------------------------------------------------- events --
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Let only the member who started the round press.
-
-        Args:
-            interaction: The button press.
-
-        Returns:
-            Whether the press should be handled.
-        """
-        if interaction.user.id == self.player.id:
-            return True
-        await interaction.response.send_message(
-            embed=embeds.error_embed("That is not your round."), ephemeral=True
-        )
-        return False
 
     async def on_timeout(self) -> None:
         """Settle a walked-away round instead of stranding the stake.

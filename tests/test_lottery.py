@@ -164,19 +164,13 @@ class TestEntry:
 
         assert await db.lottery_entrants() == sorted([ALICE, BOB, CAROL])
 
-    async def test_has_entered_reports_membership(self, db):
-        await db.add_bank(ALICE, 50_000)
-        assert await db.has_entered(ALICE) is False
-        await db.enter_lottery(ALICE, PRICE)
-        assert await db.has_entered(ALICE) is True
-
     async def test_resetting_an_entrant_removes_them_from_the_draw(self, db):
         await db.add_bank(ALICE, 50_000)
         await db.enter_lottery(ALICE, PRICE)
 
         await db.delete_account(ALICE)
 
-        assert await db.has_entered(ALICE) is False
+        assert await db.lottery_entrants() == []
         assert (await db.lottery_state()).entrants == 0
 
 

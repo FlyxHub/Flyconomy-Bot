@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flyconomy-bot"
-version = "2.0.0"
+dynamic = ["version"]
 description = "A Discord economy bot with banking, Flyxcoin mining, and casino games."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -39,6 +39,9 @@ flyconomy-bot = "flyconomy.__main__:main"
 
 [project.urls]
 Repository = "https://github.com/JakeHochstatter/Flyconomy-Bot"
+
+[tool.hatch.version]
+path = "src/flyconomy/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 # Ships every file under the package, not just the Python: the economy

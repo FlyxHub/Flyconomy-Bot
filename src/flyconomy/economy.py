@@ -324,25 +324,6 @@ def chained_resets(recorded: int, last_reset: float | None, now: float) -> int:
     return recorded
 
 
-def reset_cycle_expires_in(last_reset: float | None, now: float) -> float:
-    """Return the seconds until the seed goes back to the full stake.
-
-    The chain breaks a whole cycle after the member's last reset, and their
-    next one is then seeded :data:`STARTING_BANK` again.
-
-    Args:
-        last_reset: Unix timestamp of their last self-reset, or ``None``.
-        now: The current unix timestamp.
-
-    Returns:
-        Seconds until the full seed is available again, or ``0.0`` when it
-        already is. Never negative, so an odd clock reads as "available".
-    """
-    if last_reset is None:
-        return 0.0
-    return max(0.0, RESET_CYCLE_SECONDS - (now - last_reset))
-
-
 # -------------------------------------------------------------- transfers ---
 
 #: Share of a member-to-member cash transfer withheld as tax.

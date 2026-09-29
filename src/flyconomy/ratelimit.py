@@ -109,10 +109,6 @@ class SlidingWindowLimiter:
         hits.append(moment)
         return 0.0
 
-    def reset(self, key: int) -> None:
-        """Forget a key's history, letting it act immediately."""
-        self._hits.pop(key, None)
-
     def prune(self, now: float | None = None) -> int:
         """Drop keys whose windows have fully expired.
 

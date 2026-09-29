@@ -568,16 +568,6 @@ class TestSelfReset:
         chained = economy.chained_resets(3, last, last + economy.RESET_CYCLE_SECONDS)
         assert economy.reset_seed(chained) == economy.STARTING_BANK
 
-    def test_the_wait_for_a_full_stake_counts_down_from_the_last_reset(self):
-        remaining = economy.reset_cycle_expires_in(last_reset=100.0, now=1_000.0)
-        assert remaining == economy.RESET_CYCLE_SECONDS - 900
-
-    def test_someone_who_has_never_reset_waits_for_nothing(self):
-        assert economy.reset_cycle_expires_in(None, now=1_000.0) == 0
-
-    def test_a_clock_that_moved_backwards_does_not_extend_the_wait(self):
-        assert economy.reset_cycle_expires_in(last_reset=5_000.0, now=1_000.0) >= 0
-
 
 class TestMining:
     def test_no_miner_never_yields(self):

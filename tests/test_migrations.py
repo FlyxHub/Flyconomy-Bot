@@ -83,7 +83,6 @@ async def test_a_version_1_database_gains_an_empty_reset_history(db_path):
 
     database = await Database.connect(db_path)
     try:
-        assert await database.resets_in_cycle(ALICE, now=0.0) == 0
         outcome = await database.reset_account(ALICE, now=0.0)
     finally:
         await database.close()

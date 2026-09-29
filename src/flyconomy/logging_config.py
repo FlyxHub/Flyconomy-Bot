@@ -18,13 +18,10 @@ def configure_logging(level: str = "INFO") -> None:
     Args:
         level: Root log level name, such as ``"INFO"``.
     """
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATE_FORMAT))
-
+    logging.basicConfig(
+        level=level, format=_FORMAT, datefmt=_DATE_FORMAT, stream=sys.stdout, force=True
+    )
     root = logging.getLogger()
-    root.handlers.clear()
-    root.addHandler(handler)
-    root.setLevel(level)
 
     # discord.py logs every gateway heartbeat at DEBUG, which drowns out our own
     # messages when the root level is lowered for troubleshooting.

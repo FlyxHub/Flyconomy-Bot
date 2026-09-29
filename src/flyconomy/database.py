@@ -302,14 +302,6 @@ class Database:
             await self._reader.close()
         await self._db.close()
 
-    async def __aenter__(self) -> Self:
-        """Enter the context manager."""
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        """Close the database on exit."""
-        await self.close()
-
     @asynccontextmanager
     async def _transaction(self) -> AsyncIterator[aiosqlite.Connection]:
         """Run a block inside one immediate transaction, rolling back on error."""
@@ -430,21 +422,6 @@ class Database:
         if row is None:  # pragma: no cover - migration 4 guarantees the row
             return economy.FLX_PRICE
         return int(row["price"])
-
-    async def set_flx_price(self, price: int) -> None:
-        """Set the live Flyxcoin price. Used by the scheduled market tick.
-
-        Args:
-            price: The new price. Must be positive.
-
-        Raises:
-            ValueError: If ``price`` is not positive.
-        """
-        if price <= 0:
-            msg = "price must be positive"
-            raise ValueError(msg)
-        async with self._transaction() as db:
-            await db.execute("UPDATE market SET price = ? WHERE id = 1", (price,))
 
     async def get_market(self) -> economy.MarketState:
         """Return the whole market state: price, regime, and run length left.
@@ -1058,18 +1035,6 @@ class Database:
             )
             return DailyPayout(day=day, accounts=len(payments), total=total)
 
-    async def last_daily_payout(self) -> DailyPayout | None:
-        """Return the most recent day's interest run, or ``None`` if never run."""
-        async with self._reader.execute(
-            "SELECT day, accounts, total FROM daily_payouts ORDER BY day DESC LIMIT 1"
-        ) as cursor:
-            row = await cursor.fetchone()
-        if row is None:
-            return None
-        return DailyPayout(
-            day=str(row["day"]), accounts=int(row["accounts"]), total=int(row["total"])
-        )
-
     # ------------------------------------------------------------- lottery --
 
     async def lottery_state(self) -> LotteryState:
@@ -1185,15 +1150,6 @@ class Database:
         ) as cursor:
             rows = await cursor.fetchall()
         return [int(row["user"]) for row in rows]
-
-    async def has_entered(self, user_id: int) -> bool:
-        """Return whether a member is already in the open draw."""
-        state = await self.lottery_state()
-        async with self._reader.execute(
-            "SELECT 1 FROM lottery_entries WHERE draw = ? AND user = ?",
-            (state.draw, user_id),
-        ) as cursor:
-            return await cursor.fetchone() is not None
 
     async def award_lottery(self, winner_id: int) -> int:
         """Pay the pot to a winner and open the next draw.
@@ -1614,29 +1570,6 @@ class Database:
                 next_seed=economy.reset_seed(chained + 1),
                 full_seed_in=economy.RESET_CYCLE_SECONDS,
             )
-
-    async def resets_in_cycle(self, user_id: int, now: float) -> int:
-        """Return how many consecutive self-resets a member currently holds.
-
-        Reads as zero once the chain has expired, which is the number the seed
-        schedule uses -- the stored count is left alone until the next reset
-        rewrites it, so it is not the answer on its own.
-
-        Args:
-            user_id: The member's Discord snowflake.
-            now: The current unix timestamp.
-
-        Returns:
-            The live chain length, zero if they have never reset or their last
-            reset is older than :data:`economy.RESET_CYCLE_SECONDS`.
-        """
-        async with self._reader.execute(
-            "SELECT count, last_reset FROM resets WHERE user = ?", (user_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-        if row is None:
-            return 0
-        return economy.chained_resets(int(row["count"]), float(row["last_reset"]), now)
 
     async def purge_user(self, user_id: int) -> PurgeResult:
         """Remove every trace of a member from the database.

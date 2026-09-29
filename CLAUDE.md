@@ -255,8 +255,8 @@ Three further layers, all in place because they cover different failure modes:
   `ensure_account`, which would hand back the full starting bank on the member's next command. And
   the `resets` row is the one thing a self-reset does not delete, since a counter the reset clears
   always reads zero — it stores the *current chain length*, not a lifetime total, and
-  `resets_in_cycle` applies the expiry on read because the stored row is stale until the next reset
-  rewrites it. `purge_user` does clear it — that is the staff path, and a moderator undoing
+  `economy.chained_resets` applies the expiry on read because the stored row is stale until the next
+  reset rewrites it. `purge_user` does clear it — that is the staff path, and a moderator undoing
   something is not a member working the schedule.
 - **A shared rate limit,** in `BaseCog.cog_check` over `ratelimit.SlidingWindowLimiter`. Deliberately
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover

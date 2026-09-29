@@ -95,15 +95,6 @@ class TestInspection:
             limiter.retry_after(key, now=0)
         assert limiter.tracked == 0
 
-    def test_resetting_restores_the_budget(self):
-        limiter = SlidingWindowLimiter(rate=1, per=10)
-        limiter.acquire(ALICE, now=0)
-        limiter.reset(ALICE)
-        assert limiter.acquire(ALICE, now=0) == 0.0
-
-    def test_resetting_an_unknown_member_is_harmless(self):
-        SlidingWindowLimiter(rate=1, per=10).reset(ALICE)
-
 
 class TestMemory:
     def test_pruning_drops_idle_members(self):
