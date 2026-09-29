@@ -150,16 +150,7 @@ class Admin(BaseCog, name="Admin"):
     async def pot(
         self, ctx: commands.Context[FlyconomyBot], amount: commands.Range[int, 0]
     ) -> None:
-        """Set the lottery pot to an exact amount.
-
-        For cutting back a pot that was inflated by abuse. It sets the figure
-        rather than adjusting it, so the owner can name the pot they want
-        without first looking up the one there is.
-
-        Args:
-            ctx: Invocation context.
-            amount: The new pot, in dollars.
-        """
+        """Set the lottery pot to an exact amount, and report what it was."""
         before = await self.db.set_pot(amount)
         await ctx.send(f"Lottery pot set to {embeds.money(amount)} (was {embeds.money(before)}).")
 

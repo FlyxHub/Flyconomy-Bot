@@ -1126,7 +1126,8 @@ class Database:
             ValueError: If ``amount`` is negative.
         """
         if amount < 0:
-            raise ValueError("the pot cannot be negative")
+            msg = "the pot cannot be negative"
+            raise ValueError(msg)
         async with self._transaction() as db:
             async with db.execute("SELECT pot FROM lottery WHERE id = 1") as cursor:
                 row = await cursor.fetchone()

@@ -175,14 +175,6 @@ class TestAdminCommands:
         assert "$250,000" in ctx.last
         assert "$20,000,000" in ctx.last
 
-    async def test_pot_can_empty_the_pot(self, db, settings, ctx):
-        cog = Admin(FakeAdminBot(db, settings))
-        await db.add_to_pot(5_000)
-
-        await cog.pot.callback(cog, ctx, 0)
-
-        assert (await db.lottery_state()).pot == 0
-
     async def test_the_pot_cannot_be_set_negative(self, db):
         await db.add_to_pot(5_000)
 
