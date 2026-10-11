@@ -1532,6 +1532,10 @@ class MatchChallengeView(discord.ui.View):
         """
         if self._answered:
             return "That challenge is no longer open."
+        if self._lock.locked():
+            # An accept is staking both sides right now; withdrawing under it
+            # would report "nothing was staked" for a match about to start.
+            return "Someone is accepting that challenge right now."
         if user.id != self.challenger.id and (
             self.challenged is None or user.id != self.challenged.id
         ):
@@ -1610,11 +1614,13 @@ class MatchChallengeView(discord.ui.View):
         """Withdraw the challenge once it has gone unanswered for long enough.
 
         Nothing was staked, so nothing goes back; this only takes the live
-        button off a stale offer.
+        button off a stale offer. An accept still staking when the timer runs
+        out is waited for, so a match it starts is not drawn over as lapsed.
         """
-        if self._answered:
-            return
-        self._answered = True
+        async with self._lock:
+            if self._answered:
+                return
+            self._answered = True
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
@@ -1643,7 +1649,13 @@ class MatchChallengeView(discord.ui.View):
             return
 
         assert self.match is not None  # noqa: S101 - set by a successful accept
-        await interaction.response.edit_message(embed=self.match.embed(), view=self.match)
+        try:
+            await interaction.response.edit_message(embed=self.match.embed(), view=self.match)
+        except discord.HTTPException:
+            # The board never reached anyone, and a match view only times out
+            # once it is posted, so call it off rather than hold both stakes.
+            await self.match.settle()
+            raise
         self.match.message = self.message
 
     @discord.ui.button(

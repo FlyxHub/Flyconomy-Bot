@@ -280,6 +280,26 @@ class TestChallenge:
         assert (await db.get_account(ALICE)).wallet == 5_000
         assert (await db.get_account(BOB)).wallet == 5_000
 
+    async def test_neither_a_withdrawal_nor_a_lapse_lands_under_a_live_accept(self, db):
+        # Both used to report "nothing was staked" while the accept went on to
+        # stake both sides; the lapse could even draw over the live board.
+        await db.add_wallet(ALICE, 5_000)
+        await db.add_wallet(BOB, 5_000)
+        view = make_challenge(db)
+
+        async with db._lock:  # the escrow is still committing
+            accept = asyncio.create_task(view.apply_accept(bob()))
+            await asyncio.sleep(0)
+            assert view.apply_decline(alice()) is not None
+            lapse = asyncio.create_task(view.on_timeout())
+            await asyncio.sleep(0)
+
+        assert await accept is None
+        await lapse
+        assert view.declined_by is None
+        assert view.match is not None
+        assert "lapsed" not in (view.embed().description or "")
+
     async def test_a_challenge_nobody_can_cover_names_the_short_player(self, db):
         await db.add_wallet(ALICE, 5_000)
         view = make_challenge(db)
