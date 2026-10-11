@@ -18,6 +18,7 @@
     --glass: rgba(95, 212, 255, .035);
     --frame: rgba(95, 212, 255, .16);
     --grid: rgba(95, 212, 255, .07);
+    --bg-grid: rgba(95, 212, 255, .05);
     --holo: #5fd4ff;
     --holo-dim: #2b7194;
     --text: #d4f1ff;
@@ -41,15 +42,27 @@
     background:
       radial-gradient(900px 600px at 18% 8%, rgba(95, 212, 255, .10), transparent 70%),
       radial-gradient(700px 500px at 90% 100%, rgba(43, 113, 148, .12), transparent 70%),
-      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
       var(--void);
+  }
+  /* The backdrop grid lives on its own layer so it can be softened: dim,
+     slightly out of focus, and faded out behind the data in the middle. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px) 0 0 / 48px 48px,
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px) 0 0 / 48px 48px;
+    filter: blur(1.2px);
+    mask-image: radial-gradient(ellipse 75% 70% at 50% 45%, transparent 20%, #000 100%);
   }
   button { font: inherit; color: inherit; }
   :focus-visible { outline: 1px solid var(--amber); outline-offset: 3px; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   .hud {
+    position: relative;
     max-width: 1320px;
     margin: 0 auto;
     padding: 22px 28px 56px;
