@@ -32,6 +32,7 @@ EXTENSIONS: Final[tuple[str, ...]] = (
     "flyconomy.cogs.lottery",
     "flyconomy.cogs.guide",
     "flyconomy.cogs.admin",
+    "flyconomy.cogs.api",
 )
 
 #: A command that took at least this long, start to finish, gets logged. Slow

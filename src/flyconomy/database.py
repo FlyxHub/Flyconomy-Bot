@@ -32,7 +32,7 @@ from flyconomy.errors import DailyBuyLimitError, InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 11
+SCHEMA_VERSION: Final = 12
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -40,6 +40,11 @@ _BALANCE_COLUMNS: Final[frozenset[str]] = frozenset({"wallet", "bank", "crypto"}
 
 #: Cash columns that money can be moved between.
 _CASH_COLUMNS: Final[frozenset[str]] = frozenset({"wallet", "bank"})
+
+#: How far apart balance snapshots are kept, in seconds. An hour, less one
+#: market tick's worth of slack: ticks drift by a fraction of a second, and an
+#: exact hour would let that drift push every snapshot one tick later.
+_BALANCE_SNAPSHOT_SECONDS: Final = 60 * 60 - economy.FLX_TICK_MINUTES * 60 // 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +172,21 @@ class LeaderboardEntry:
 
     user_id: int
     amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class NetWorthPoint:
+    """One member's net worth at one recorded moment.
+
+    Attributes:
+        at: Unix time of the snapshot.
+        user_id: The member's Discord snowflake.
+        net_worth: Wallet, bank, and Flyxcoin at that moment's price.
+    """
+
+    at: int
+    user_id: int
+    net_worth: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,6 +492,53 @@ class Database:
                 "UPDATE market SET price = ?, regime = ?, regime_ticks = ? WHERE id = 1",
                 (state.price, state.regime, state.ticks_left),
             )
+
+    async def record_history(self, at: int, price: int) -> None:
+        """Record the Flyxcoin price, and every balance once an hour.
+
+        Called by the market tick, which is the bot's only steady clock. The
+        price is kept every tick because a run lasts about an hour and an hourly
+        price would show it as two points. Balances are kept hourly because
+        there is a row per member rather than one, and they share this moment's
+        ``at`` with the price, so a snapshot's net worth is always computed at
+        the price it was taken under.
+
+        Args:
+            at: Unix time of the tick.
+            price: The price the tick left.
+        """
+        async with self._transaction() as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO price_history (at, price) VALUES (?, ?)", (at, price)
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO balance_history (at, user, wallet, bank, crypto) "
+                "SELECT ?, user, wallet, bank, crypto FROM bank "
+                "WHERE ? >= (SELECT COALESCE(MAX(at), 0) FROM balance_history) + ?",
+                (at, at, _BALANCE_SNAPSHOT_SECONDS),
+            )
+
+    async def price_history(self, since: int) -> list[tuple[int, int]]:
+        """Return every recorded ``(at, price)`` from ``since`` on, oldest first."""
+        async with self._reader.execute(
+            "SELECT at, price FROM price_history WHERE at >= ? ORDER BY at", (since,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [(int(row["at"]), int(row["price"])) for row in rows]
+
+    async def net_worth_history(self, since: int) -> list[NetWorthPoint]:
+        """Return every balance snapshot from ``since`` on, oldest first."""
+        async with self._reader.execute(
+            "SELECT b.at, b.user, b.wallet + b.bank + b.crypto * p.price AS net_worth "
+            "FROM balance_history AS b JOIN price_history AS p USING (at) "
+            "WHERE b.at >= ? ORDER BY b.at, b.user",
+            (since,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [
+            NetWorthPoint(at=int(row["at"]), user_id=int(row["user"]), net_worth=row["net_worth"])
+            for row in rows
+        ]
 
     async def coins_bought_today(self, day: str, user_id: int) -> int:
         """Return how much Flyxcoin a member has already bought on ``day``.
@@ -1596,6 +1663,10 @@ class Database:
         did nothing wrong, and there is no longer an account to award it
         against.
 
+        Their balance history goes too, which a self-reset keeps: a reset is
+        something the member did and belongs on the graph, while a purge is
+        a moderator erasing an id.
+
         The day's Flyxcoin purchases go with the account, for the same reason
         the ``resets`` row does: this is the staff path, and a moderator undoing
         something is not a member working the schedule. ``reset_account`` shares
@@ -1619,6 +1690,7 @@ class Database:
         async with self._transaction() as db:
             await db.execute("DELETE FROM resets WHERE user = ?", (user_id,))
             await db.execute("DELETE FROM flx_purchases WHERE user = ?", (user_id,))
+            await db.execute("DELETE FROM balance_history WHERE user = ?", (user_id,))
             return await self._purge_on(db, user_id)
 
     async def _purge_on(self, db: aiosqlite.Connection, user_id: int) -> PurgeResult:
@@ -1940,6 +2012,32 @@ async def _migration_11_market_regime(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_12_history(db: aiosqlite.Connection) -> None:
+    """Add the price and balance history the dashboard graphs.
+
+    The ``bank`` table is untouched. Nothing before this migration kept any
+    history, so both tables start empty and the graphs begin on the day it runs.
+    ``balance_history`` is keyed by time first because every read is a time
+    range across all members; the one query by member is a moderator's purge.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS price_history ("
+        "  at INTEGER PRIMARY KEY,"
+        "  price INTEGER NOT NULL"
+        ")"
+    )
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS balance_history ("
+        "  at INTEGER NOT NULL,"
+        "  user INTEGER NOT NULL,"
+        "  wallet INTEGER NOT NULL,"
+        "  bank INTEGER NOT NULL,"
+        "  crypto INTEGER NOT NULL,"
+        "  PRIMARY KEY (at, user)"
+        ") WITHOUT ROWID"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -1952,4 +2050,5 @@ _MIGRATIONS: Final = {
     9: _migration_9_resets,
     10: _migration_10_daily_payouts,
     11: _migration_11_market_regime,
+    12: _migration_12_history,
 }

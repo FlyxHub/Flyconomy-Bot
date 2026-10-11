@@ -14,6 +14,7 @@ for why a run needs state rather than just a wider shock.
 from __future__ import annotations
 
 import logging
+import time
 
 import discord
 from discord.ext import tasks
@@ -58,6 +59,9 @@ class Market(BaseCog, name="Market"):
                     name=f"FLX: {embeds.flx_ticker(state.price, previous.price)}",
                 )
             )
+            # Last, so a history write that fails costs the graph a point
+            # rather than costing members the status update.
+            await self.db.record_history(int(time.time()), state.price)
         except Exception:
             # A failed tick must not kill the loop, or the price freezes.
             log.exception("Flyxcoin price tick failed; will try again next interval")

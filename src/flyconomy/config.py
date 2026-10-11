@@ -156,6 +156,21 @@ class Settings(BaseSettings):
             "so set this while developing. Leave unset in production to sync globally."
         ),
     )
+    api_token: Annotated[SecretStr, Field(min_length=16)] | None = Field(
+        default=None,
+        description=(
+            "Shared secret for the dashboard API. Unset, the API does not "
+            "start at all. The API can steer the market, so this is the only "
+            "thing standing between whoever can reach the port and a run."
+        ),
+    )
+    api_host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Interface the dashboard API listens on. The Compose service sets "
+            "0.0.0.0 inside the container and leaves exposure to its port mapping."
+        ),
+    )
     # NoDecode stops pydantic-settings from trying to read this as JSON, which
     # lets the validator below accept a plain comma-separated list.
     always_mine_user_ids: Annotated[frozenset[int], NoDecode] = Field(
@@ -171,6 +186,7 @@ class Settings(BaseSettings):
         "creator_tax_user_id",
         "lottery_announce_channel_id",
         "guide_channel_id",
+        "api_token",
         mode="before",
     )
     @classmethod

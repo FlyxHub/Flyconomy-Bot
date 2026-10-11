@@ -16,6 +16,9 @@ services:
     environment:
       # Overrides .env so the database always lands on the volume below.
       FLYCONOMY_DATABASE_PATH: /data/bot.db
+      # The dashboard API has to listen on every interface *inside* the
+      # container; what the host actually exposes is the port mapping below.
+      FLYCONOMY_API_HOST: 0.0.0.0
     volumes:
       - flyconomy-data:/data
     # Docker's embedded resolver (127.0.0.11) forwards to whatever DNS server
@@ -25,7 +28,13 @@ services:
     dns:
       - 1.1.1.1
       - 1.0.0.1
-    # The bot only makes outbound connections, so it needs no published ports.
+    # The dashboard API, which stays silent until FLYCONOMY_API_TOKEN is set.
+    # Published on the host's loopback only, so reaching it from another
+    # machine takes an SSH tunnel unless FLYCONOMY_API_BIND (read from .env)
+    # names an interface. It can steer the market: never bind it to one that
+    # faces the internet.
+    ports:
+      - "${FLYCONOMY_API_BIND:-127.0.0.1}:8765:8765"
     stop_grace_period: 30s
     logging:
       driver: json-file

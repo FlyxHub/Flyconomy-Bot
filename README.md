@@ -14,6 +14,7 @@ classic prefix command, such as `$balance`.
 - [Create a Discord application](#create-a-discord-application)
 - [Set up the bot on Windows](#set-up-the-bot-on-windows)
 - [Deploy the bot with Docker Compose](#deploy-the-bot-with-docker-compose)
+- [Run the owner's dashboard](#run-the-owners-dashboard)
 - [Upgrade from version 1](#upgrade-from-version-1)
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
@@ -248,6 +249,51 @@ SQLite in write-ahead logging mode keeps recent writes in a `bot.db-wal` file
 alongside the database. Stopping the bot first, as in the preceding commands,
 checkpoints that file so the copy is complete.
 
+## Run the owner's dashboard
+
+The dashboard is a web page for you, the owner. It shows the Flyxcoin price
+and every member's net worth over time, the leaderboards, and the lottery pot,
+and it has buttons that do what `$market bull|bear|neutral` does. It is not
+for members: it names the market's regime, which nothing member-facing does.
+
+There are two halves, and they can run on different machines:
+
+- **The bot** records history and serves a small JSON API on port 8765. The
+  API needs a token on every request and stays off until
+  `FLYCONOMY_API_TOKEN` is set.
+- **The dashboard** runs on your own PC. It serves the page at
+  `http://127.0.0.1:8766` and forwards the page's requests to the bot, adding
+  the token. The token never reaches the browser.
+
+1. Generate a token:
+
+   ```powershell
+   .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+2. On the bot host, add it to `.env` as `FLYCONOMY_API_TOKEN`, then run
+   `./scripts/deploy.sh`. Compose publishes the API on the host's loopback
+   only.
+3. On your PC, add the same `FLYCONOMY_API_TOKEN` to `.env`. Then make the
+   bot's API reachable at `FLYCONOMY_DASHBOARD_API_URL`, the default being
+   `http://127.0.0.1:8765`, in one of two ways:
+   - **SSH tunnel.** Nothing new is exposed on your network. Keep this
+     running while you use the dashboard:
+     `ssh -N -L 8765:127.0.0.1:8765 you@bot-host`
+   - **LAN.** Set `FLYCONOMY_API_BIND` on the bot host to its LAN address and
+     redeploy. Then point `FLYCONOMY_DASHBOARD_API_URL` on your PC at
+     `http://<that address>:8765`. Plain HTTP carries the token, so do this
+     only on a network you trust.
+4. Run `.\scripts\dashboard.ps1` and open `http://127.0.0.1:8766`.
+
+Never publish the API on an internet-facing address. Anyone who can reach it
+with the token can start a run.
+
+Graphs begin when the bot first runs with this version. Before that, the bot
+kept no history. Each market tick records the price, every five minutes.
+Every balance is recorded once an hour. A `$purge` deletes the member's
+history. A self-reset keeps it, so the reset shows on the graph.
+
 ## Upgrade from version 1
 
 Version 2 reads the database that version 1 wrote. The `bank` table keeps its
@@ -306,6 +352,11 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
 | `FLYCONOMY_DEV_GUILD_ID` | No | None | Server to sync slash commands to. Set it while developing; leave it empty in production. |
 | `FLYCONOMY_ALWAYS_MINE_USER_IDS` | No | Empty | Comma-separated user IDs whose mine attempts always succeed. |
+| `FLYCONOMY_API_TOKEN` | No | None | Turns on the [dashboard](#run-the-owners-dashboard) API, and is the token it requires. At least 16 characters. Unset, nothing listens. |
+| `FLYCONOMY_API_HOST` | No | `127.0.0.1` | Interface the API listens on. Compose sets `0.0.0.0` inside the container. |
+| `FLYCONOMY_API_BIND` | No | `127.0.0.1` | Compose only: the host interface the API is published on. |
+| `FLYCONOMY_DASHBOARD_API_URL` | No | `http://127.0.0.1:8765` | Dashboard PC only: where the bot's API answers. |
+| `FLYCONOMY_DASHBOARD_PORT` | No | `8766` | Dashboard PC only: the local port the dashboard serves on. |
 
 The bot validates settings before it connects and exits with code `2` when a
 value is missing or malformed, naming the field that failed.
@@ -1143,7 +1194,8 @@ src/flyconomy/
 ├── logging_config.py Logging setup
 ├── ratelimit.py      A sliding window limiter, with an injectable clock
 ├── views.py          Interactive buttons: the blackjack table, the crash round, the mines board, the jackpot, and a match board
-├── data/             Package data: the member guide the bot publishes
+├── dashboard.py      The owner's dashboard, run on their own PC; talks to cogs/api.py
+├── data/             Package data: the member guide the bot publishes, and the dashboard page
 └── cogs/             One module per command group
 ```
 

@@ -7,6 +7,7 @@ advertises itself to people who can never run it.
 
 from __future__ import annotations
 
+import random
 import re
 
 import discord
@@ -15,6 +16,7 @@ from discord.ext import commands
 from flyconomy import economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
+from flyconomy.database import Database
 
 #: A raw snowflake or a mention of one. Deliberately looser than discord.py's
 #: own mention converters, which require a plausible 15-20 digit snowflake: the
@@ -221,7 +223,7 @@ class Admin(BaseCog, name="Admin"):
 
         ``neutral`` is the way back: it ends a run in flight, and the price
         comes home the way one that ended on its own does. See
-        :meth:`_calm_the_market`.
+        :func:`steer_market`.
 
         Args:
             ctx: Invocation context.
@@ -235,51 +237,32 @@ class Admin(BaseCog, name="Admin"):
             raise commands.BadArgument(
                 f"{direction!r} is not a direction. Use `bull`, `bear`, or `neutral`."
             )
+        await ctx.send(await steer_market(self.db, wanted, self.rng))
 
-        state = await self.db.get_market()
-        if wanted == "calm":
-            await self._calm_the_market(ctx, state)
-            return
 
-        if state.regime != "calm":
-            # Refused rather than replaced: overwriting a run in flight would
-            # cut it short for everyone watching, and the caller almost
-            # certainly did not know one was running.
-            minutes = state.ticks_left * economy.FLX_TICK_MINUTES
-            await ctx.send(
-                f"A {state.regime} run is already going, with about {minutes} minutes left."
-            )
-            return
+async def steer_market(db: Database, wanted: economy.MarketRegime, rng: random.Random) -> str:
+    """Arm a run, or call one off, and say what happened.
 
-        started = economy.start_run(state, wanted, self.rng)
-        await self.db.set_market(started)
-        minutes = started.ticks_left * economy.FLX_TICK_MINUTES
-        await ctx.send(
-            f"Armed a {wanted} run of about {minutes} minutes at "
-            f"{embeds.money(started.price)}. It starts on the next tick."
-        )
+    The one path every way of steering the market goes through -- ``$market``
+    and the dashboard's buttons -- so a run started from either is the same
+    run. Nothing here moves the price: arming one leaves the next tick to start
+    it, and calling one off clears only the regime, so the price comes home
+    through the ordinary calm tick's snapback exactly as a run that reached its
+    goal does. See :func:`economy.start_run` and :func:`economy.end_run`.
 
-    async def _calm_the_market(
-        self, ctx: commands.Context[FlyconomyBot], state: economy.MarketState
-    ) -> None:
-        """End a run in flight, leaving the price to come home on its own.
+    Args:
+        db: The open database.
+        wanted: ``bull`` or ``bear`` to arm a run, ``calm`` to end one.
+        rng: Random source for the run's length.
 
-        The mirror of arming one, and as hands-off: only the regime is
-        cleared, so the price unwinds through the ordinary calm tick's
-        snapback rather than being put back by hand. A run that is called off
-        therefore looks from the outside exactly like one that reached its
-        goal a little early, which is the point -- see
-        :func:`economy.end_run`.
-
-        Args:
-            ctx: Invocation context.
-            state: The market as it stands.
-        """
+    Returns:
+        A one-line report for the owner.
+    """
+    state = await db.get_market()
+    if wanted == "calm":
         if state.regime == "calm":
-            await ctx.send(f"No run is going. Flyxcoin is at {embeds.money(state.price)}.")
-            return
-
-        await self.db.set_market(economy.end_run(state))
+            return f"No run is going. Flyxcoin is at {embeds.money(state.price)}."
+        await db.set_market(economy.end_run(state))
         ticks = economy.flx_snapback_ticks(state.price)
         if ticks:
             recovery = (
@@ -288,9 +271,22 @@ class Admin(BaseCog, name="Admin"):
             )
         else:
             recovery = "The price is already back in its normal band."
-        await ctx.send(
-            f"Called off the {state.regime} run at {embeds.money(state.price)}. {recovery}"
-        )
+        return f"Called off the {state.regime} run at {embeds.money(state.price)}. {recovery}"
+
+    if state.regime != "calm":
+        # Refused rather than replaced: overwriting a run in flight would
+        # cut it short for everyone watching, and the caller almost
+        # certainly did not know one was running.
+        minutes = state.ticks_left * economy.FLX_TICK_MINUTES
+        return f"A {state.regime} run is already going, with about {minutes} minutes left."
+
+    started = economy.start_run(state, wanted, rng)
+    await db.set_market(started)
+    minutes = started.ticks_left * economy.FLX_TICK_MINUTES
+    return (
+        f"Armed a {wanted} run of about {minutes} minutes at "
+        f"{embeds.money(started.price)}. It starts on the next tick."
+    )
 
 
 async def setup(bot: FlyconomyBot) -> None:

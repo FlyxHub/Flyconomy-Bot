@@ -45,7 +45,8 @@ the settings. The lottery adds two
 tables in migration 3, the jackpot two more in migration 5, head-to-head matches one in
 migration 6, wallet security one in migration 7, the published guide one in migration 8,
 self-reset history one in migration 9, the daily interest ledger one in migration 10, and the
-market's regime plus the daily Flyxcoin buying ledger one in migration 11; the
+market's regime plus the daily Flyxcoin buying ledger one in migration 11, and the
+dashboard's price and balance history two in migration 12; the
 `bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
@@ -89,6 +90,19 @@ database; it merges duplicate `user` rows before adding the unique index.
 
 `tests/test_migrations.py` builds a genuine v1 database with `make_v1_database()` and asserts nothing
 is lost. Keep that passing.
+
+## The owner's dashboard
+
+`cogs/api.py` serves a token-guarded JSON API from inside the bot, and `dashboard.py` is a
+separate process the owner runs on their own PC that serves `data/dashboard.html` and forwards
+to it. The API is in the bot's process because the database is: SQLite must not be shared over
+a network or opened by a second writer. Two things are load-bearing. The API is **owner-only by
+token, never member-facing** — it names the regime, which the rule under Anti-abuse forbids
+anywhere a member can see. And its market buttons go through `admin.steer_market`, the same
+function `$market` calls, so a run armed from the web is the same run as one armed from
+Discord. Don't give the web its own copy. History is written by the market tick
+(`Database.record_history`): the price every tick, balances hourly, sharing one `at` so net worth
+is always valued at the price of its own snapshot.
 
 ## The member guide
 

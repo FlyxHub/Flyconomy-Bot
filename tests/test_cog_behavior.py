@@ -1271,6 +1271,14 @@ class TestMarketTick:
 
         assert (await db.get_market()).price != 0
 
+    async def test_a_tick_records_the_price_for_the_dashboard(self, db, settings):
+        cog = make_market(FakeBot(db, settings))
+        cog.rng.seed(1)
+
+        await cog.tick_loop.coro(cog)
+
+        assert [price for _, price in await db.price_history(0)] == [(await db.get_market()).price]
+
     async def test_a_run_is_carried_across_ticks(self, db, settings):
         # The whole reason the regime is persisted: a run has to survive the
         # tick that started it, and a restart in the middle of one.
