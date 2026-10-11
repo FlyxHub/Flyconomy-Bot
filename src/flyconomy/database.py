@@ -15,7 +15,9 @@ update the way the original read-modify-write helpers could.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import sqlite3
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -305,14 +307,18 @@ class Database:
     @asynccontextmanager
     async def _transaction(self) -> AsyncIterator[aiosqlite.Connection]:
         """Run a block inside one immediate transaction, rolling back on error."""
+        # BEGIN and COMMIT sit inside the try: a task cancelled while either is
+        # awaited still has it run on aiosqlite's thread, and a transaction
+        # left open there fails every later BEGIN for the life of the process.
         async with self._lock:
-            await self._db.execute("BEGIN IMMEDIATE")
             try:
+                await self._db.execute("BEGIN IMMEDIATE")
                 yield self._db
+                await self._db.execute("COMMIT")
             except BaseException:
-                await self._db.execute("ROLLBACK")
+                with contextlib.suppress(sqlite3.OperationalError):
+                    await self._db.execute("ROLLBACK")
                 raise
-            await self._db.execute("COMMIT")
 
     # ------------------------------------------------------------ migration --
 

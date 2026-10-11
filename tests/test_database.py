@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -483,6 +484,20 @@ class TestAccountCreation:
         assert isinstance(refused, InsufficientFundsError)
         assert not isinstance(created, BaseException)
         assert created.bank == economy.STARTING_BANK
+
+
+class TestTransactions:
+    async def test_a_write_cancelled_mid_begin_does_not_wedge_the_next_one(self, db: Database):
+        # Shutdown cancels loops that may be mid-write; the BEGIN still runs on
+        # aiosqlite's thread and must not be left open.
+        write = asyncio.create_task(db.add_wallet(ALICE, 5))
+        await asyncio.sleep(0)
+        write.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await write
+
+        await db.add_wallet(ALICE, 5)
+        assert (await db.get_account(ALICE)).wallet >= 5
 
 
 class TestMinerUpgrades:
