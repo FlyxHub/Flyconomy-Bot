@@ -6,8 +6,7 @@ the whole ruleset is unit tested without a gateway connection.
 A jackpot round is player-funded: every entrant antes their own money into one
 pot, the round closes after :data:`ROUND_SECONDS`, and a single entrant takes
 the whole pot less :data:`HOUSE_CUT`. No money is created — the payout is
-always smaller than the sum of the antes, so a round can only ever shrink the
-supply.
+never larger than the sum of the antes, so a round can never grow the supply.
 
 **Odds are proportional to the ante, and that is what makes the game fair to
 everyone at once.** An entrant holding ``a`` of a pot of ``p`` wins with
@@ -92,8 +91,9 @@ def payout(pot: int) -> int:
         pot: Everything anted into the round.
 
     Returns:
-        The pot less :func:`house_cut`, which is always less than the pot, so
-        a round cannot pay out more than was anted into it.
+        The pot less :func:`house_cut`, so a round cannot pay out more than
+        was anted into it. Below $20 the cut truncates to nothing and the
+        winner takes the whole pot: fair, never better than fair.
     """
     return pot - house_cut(pot)
 

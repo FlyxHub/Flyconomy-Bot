@@ -359,11 +359,11 @@ Three further layers, all in place because they cover different failure modes:
   large ones. Down-ticks fell from 37% to 16% and the median run tick roughly
   doubled. Three things are load-bearing. The bias may never reach 100 — a run
   that cannot tick against itself is free money, because timing the exit stops
-  being a decision. The trend engine and its brake scale together, so
-  `FLX_RUN_REVERSION_PERCENT` went 1 → 4 and the run got *shorter* (8–24 ticks,
-  from 12–36); a stronger trend on the old brake and the old length just pins
-  the ceiling, which is the one failure the deceleration argument above does
-  not survive. And the brake stays below the calm pull, or "suppressed during a
+  being a decision. A stronger trend needs something to stop it short of the
+  ceiling, or it just pins it, which is the one failure the deceleration
+  argument above does not survive. That is `flx_run_goal`'s job (below), which
+  is why `FLX_RUN_REVERSION_PERCENT` is back at 1 and runs draw 16–36 ticks,
+  after a spell at 4 and 8–24 when the brake had to do it. And the brake stays below the calm pull, or "suppressed during a
   run" stops being true — `tests/test_economy.py` pins that, the down-tick
   share, the large-move share, and the share of runs that reach a bound.
   Retuning the shock means re-checking all four, and re-describing the run in
