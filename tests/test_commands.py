@@ -262,6 +262,15 @@ class TestOwnerCommands:
         ctx.send.assert_not_awaited()
 
 
+@pytest.mark.parametrize("name", ["rob", "slots"])
+async def test_a_mistyped_argument_does_not_spend_the_cooldown(bot: FlyconomyBot, name: str):
+    # discord.py charges the cooldown before parsing unless told otherwise, so
+    # `$rob notamember` would burn an hour for nothing.
+    command = bot.get_command(name)
+    assert command is not None
+    assert command.cooldown_after_parsing is True
+
+
 class TestHelp:
     async def test_listing_commands_spends_none_of_the_action_budget(self, bot: FlyconomyBot):
         # Help runs every command's checks to filter its listing, and the

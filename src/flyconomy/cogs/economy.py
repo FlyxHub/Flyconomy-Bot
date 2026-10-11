@@ -241,7 +241,8 @@ class Economy(BaseCog, name="Economy"):
         await self.db.add_wallet(ctx.author.id, amount)
         await ctx.send(f"You got {embeds.money(amount)}")
 
-    @commands.hybrid_command(name="rob")  # type: ignore[arg-type]
+    # Cooldowns after parsing, so a mistyped member costs nothing.
+    @commands.hybrid_command(name="rob", cooldown_after_parsing=True)  # type: ignore[arg-type]
     @commands.cooldown(1, economy.ROB_COOLDOWN_SECONDS, commands.BucketType.user)
     @app_commands.describe(member="Whose wallet to rob.")
     async def rob(self, ctx: commands.Context[FlyconomyBot], member: discord.Member) -> None:

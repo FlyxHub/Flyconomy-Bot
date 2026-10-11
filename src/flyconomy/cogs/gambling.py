@@ -234,7 +234,8 @@ class Gambling(BaseCog, name="Casino"):
             await self._settle(ctx, bet, 0)
             await ctx.send(f"You rolled a **{roll}**. You lose **{embeds.money(bet)}**")
 
-    @commands.hybrid_command(name="slots", aliases=["slot"])  # type: ignore[arg-type]
+    # Cooldowns after parsing, so a bet that fails to parse costs nothing.
+    @commands.hybrid_command(name="slots", aliases=["slot"], cooldown_after_parsing=True)  # type: ignore[arg-type]
     @commands.cooldown(1, economy.SLOTS_COOLDOWN_SECONDS, commands.BucketType.user)
     @app_commands.describe(bet="Dollars to stake.")
     async def slots(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
