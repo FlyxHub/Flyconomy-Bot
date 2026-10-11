@@ -7,6 +7,7 @@ check are covered with a stand-in interaction.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -276,6 +277,20 @@ class TestDoubleDown:
         if not game.finished:
             problem = await view.apply_double()
             assert problem == "You can only double down on your first two cards."
+
+    async def test_two_racing_doubles_charge_only_once(self, db, player):
+        # Both presses pass the first check while the debit is awaited; the
+        # one that loses must get its stake back rather than lose it.
+        game = Game(player=hand(6, 5), dealer=hand(10, 7), shoe=hand(2, 6), stake=100)
+        view = make_view(db, game, player)
+        await db.add_wallet(ALICE, 200)
+
+        problems = await asyncio.gather(view.apply_double(), view.apply_double())
+
+        assert problems.count(None) == 1
+        assert game.outcome == Outcome.PUSH
+        # 200 - 100 for the double, + 200 back on the push.
+        assert (await db.get_account(ALICE)).wallet == 300
 
     async def test_a_refused_double_does_not_charge(self, db, player):
         game = live_game()

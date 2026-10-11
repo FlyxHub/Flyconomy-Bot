@@ -182,6 +182,12 @@ class BlackjackView(_PlayerView):
                 f"but your wallet only holds {embeds.money(exc.available)}."
             )
 
+        # A second press, a Hit, or the timeout can finish the hand while the
+        # debit is awaited, so check again and hand the stake back if it did.
+        if not self.game.can_double:
+            await self.db.add_wallet(self.player.id, self.base_bet)
+            return "You can only double down on your first two cards."
+
         self.game.double_down()
         await self.settle()
         self._refresh_buttons()
