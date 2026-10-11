@@ -122,12 +122,8 @@
   .gauge .tick.major { stroke: var(--holo); stroke-width: 1.5; }
   .gauge .track { fill: none; stroke: var(--frame); stroke-width: 2; }
   .gauge .band { fill: none; stroke: rgba(95, 212, 255, .22); stroke-width: 10; }
-  .gauge .level {
-    fill: none; stroke: var(--holo); stroke-width: 3; stroke-linecap: round;
-    filter: drop-shadow(0 0 6px var(--holo));
-    transition: d .8s cubic-bezier(.2, .8, .2, 1);
-  }
-  .gauge .needle { stroke: var(--text); stroke-width: 2.5; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--holo)); transition: transform .8s cubic-bezier(.2, .8, .2, 1); }
+  .gauge .level { fill: none; stroke: var(--holo); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--holo)); }
+  .gauge .needle { stroke: var(--text); stroke-width: 2.5; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--holo)); }
   .gauge .scale-label { fill: var(--text-2); font: 500 11px var(--display); }
   .gauge .inner { fill: none; stroke: var(--frame); stroke-width: 1; }
   .gauge .sweep { transform-box: view-box; transform-origin: 0 0; animation: sweep 14s linear infinite; }
@@ -248,7 +244,13 @@
   td.amount { font: 600 16px var(--display); }
   td.share { width: 22%; }
   .meter { height: 3px; background: var(--grid); }
-  .meter i { display: block; height: 100%; background: var(--holo); box-shadow: 0 0 8px var(--holo); }
+  .meter i { display: block; height: 100%; background: var(--holo); box-shadow: 0 0 8px var(--holo); transition: width .9s cubic-bezier(.2, .8, .2, 1); }
+
+  /* A value that just changed glows in the direction it moved, then settles. */
+  .rise { animation: rise 1.6s ease-out; }
+  .fall { animation: fall 1.6s ease-out; }
+  @keyframes rise { from { color: var(--bull); text-shadow: 0 0 14px var(--bull); } }
+  @keyframes fall { from { color: var(--bear); text-shadow: 0 0 14px var(--bear); } }
   td.spark { width: 130px; }
   td.spark svg { display: block; width: 120px; height: 26px; overflow: visible; }
   td.spark polyline { fill: none; stroke: var(--holo); stroke-width: 1.5; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px var(--holo)); }
@@ -267,7 +269,8 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .gauge .sweep, .gauge.boot * { animation: none !important; opacity: 1 !important; stroke-dashoffset: 0 !important; }
-    .gauge .level, .gauge .needle { transition: none; }
+    .meter i { transition: none; }
+    .rise, .fall { animation: none; }
   }
 </style>
 </head>
@@ -413,16 +416,56 @@ function setDial(price) {
   $("needle").style.transform = `rotate(${a}deg)`;
 }
 
-function countUp(target) {
-  if (reducedMotion) { $("price").textContent = whole(target); return; }
-  const from = scale.floor, start = performance.now(), length = 1400;
-  const frame = now => {
-    const t = Math.min(1, (now - start) / length), eased = 1 - Math.pow(1 - t, 3);
-    $("price").textContent = whole(from + (target - from) * eased);
-    setDial(from + (target - from) * eased);
-    if (t < 1) requestAnimationFrame(frame);
-  };
-  requestAnimationFrame(frame);
+// ------------------------------------------------------------- tweening
+const TWEEN_MS = 900;
+const ease = t => 1 - Math.pow(1 - t, 3);
+
+// Calls step with an eased 0..1 every frame. A newer tween on the same key
+// cancels the older one, so a value that changes twice mid-flight never
+// has two animations fighting over it.
+const tweens = new Map();
+function tween(key, ms, step) {
+  const token = Symbol();
+  tweens.set(key, token);
+  const done = () => { if (tweens.get(key) === token) tweens.delete(key); };
+  // A hidden page gets no animation frames at all, so it lands on the end state.
+  if (reducedMotion || document.hidden) { step(1); done(); return Promise.resolve(); }
+  return new Promise(resolve => {
+    const start = performance.now();
+    const frame = now => {
+      if (tweens.get(key) !== token) return resolve();
+      const t = Math.min(1, (now - start) / ms);
+      step(ease(t));
+      if (t < 1) requestAnimationFrame(frame); else { done(); resolve(); }
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+function flash(node, delta) {
+  if (!delta) return;
+  node.classList.remove("rise", "fall");
+  void node.offsetWidth; // restart the animation if it is already running
+  node.classList.add(delta > 0 ? "rise" : "fall");
+}
+
+// Rolls a number from what it last showed to its new value.
+function rollNumber(node, to, format, from = node._value ?? to) {
+  node._value = to;
+  flash(node, to - from);
+  return tween(node, TWEEN_MS, e => { node.textContent = format(from + (to - from) * e); });
+}
+
+let shownPrice = null;
+function rollPrice(to, ms = TWEEN_MS) {
+  const from = shownPrice ?? to;
+  shownPrice = to;
+  if (booted) flash($("price"), to - from);
+  return tween("price", ms, e => {
+    const v = from + (to - from) * e;
+    $("price").textContent = whole(v);
+    setDial(v);
+  });
 }
 
 // -------------------------------------------------------------------- data
@@ -446,21 +489,21 @@ function renderGauge() {
   const { market } = overview;
   if (!booted) {
     buildDial(market);
-    countUp(market.price);
+    shownPrice = market.floor;
+    rollPrice(market.price, 1400);
     setTimeout(() => document.querySelector(".gauge").classList.remove("boot"), 2200);
     booted = true;
-  } else {
-    $("price").textContent = whole(market.price);
-    setDial(market.price);
+  } else if (market.price !== shownPrice) {
+    rollPrice(market.price);
   }
   document.querySelector(".gauge").dataset.regime = market.regime;
   const state = $("state");
   state.className = "state " + market.regime;
   state.textContent = market.regime === "calm" ? "Market calm" : `${market.regime === "bull" ? "Bull" : "Bear"} run, ${market.minutes_left} min left`;
 
-  $("pot").textContent = money(overview.lottery_pot);
-  $("circulating").textContent = whole(overview.circulating);
-  $("circulating-value").textContent = "coins, worth " + money(overview.circulating * market.price);
+  rollNumber($("pot"), overview.lottery_pot, money);
+  rollNumber($("circulating"), overview.circulating, whole);
+  rollNumber($("circulating-value"), overview.circulating * market.price, v => "coins, worth " + money(v));
 }
 
 function renderMoves() {
@@ -525,24 +568,57 @@ function renderLedger() {
     body.innerHTML = '<tr class="empty"><td colspan="6">No members yet. They appear after their first command.</td></tr>';
     return;
   }
+  // Rows are rebuilt every poll, but each one starts from where its member
+  // was last drawn -- position, bar, and amount -- and moves from there.
+  const sameBoard = ledgerBoard === board;
+  const before = new Map();
+  if (sameBoard) for (const tr of body.querySelectorAll("tr[data-id]")) before.set(tr.dataset.id, tr.getBoundingClientRect().top);
   const top = rows[0].amount || 1;
+  const share = amount => Math.max(2, (amount / top) * 100).toFixed(1) + "%";
+  const bars = [];
   body.replaceChildren(...rows.map((row, i) => {
     const tr = document.createElement("tr");
+    tr.dataset.id = row.id;
     const meter = document.createElement("div");
     meter.className = "meter";
-    meter.innerHTML = `<i style="width:${Math.max(2, (row.amount / top) * 100).toFixed(1)}%"></i>`;
+    const bar = document.createElement("i");
+    const last = sameBoard ? lastAmounts.get(row.id) : undefined;
+    bar.style.width = last === undefined ? share(row.amount) : (lastShares.get(row.id) ?? share(row.amount));
+    bars.push([bar, share(row.amount)]);
+    meter.append(bar);
     const points = series.get(row.id);
+    const amount = cell("amount num", format(last ?? row.amount));
     tr.append(
       cell("rank", String(i + 1).padStart(2, "0")),
       cell("name", row.name),
       cell("share", meter),
       cell("spark worth-only", sparkline(points)),
       cell("change worth-only", points && points.length >= 2 ? signed(points[points.length - 1][1] - points[0][1], money) : "–"),
-      cell("amount num", format(row.amount)),
+      amount,
     );
+    rollNumber(amount, row.amount, format, last ?? row.amount);
     return tr;
   }));
+
+  lastShares = new Map(rows.map(row => [row.id, share(row.amount)]));
+  lastAmounts = new Map(rows.map(row => [row.id, row.amount]));
+  ledgerBoard = board;
+  requestAnimationFrame(() => bars.forEach(([bar, width]) => { bar.style.width = width; }));
+
+  // A member who changed rank slides from their old row to their new one.
+  if (reducedMotion) return;
+  for (const tr of body.querySelectorAll("tr[data-id]")) {
+    const was = before.get(tr.dataset.id);
+    if (was === undefined) continue;
+    const shift = was - tr.getBoundingClientRect().top;
+    if (Math.abs(shift) < 1) continue;
+    tr.animate([{ transform: `translateY(${shift}px)` }, { transform: "none" }],
+      { duration: 700, easing: "cubic-bezier(.2, .8, .2, 1)" });
+  }
 }
+let ledgerBoard = null;
+let lastAmounts = new Map();
+let lastShares = new Map();
 
 // ------------------------------------------------------------------- chart
 const hudChart = {
@@ -636,24 +712,82 @@ function renderChart() {
   });
 }
 
+// The trace draws its newest segment rather than redrawing: the line runs
+// on from the last point to the new one while the window slides along.
+async function advanceChart(previous) {
+  const old = previous.prices, fresh = history.prices;
+  const lastX = old.at(-1)?.[0];
+  const added = fresh.filter(([x]) => x > lastX);
+  if (!chart || !old.length || !added.length || added.length > 12) return renderChart();
+
+  const c = chart;
+  const data = c.data.datasets[0].data;
+  const axis = c.options.scales.x;
+  for (const [x, y] of added.slice(0, -1)) data.push({ x, y });
+  const from = data.at(-1);
+  const [toX, toY] = added.at(-1);
+  const head = { x: from.x, y: from.y };
+  data.push(head);
+  const [minFrom, maxFrom, minTo] = [axis.min, axis.max, fresh[0][0]];
+  await tween("trace", 1100, e => {
+    head.x = from.x + (toX - from.x) * e;
+    head.y = from.y + (toY - from.y) * e;
+    axis.min = minFrom + (minTo - minFrom) * e;
+    axis.max = maxFrom + (toX - maxFrom) * e;
+    c.update("none");
+  });
+  if (c !== chart) return; // redrawn for another range while this ran
+  c.data.datasets[0].data = fresh.map(([x, y]) => ({ x, y }));
+  axis.min = minTo;
+  axis.max = toX;
+  c.update("none");
+}
+
 // ----------------------------------------------------------------- refresh
+//
+// The overview is a handful of small reads, so it is polled every few
+// seconds and the leaderboards follow play as it happens. The price history
+// is heavier and only changes on a market tick, so it is fetched when the
+// price has moved past the trace's last point -- which also catches the
+// moment between a tick storing its price and recording its history.
+const POLL_MS = 5_000;
+const HISTORY_MAX_AGE_MS = 60_000;
+let historyFetchedAt = 0;
+let pollTimer = null;
+
 async function loadOverview() { overview = await api("/api/overview"); }
-async function loadHistory() { history = await api(`/api/history?hours=${hours}`); }
+async function loadHistory() {
+  history = await api(`/api/history?hours=${hours}`);
+  historyFetchedAt = Date.now();
+}
 
 function setLink(ok, text) {
   $("link").className = ok ? "link" : "link lost";
   $("link").textContent = text;
 }
 
-async function refresh() {
+async function poll() {
+  clearTimeout(pollTimer);
   try {
-    await Promise.all([loadOverview(), loadHistory()]);
-    renderGauge(); renderMoves(); renderOverride(); renderLedger(); renderChart();
-    setLink(true, "Linked, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    await loadOverview();
+    const previous = history;
+    const stale = !history
+      || overview.market.price !== history.prices.at(-1)?.[1]
+      || Date.now() - historyFetchedAt > HISTORY_MAX_AGE_MS;
+    if (stale) await loadHistory();
+    renderGauge(); renderOverride(); renderLedger();
+    if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
+    setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
   } catch (error) {
     setLink(false, `Link lost: ${error.message} Check the bot is running and FLYCONOMY_DASHBOARD_API_URL points at it.`);
   }
+  if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
 }
+
+// A tab nobody is looking at stops asking; coming back catches up at once.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) clearTimeout(pollTimer); else poll();
+});
 
 // ----------------------------------------------------------------- actions
 document.querySelectorAll(".range button").forEach(button => button.addEventListener("click", async () => {
@@ -734,8 +868,7 @@ async function fire() {
 }
 
 document.fonts.ready.then(() => chart && renderChart());
-refresh();
-setInterval(refresh, 60_000);
+poll();
 </script>
 </body>
 </html>
