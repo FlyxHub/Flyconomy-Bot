@@ -155,6 +155,9 @@ class Mining(BaseCog, name="Flyxcoin"):
         if member.id == ctx.author.id:
             await ctx.send("You cannot send Flyxcoin to yourself.")
             return
+        if member.bot:
+            await ctx.send("Bots do not have accounts.")
+            return
 
         await self.db.transfer_crypto(ctx.author.id, member.id, amount)
         await ctx.send(f"You sent {amount:,} Flyxcoin to {member.mention}")

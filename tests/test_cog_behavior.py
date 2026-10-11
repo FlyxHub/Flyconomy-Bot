@@ -331,6 +331,34 @@ class TestBanking:
         assert account.wallet == economy.STARTING_BANK
 
 
+class TestNobodyGetsAnAccountByBeingNamed:
+    # Every row in `bank` draws daily interest, so naming a bot or a bystander
+    # must never open them one.
+    async def test_looking_up_a_balance(self, db, settings, ctx):
+        cog = make_economy(FakeBot(db, settings))
+
+        await cog.balance.callback(cog, ctx, FakeUser(id=BOB))
+
+        assert "does not have an account" in ctx.last
+        assert await db.find_account(BOB) is None
+
+    async def test_trying_to_rob_them(self, db, settings, ctx):
+        cog = make_economy(FakeBot(db, settings))
+
+        await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
+
+        assert await db.find_account(BOB) is None
+
+    async def test_paying_a_bot(self, db, settings, ctx):
+        cog = make_economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 10_000)
+
+        await cog.pay.callback(cog, ctx, FakeUser(id=BOB, bot=True), 1_000)
+
+        assert "Bots" in ctx.last
+        assert await db.find_account(BOB) is None
+
+
 class TestPay:
     async def test_paying_credits_the_recipient_net_of_the_tax(self, db, settings, ctx):
         cog = make_economy(FakeBot(db, settings))

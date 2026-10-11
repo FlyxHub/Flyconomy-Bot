@@ -163,8 +163,19 @@ class Economy(BaseCog, name="Economy"):
         self, ctx: commands.Context[FlyconomyBot], member: discord.Member | None = None
     ) -> None:
         """Check your balance."""
-        target = member or ctx.author
-        account = await self.db.get_account(target.id)
+        if member is None or member.id == ctx.author.id:
+            target: discord.abc.User = ctx.author
+            account = await self.db.get_account(target.id)
+        else:
+            # Looking someone up must not open them an account: every row
+            # draws daily interest, so this would seed one for any bot or
+            # bystander on request.
+            target = member
+            found = await self.db.find_account(target.id)
+            if found is None:
+                await ctx.send(f"{member.display_name} does not have an account yet.")
+                return
+            account = found
         await ctx.send(embed=embeds.balance_embed(target, account, self.timezone))
 
     @commands.hybrid_command(name="deposit", aliases=["dep"])  # type: ignore[arg-type]
@@ -216,6 +227,9 @@ class Economy(BaseCog, name="Economy"):
         if member.id == ctx.author.id:
             await ctx.send("You cannot pay yourself.")
             return
+        if member.bot:
+            await ctx.send("Bots do not have accounts.")
+            return
 
         split = economy.split_transfer(amount, self.settings.transfer_tax_rate)
         await self.db.pay(
@@ -252,8 +266,9 @@ class Economy(BaseCog, name="Economy"):
             ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
             return
 
-        victim = await self.db.get_account(member.id)
-        if victim.wallet <= 0:
+        # find, not get: an attempt must not open the target an account.
+        victim = await self.db.find_account(member.id)
+        if victim is None or victim.wallet <= 0:
             await ctx.send("You can't rob someone with no money in their wallet.")
             ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
             return
