@@ -150,7 +150,12 @@ class Economy(BaseCog, name="Economy"):
             microsecond=0,
         )
         if now >= scheduled_today:
-            await self.pay_daily_interest()
+            # before_loop runs outside the loop's own error handling, so an
+            # error here would end the loop and stop interest until a restart.
+            try:
+                await self.pay_daily_interest()
+            except Exception:
+                log.exception("Daily interest catch-up failed; the schedule continues")
 
     @commands.hybrid_command(name="balance", aliases=["bal"])  # type: ignore[arg-type]
     @app_commands.describe(member="Whose balance to show. Defaults to you.")
