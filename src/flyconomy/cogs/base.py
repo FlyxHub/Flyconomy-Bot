@@ -162,6 +162,12 @@ class BaseCog(commands.Cog):
         Raises:
             RateLimitedError: If the member is acting too quickly.
         """
+        # `$help` runs every command's checks to decide what to list. That is
+        # not a member acting, and charging for it spent the whole budget on
+        # the first few commands and hid the rest.
+        if ctx.invoked_with == "help":
+            return True
+
         wait = self.limiter.acquire(ctx.author.id)
         if wait:
             raise RateLimitedError(wait)

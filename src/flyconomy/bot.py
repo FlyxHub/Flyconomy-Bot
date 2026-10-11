@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Final
+from typing import Any, Final
 
 import discord
 from discord.ext import commands
@@ -71,6 +71,21 @@ def build_intents() -> discord.Intents:
     return intents
 
 
+class _HelpCommand(commands.DefaultHelpCommand):
+    """The stock help, except that it will not describe a hidden command.
+
+    ``hidden`` only keeps a command out of the listing; asked for by name,
+    the stock help prints its whole docstring to anyone.
+    """
+
+    async def send_command_help(self, command: commands.Command[Any, ..., Any], /) -> None:
+        """Answer for a hidden command exactly as for one that does not exist."""
+        if command.hidden:
+            await self.send_error_message(self.command_not_found(command.qualified_name))
+            return
+        await super().send_command_help(command)
+
+
 class FlyconomyBot(commands.Bot):
     """The Flyconomy Discord client.
 
@@ -84,7 +99,7 @@ class FlyconomyBot(commands.Bot):
         super().__init__(
             command_prefix=commands.when_mentioned_or(settings.command_prefix),
             intents=build_intents(),
-            help_command=commands.DefaultHelpCommand(no_category="Commands"),
+            help_command=_HelpCommand(no_category="Commands"),
             activity=discord.Game(name="the Flyconomy"),
             allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=True),
         )
@@ -177,6 +192,10 @@ class FlyconomyBot(commands.Bot):
             exception: The raised error.
         """
         _log_if_slow(context)
+        if isinstance(exception, commands.NotOwner) and getattr(context.command, "hidden", False):
+            # "Restricted to the owner" would confirm the command exists; stay
+            # as silent as an unknown command does.
+            return
         message = describe_command_error(exception)
         if message is None:
             log.error("Unhandled error in command %s", context.command, exc_info=exception)

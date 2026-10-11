@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from discord.ext import commands
 
 from flyconomy import economy
 from flyconomy.bot import EXTENSIONS, FlyconomyBot, build_intents
+from flyconomy.cogs.base import BaseCog
 from flyconomy.config import Settings
 from flyconomy.database import Database
 
@@ -235,6 +238,42 @@ class TestOwnerCommands:
         # marked. Owner-only alone would still list it for the owner.
         listed = {c.name for c in bot.commands if not c.hidden}
         assert "market" not in listed
+
+    async def test_asking_help_for_the_market_trigger_reads_as_unknown(self, bot: FlyconomyBot):
+        # The stock help prints a hidden command's whole docstring when it is
+        # named, which is the one thing hiding it is for.
+        help_command = bot.help_command
+        assert help_command is not None
+        errors: list[str] = []
+
+        async def capture(error: str, /) -> None:
+            errors.append(error)
+
+        help_command.send_error_message = capture  # type: ignore[method-assign]
+        await help_command.send_command_help(bot.get_command("market"))  # type: ignore[arg-type]
+
+        assert errors == [help_command.command_not_found("market")]
+
+    async def test_a_member_running_the_market_trigger_gets_no_reply(self, bot: FlyconomyBot):
+        ctx = SimpleNamespace(command=bot.get_command("market"), send=AsyncMock())
+
+        await bot.on_command_error(ctx, commands.NotOwner())  # type: ignore[arg-type]
+
+        ctx.send.assert_not_awaited()
+
+
+class TestHelp:
+    async def test_listing_commands_spends_none_of_the_action_budget(self, bot: FlyconomyBot):
+        # Help runs every command's checks to filter its listing, and the
+        # shared budget is one of those checks.
+        cog = bot.get_cog("Flyxcoin")
+        assert isinstance(cog, BaseCog)
+        ctx = SimpleNamespace(invoked_with="help", author=SimpleNamespace(id=42))
+
+        for _ in range(len(bot.commands)):
+            assert await cog.cog_check(ctx)  # type: ignore[arg-type]
+
+        assert bot.limiter.retry_after(42) == 0
 
     async def test_purge_is_owner_only(self, bot: FlyconomyBot):
         published = {command.qualified_name for command in bot.tree.walk_commands()}
