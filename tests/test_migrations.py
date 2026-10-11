@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 import pytest
 
@@ -124,6 +125,40 @@ async def test_migrating_records_the_schema_version(db_path):
         connection.close()
 
     assert version == database_module.SCHEMA_VERSION
+
+
+async def test_a_crash_mid_merge_loses_nobody(db_path, monkeypatch):
+    # Migration 2 deletes a member's duplicate rows before inserting the
+    # merged one; the process dying between the two must not lose them.
+    make_v1_database(db_path, [(100, 1_000, 0, 0, ALICE), (50, 500, 2, 1, ALICE)])
+    merge = database_module._MIGRATIONS[2]
+
+    class _KilledBeforeInsert:
+        def __init__(self, db: Any) -> None:
+            self._db = db
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._db, name)
+
+        def execute(self, sql: str, *args: Any) -> Any:
+            if sql.startswith("INSERT INTO bank"):
+                raise KeyboardInterrupt
+            return self._db.execute(sql, *args)
+
+    async def crashing(db: Any) -> None:
+        await merge(_KilledBeforeInsert(db))  # type: ignore[arg-type]
+
+    monkeypatch.setitem(database_module._MIGRATIONS, 2, crashing)
+    with pytest.raises(KeyboardInterrupt):
+        await Database.connect(db_path)
+    monkeypatch.undo()
+
+    database = await Database.connect(db_path)
+    try:
+        alice = await database.get_account(ALICE)
+        assert (alice.wallet, alice.bank, alice.crypto, alice.miner) == (150, 1_500, 2, 1)
+    finally:
+        await database.close()
 
 
 async def test_migrating_is_idempotent(db_path):

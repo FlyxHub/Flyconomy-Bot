@@ -348,8 +348,12 @@ class Database:
 
         log.info("Migrating schema from version %d to %d", current, SCHEMA_VERSION)
         for version in range(current + 1, SCHEMA_VERSION + 1):
-            await _MIGRATIONS[version](self._db)
-            await self._db.execute(f"PRAGMA user_version = {version}")
+            # One transaction per migration, version bump included: in
+            # autocommit each statement committed alone, so a crash between
+            # migration 2's DELETE and its merged INSERT lost that member.
+            async with self._transaction() as db:
+                await _MIGRATIONS[version](db)
+                await db.execute(f"PRAGMA user_version = {version}")
             log.info("Applied migration %d", version)
 
     # ---------------------------------------------------------------- reads --
