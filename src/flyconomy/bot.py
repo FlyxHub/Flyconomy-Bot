@@ -265,7 +265,10 @@ def describe_command_error(error: BaseException) -> str | None:
             return "You do not have permission to use that command."
         case commands.MissingRequiredArgument():
             return f"You need to provide `{error.param.name}`."
-        case commands.BadArgument() | commands.BadUnionArgument():
+        case commands.UserInputError() | discord.app_commands.TransformerError():
+            # Every way a member can mistype a command: bad values, unclosed
+            # quotes, extra arguments, or a slash command naming a member from
+            # a DM, where there are no members to name.
             return f"That argument is not valid: {error}"
         case commands.CommandNotFound():
             # Chat noise that starts with the prefix is not worth a reply.

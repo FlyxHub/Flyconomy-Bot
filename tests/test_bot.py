@@ -93,6 +93,19 @@ class TestErrorMessages:
     def test_an_unexpected_error_is_left_for_the_caller_to_log(self):
         assert describe_command_error(RuntimeError("boom")) is None
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            commands.ExpectedClosingQuoteError('"'),
+            commands.UnexpectedQuoteError('"'),
+            commands.TooManyArguments(),
+        ],
+    )
+    def test_a_member_typo_is_explained_rather_than_logged(self, error):
+        message = describe_command_error(error)
+        assert message is not None
+        assert message.startswith("That argument is not valid")
+
     def test_a_missing_argument_names_the_parameter(self):
         parameter = commands.Parameter(name="amount", kind=commands.Parameter.POSITIONAL_OR_KEYWORD)
         message = describe_command_error(commands.MissingRequiredArgument(parameter))
