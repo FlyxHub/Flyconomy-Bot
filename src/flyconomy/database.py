@@ -812,26 +812,6 @@ class Database:
                 (post.position, post.channel_id, post.message_id, post.checksum),
             )
 
-    async def replace_guide_posts(self, posts: Sequence[GuidePost]) -> None:
-        """Record a freshly posted guide, forgetting whatever preceded it.
-
-        One transaction, so a crash midway cannot leave the bot tracking half
-        of an old posting and half of a new one -- which would orphan messages
-        it could no longer edit or clean up.
-
-        Args:
-            posts: Every section of the guide as it was just published.
-        """
-        async with self._transaction() as db:
-            await db.execute("DELETE FROM guide")
-            await db.executemany(
-                "INSERT INTO guide (position, channel, message, checksum) VALUES (?, ?, ?, ?)",
-                [
-                    (post.position, post.channel_id, post.message_id, post.checksum)
-                    for post in posts
-                ],
-            )
-
     async def clear_guide_posts(self) -> None:
         """Forget every published guide message, without deleting any."""
         async with self._transaction() as db:

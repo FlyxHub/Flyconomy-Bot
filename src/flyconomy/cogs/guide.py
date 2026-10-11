@@ -201,17 +201,18 @@ class Guide(BaseCog, name="Guide"):
     ) -> GuideOutcome:
         """Delete every tracked message and send the guide again, in order.
 
-        The old rows are cleared before the new messages are sent, so a failure
-        partway through leaves the bot tracking nothing rather than tracking
-        messages it has already deleted.
+        The old rows are cleared before the new messages are sent, so the bot
+        never tracks a message it already deleted, and each new one is recorded
+        the moment it lands. A send that fails partway therefore leaves the
+        partial copy tracked: the next run finds too few rows, reposts, and
+        deletes it, rather than leaving it in the channel for good.
         """
-        removed = await self._delete_tracked(channel, stored)
+        removed = await self._delete_tracked(stored)
         await self.db.clear_guide_posts()
 
-        posts = []
         for position, section in enumerate(sections):
             message = await channel.send(section)
-            posts.append(
+            await self.db.record_guide_post(
                 GuidePost(
                     position=position,
                     channel_id=channel_id,
@@ -220,20 +221,22 @@ class Guide(BaseCog, name="Guide"):
                 )
             )
 
-        await self.db.replace_guide_posts(posts)
-        return GuideOutcome(posted=len(posts), removed=removed)
+        return GuideOutcome(posted=len(sections), removed=removed)
 
-    @staticmethod
-    async def _delete_tracked(
-        channel: discord.abc.Messageable, stored: tuple[GuidePost, ...]
-    ) -> int:
+    async def _delete_tracked(self, stored: tuple[GuidePost, ...]) -> int:
         """Delete the messages the bot posted last time, best effort.
+
+        Each is looked up in the channel it was posted to, which after a
+        channel change is not the one configured now.
 
         A message somebody already deleted by hand is the expected case rather
         than an error, so a failure here never stops the new copy going up.
         """
         removed = 0
         for post in stored:
+            channel = await self.resolve_channel(post.channel_id)
+            if channel is None:
+                continue
             try:
                 message = await channel.fetch_message(post.message_id)
                 await message.delete()

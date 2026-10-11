@@ -97,8 +97,8 @@ async def test_published_guide_messages_survive_a_reopen(db_path):
     make_v1_database(db_path, [])
     database = await Database.connect(db_path)
     try:
-        await database.replace_guide_posts(
-            [database_module.GuidePost(position=0, channel_id=42, message_id=99, checksum="abc")]
+        await database.record_guide_post(
+            database_module.GuidePost(position=0, channel_id=42, message_id=99, checksum="abc")
         )
     finally:
         await database.close()

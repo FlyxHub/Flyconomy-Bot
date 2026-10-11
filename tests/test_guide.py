@@ -372,6 +372,30 @@ class TestRepublish:
         assert outcome.posted == len(guide.load_sections())
         assert moved.contents == list(guide.load_sections())
         assert all(post.channel_id == CHANNEL + 1 for post in await db.guide_posts())
+        # The old copy is deleted from the channel it was posted to.
+        assert channel.contents == []
+
+    async def test_a_repost_cut_short_is_cleaned_up_by_the_next_run(self, cog, channel):
+        # A send failing partway used to leave the sections already posted
+        # untracked, so every later run added a fresh copy below them.
+        sent = 0
+        send = channel.send
+
+        async def failing_third_send(content: str | None = None, **kwargs: Any) -> Any:
+            nonlocal sent
+            sent += 1
+            if sent == 3:
+                raise _http_error(discord.HTTPException, 500, "Internal Server Error")
+            return await send(content, **kwargs)
+
+        channel.send = failing_third_send
+        with pytest.raises(discord.HTTPException):
+            await cog.publish()
+        channel.send = send
+
+        await cog.publish()
+
+        assert channel.contents == list(guide.load_sections())
 
     async def test_repost_moves_the_guide_to_the_bottom(self, cog, channel, db):
         await cog.publish()
@@ -398,11 +422,11 @@ class TestRepublish:
 
 class TestRecordedPosts:
     async def test_posts_come_back_in_channel_order(self, db):
-        await db.replace_guide_posts(
-            [
-                GuidePost(position=1, channel_id=CHANNEL, message_id=20, checksum="b"),
-                GuidePost(position=0, channel_id=CHANNEL, message_id=10, checksum="a"),
-            ]
+        await db.record_guide_post(
+            GuidePost(position=1, channel_id=CHANNEL, message_id=20, checksum="b")
+        )
+        await db.record_guide_post(
+            GuidePost(position=0, channel_id=CHANNEL, message_id=10, checksum="a")
         )
 
         assert [post.position for post in await db.guide_posts()] == [0, 1]
@@ -415,16 +439,8 @@ class TestRecordedPosts:
         assert len(posts) == 1
         assert (posts[0].message_id, posts[0].checksum) == (11, "b")
 
-    async def test_replacing_forgets_everything_that_came_before(self, db):
-        await db.replace_guide_posts([GuidePost(i, CHANNEL, 10 + i, "a") for i in range(6)])
-        await db.replace_guide_posts([GuidePost(0, CHANNEL, 99, "z")])
-
-        posts = await db.guide_posts()
-        assert len(posts) == 1
-        assert posts[0].message_id == 99
-
     async def test_clearing_leaves_nothing_tracked(self, db):
-        await db.replace_guide_posts([GuidePost(0, CHANNEL, 10, "a")])
+        await db.record_guide_post(GuidePost(0, CHANNEL, 10, "a"))
         await db.clear_guide_posts()
 
         assert await db.guide_posts() == ()
