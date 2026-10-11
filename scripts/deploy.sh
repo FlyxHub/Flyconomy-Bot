@@ -77,16 +77,10 @@ install_compose_plugin_from_binary() {
         *) die "Unsupported architecture $(uname -m). Install the Compose plugin manually: https://docs.docker.com/compose/install/linux/#install-the-plugin-manually" ;;
     esac
 
+    # Pinned rather than "latest": this lands in a root-owned plugin directory,
+    # so it should be a release someone chose, not whatever was tagged today.
     local version="v2.29.7"
-    local latest=""
-    if [ "$downloader" = "curl" ]; then
-        latest="$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')" || true
-    else
-        latest="$(wget -qO- https://api.github.com/repos/docker/compose/releases/latest 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')" || true
-    fi
-    if [ -n "$latest" ]; then
-        version="$latest"
-    fi
+    command -v sha256sum >/dev/null 2>&1 || die "sha256sum is needed to verify the Compose download."
 
     local dest
     if [ "$(id -u)" -eq 0 ]; then
@@ -96,14 +90,26 @@ install_compose_plugin_from_binary() {
     fi
     mkdir -p "$dest"
 
-    local url="https://github.com/docker/compose/releases/download/${version}/docker-compose-linux-${arch}"
+    local asset="docker-compose-linux-${arch}"
+    local url="https://github.com/docker/compose/releases/download/${version}/${asset}"
+    local tmp
+    tmp="$(mktemp -d)"
     step "Downloading Docker Compose $version for linux/$arch"
     if [ "$downloader" = "curl" ]; then
-        curl -fsSL "$url" -o "$dest/docker-compose"
+        curl -fsSL "$url" -o "$tmp/$asset"
+        curl -fsSL "$url.sha256" -o "$tmp/$asset.sha256"
     else
-        wget -qO "$dest/docker-compose" "$url"
+        wget -qO "$tmp/$asset" "$url"
+        wget -qO "$tmp/$asset.sha256" "$url.sha256"
     fi
-    chmod +x "$dest/docker-compose"
+    # The release publishes a checksum beside every binary; nothing is
+    # installed unless the download matches it.
+    (cd "$tmp" && sha256sum -c "$asset.sha256" >/dev/null) || {
+        rm -rf "$tmp"
+        die "The Compose download did not match its published checksum."
+    }
+    install -m 0755 "$tmp/$asset" "$dest/docker-compose"
+    rm -rf "$tmp"
 }
 
 if ! docker compose version >/dev/null 2>&1; then
