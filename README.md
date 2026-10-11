@@ -256,6 +256,12 @@ and every member's net worth over time, the leaderboards, and the lottery pot,
 and it has buttons that do what `$market bull|bear|neutral` does. It is not
 for members: it names the market's regime, which nothing member-facing does.
 
+To show it to someone, press **P** or the eye button in the top corner. That
+hides the market override and everything that gives a run away: the run status
+under the price, and the gauge ring's run colours and speed. Press it again to
+bring them back. The setting survives a reload, so refreshing the page in
+front of people does not reveal anything.
+
 There are two halves, and they can run on different machines:
 
 - **The bot** records history and serves a small JSON API on port 8765. The

@@ -84,6 +84,23 @@
   }
   .callsign { margin: 0; font: 600 22px/1 var(--display); letter-spacing: .32em; color: var(--holo); }
   .callsign small { margin-left: 14px; font: 400 14px/1 var(--body); letter-spacing: 0; color: var(--text-2); }
+  .bar-right { display: flex; align-items: center; gap: 16px; }
+  .present {
+    display: grid; place-items: center;
+    width: 34px; height: 34px;
+    cursor: pointer;
+    border: 1px solid var(--frame);
+    background: none;
+    color: var(--holo);
+    transition: opacity .3s, border-color .3s;
+  }
+  .present:hover { border-color: var(--holo); }
+  .present svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+  .present .slash { opacity: 0; transition: opacity .3s; }
+  /* While presenting, the toggle recedes so it does not invite a question. */
+  body.presenting .present { opacity: .35; }
+  body.presenting .present:hover, body.presenting .present:focus-visible { opacity: 1; }
+  body.presenting .present .slash { opacity: 1; }
   .link { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
   .link::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bull); box-shadow: 0 0 10px var(--bull); }
   .link.lost { color: var(--bear); }
@@ -126,14 +143,12 @@
   .gauge .needle { stroke: var(--text); stroke-width: 2.5; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--holo)); }
   .gauge .scale-label { fill: var(--text-2); font: 500 11px var(--display); }
   .gauge .inner { fill: none; stroke: var(--frame); stroke-width: 1; }
-  .gauge .sweep { transform-box: view-box; transform-origin: 0 0; animation: sweep 14s linear infinite; }
+  /* Spun from script, so a change of speed eases instead of jumping. */
+  .gauge .sweep { transform-box: view-box; transform-origin: 0 0; }
   .gauge .sweep circle { fill: none; stroke: var(--holo-dim); stroke-width: 1.5; stroke-dasharray: 2 9; }
-  .gauge .sweep path { fill: none; stroke: var(--holo); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 8px var(--holo)); }
-  .gauge[data-regime="bull"] .sweep { animation-duration: 4s; }
-  .gauge[data-regime="bear"] .sweep { animation-duration: 4s; animation-direction: reverse; }
+  .gauge .sweep path { fill: none; stroke: var(--holo); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 8px var(--holo)); transition: stroke .9s, filter .9s; }
   .gauge[data-regime="bull"] .sweep path { stroke: var(--bull); filter: drop-shadow(0 0 10px var(--bull)); }
   .gauge[data-regime="bear"] .sweep path { stroke: var(--bear); filter: drop-shadow(0 0 10px var(--bear)); }
-  @keyframes sweep { to { transform: rotate(1turn); } }
 
   .gauge.boot .track, .gauge.boot .band, .gauge.boot .inner { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.2s cubic-bezier(.6, 0, .2, 1) forwards; }
   .gauge.boot .tick { opacity: 0; animation: blink-in .05s linear forwards; }
@@ -153,7 +168,8 @@
     text-shadow: 0 0 24px rgba(95, 212, 255, .45);
   }
   .readout .price small { font-size: .42em; vertical-align: .9em; margin-right: 2px; color: var(--holo); }
-  .readout .state { font: 500 15px/1.3 var(--display); color: var(--holo); }
+  .readout .state { font: 500 15px/1.3 var(--display); color: var(--holo); transition: opacity .4s, transform .4s, filter .4s; }
+  body.presenting .readout .state { opacity: 0; transform: translateY(6px); filter: blur(4px); }
   .readout .state.bull { color: var(--bull); }
   .readout .state.bear { color: var(--bear); }
 
@@ -175,7 +191,33 @@
   .chart-box { position: relative; flex: 1; min-height: 300px; }
 
   /* ---------------------------------------------------------- override */
-  .left { grid-area: left; display: flex; flex-direction: column; gap: 22px; }
+  .left { grid-area: left; display: flex; flex-direction: column; }
+
+  /* The override folds away in two beats: it fades out, then the space
+     closes. Revealing runs the other way, so nothing appears in a gap that
+     is still opening. Each state carries the transition into itself. */
+  .collapsible {
+    display: grid;
+    grid-template-rows: 1fr;
+    margin-bottom: 22px;
+    transition:
+      grid-template-rows .6s cubic-bezier(.6, 0, .2, 1),
+      margin-bottom .6s cubic-bezier(.6, 0, .2, 1),
+      opacity .45s .35s, filter .45s .35s;
+  }
+  .collapsible > div { min-height: 0; overflow: hidden; }
+  body.presenting .collapsible {
+    grid-template-rows: 0fr;
+    margin-bottom: 0;
+    opacity: 0;
+    filter: blur(8px);
+    transition:
+      grid-template-rows .6s .25s cubic-bezier(.6, 0, .2, 1),
+      margin-bottom .6s .25s cubic-bezier(.6, 0, .2, 1),
+      opacity .3s, filter .3s;
+  }
+  /* Restoring the mode on load is not a change, so it must not animate. */
+  body.instant * { transition: none !important; }
   .override[data-armed] { --c: var(--amber); }
   .override[data-armed] .frame-title { color: var(--amber); }
   .override p { margin: 0 0 14px; color: var(--text-2); }
@@ -271,6 +313,7 @@
     .gauge .sweep, .gauge.boot * { animation: none !important; opacity: 1 !important; stroke-dashoffset: 0 !important; }
     .meter i { transition: none; }
     .rise, .fall { animation: none; }
+    .collapsible, body.presenting .collapsible, .readout .state { transition: none; }
   }
 </style>
 </head>
@@ -278,7 +321,16 @@
 <div class="hud">
   <header class="bar">
     <h1 class="callsign">FLYCONOMY<small>Economy monitor</small></h1>
-    <span id="link" class="link" role="status">Connecting to the bot</span>
+    <div class="bar-right">
+      <span id="link" class="link" role="status">Connecting to the bot</span>
+      <button id="present" class="present" aria-pressed="false" aria-label="Hide market controls" title="Hide market controls (P)">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>
+          <circle cx="12" cy="12" r="3"/>
+          <path class="slash" d="M4 4l16 16"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
   <section class="gauge boot" data-regime="calm" aria-label="Flyxcoin price gauge">
@@ -304,6 +356,7 @@
   </section>
 
   <div class="left">
+    <div class="collapsible" id="override-wrap"><div>
     <section class="override frame" aria-labelledby="override-title">
       <h2 class="frame-title" id="override-title">Market override</h2>
       <p id="regime-text">Reading the market…</p>
@@ -318,6 +371,7 @@
       </div>
       <p id="result" role="status"></p>
     </section>
+    </div></div>
 
     <section class="stats frame" aria-label="Economy totals">
       <div class="stat"><div class="label">Lottery pot</div><div class="value" id="pot">–</div></div>
@@ -496,7 +550,8 @@ function renderGauge() {
   } else if (market.price !== shownPrice) {
     rollPrice(market.price);
   }
-  document.querySelector(".gauge").dataset.regime = market.regime;
+  // While presenting, the dial behaves as if the market were calm.
+  document.querySelector(".gauge").dataset.regime = presenting ? "calm" : market.regime;
   const state = $("state");
   state.className = "state " + market.regime;
   state.textContent = market.regime === "calm" ? "Market calm" : `${market.regime === "bull" ? "Bull" : "Bear"} run, ${market.minutes_left} min left`;
@@ -866,6 +921,57 @@ async function fire() {
     stopHold();
   }
 }
+
+// ------------------------------------------------------------ the sweep
+// Degrees per second. Easing toward the target is what makes a run spin
+// the ring up, and presenting spin it back down, rather than snap.
+const SPIN = { calm: 360 / 14, bull: 360 / 4, bear: -360 / 4 };
+let spinAngle = 0, spinSpeed = SPIN.calm, lastSpin = null;
+function spin(now) {
+  const dt = lastSpin === null ? 0 : Math.min(0.1, (now - lastSpin) / 1000);
+  lastSpin = now;
+  const target = SPIN[document.querySelector(".gauge").dataset.regime] ?? SPIN.calm;
+  spinSpeed += (target - spinSpeed) * Math.min(1, dt * 1.6);
+  spinAngle = (spinAngle + spinSpeed * dt) % 360;
+  const ring = document.querySelector(".gauge .sweep");
+  if (ring) ring.style.transform = `rotate(${spinAngle}deg)`;
+  requestAnimationFrame(spin);
+}
+if (!reducedMotion) requestAnimationFrame(spin);
+
+// ----------------------------------------------------------- presenting
+// Hides everything that tells a viewer a run is on or can be started:
+// the override, the run status under the price, and the ring's run colours
+// and speed. Remembered across reloads, so refreshing in front of people
+// does not bring the controls back.
+const PRESENTING_KEY = "flyconomy.presenting";
+let presenting = false;
+try { presenting = localStorage.getItem(PRESENTING_KEY) === "1"; } catch {}
+
+function setPresenting(on) {
+  presenting = on;
+  document.body.classList.toggle("presenting", on);
+  $("override-wrap").inert = on;
+  $("state").setAttribute("aria-hidden", on);
+  const button = $("present");
+  const label = on ? "Show market controls" : "Hide market controls";
+  button.setAttribute("aria-pressed", on);
+  button.setAttribute("aria-label", label);
+  button.title = `${label} (P)`;
+  if (on && armed !== null) { stopHold(); armed = null; }
+  if (overview) { renderGauge(); renderOverride(); }
+  try { localStorage.setItem(PRESENTING_KEY, on ? "1" : "0"); } catch {}
+}
+
+$("present").addEventListener("click", () => setPresenting(!presenting));
+document.addEventListener("keydown", e => {
+  if (e.key.toLowerCase() !== "p" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  setPresenting(!presenting);
+});
+
+document.body.classList.add("instant");
+setPresenting(presenting);
+setTimeout(() => document.body.classList.remove("instant"), 50);
 
 document.fonts.ready.then(() => chart && renderChart());
 poll();
