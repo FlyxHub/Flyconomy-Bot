@@ -108,6 +108,7 @@ class TestApi:
 
         assert body["market"] == {"price": economy.FLX_PRICE, "regime": "calm", "minutes_left": 0}
         assert body["leaderboards"]["net_worth"][0]["name"] == str(ALICE)
+        assert body["leaderboards"]["net_worth"][0]["id"] == str(ALICE)
 
     async def test_history_carries_ids_as_strings(self, client, db):
         # Snowflakes are past JavaScript's safe integers; a number would be

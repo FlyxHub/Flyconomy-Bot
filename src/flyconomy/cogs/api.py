@@ -96,7 +96,11 @@ class Api(BaseCog, name="Api"):
         return user.display_name if user is not None else str(user_id)
 
     def _board(self, entries: list[LeaderboardEntry]) -> list[dict[str, object]]:
-        return [{"name": self._name(e.user_id), "amount": e.amount} for e in entries]
+        # Ids as strings: snowflakes are past JavaScript's safe integers.
+        return [
+            {"id": str(e.user_id), "name": self._name(e.user_id), "amount": e.amount}
+            for e in entries
+        ]
 
     async def overview(self, _request: web.Request) -> web.Response:
         """The market, the lottery, and the leaderboards as they stand."""
