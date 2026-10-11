@@ -79,6 +79,7 @@ class FakeContext:
     embeds: list[Any] = field(default_factory=list)
     views: list[Any] = field(default_factory=list)
     command: FakeCommand = field(default_factory=FakeCommand)
+    invoked_with: str | None = None
 
     async def send(
         self, content: str | None = None, *, embed: Any = None, view: Any = None, **_: Any
