@@ -6,290 +6,312 @@
 <title>Flyconomy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&family=Bodoni+Moda:opsz,wght@6..96,400..700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Saira:wdth,wght@75..125,300..700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-  /* Security paper and engraving ink: the economy's money, drawn like money. */
+  /* A heads-up display for one operator. Cyan watches, amber acts,
+     mint and red mean a run is moving the market. */
   :root {
-    color-scheme: light;
-    --paper: #dfe7e0;
-    --note: #eef3ec;
-    --ink: #10303a;
-    --ink-2: #46606a;
-    --ink-3: #5f767d;
-    --rule: #bfccc4;
-    --gold: #8a5e0c;
-    --gain: #1c7347;
-    --loss: #a12f4d;
-    --wash: rgba(16, 48, 58, .06);
-    --display: "Bodoni Moda", "Didot", Georgia, serif;
-    --text: "Archivo", system-ui, sans-serif;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --paper: #0c1a1f;
-      --note: #12252b;
-      --ink: #ddeae4;
-      --ink-2: #a2b8b2;
-      --ink-3: #839b95;
-      --rule: #24393f;
-      --gold: #d2a54a;
-      --gain: #5bc48f;
-      --loss: #f0809a;
-      --wash: rgba(221, 234, 228, .05);
-    }
+    color-scheme: dark;
+    --void: #04080d;
+    --deep: #071019;
+    --glass: rgba(95, 212, 255, .035);
+    --frame: rgba(95, 212, 255, .16);
+    --grid: rgba(95, 212, 255, .07);
+    --holo: #5fd4ff;
+    --holo-dim: #2b7194;
+    --text: #d4f1ff;
+    --text-2: #86afc4;
+    --amber: #ffb547;
+    --bull: #4dffc3;
+    --bear: #ff5468;
+    --display: "Chakra Petch", system-ui, sans-serif;
+    --body: "Saira", system-ui, sans-serif;
   }
 
   * { box-sizing: border-box; }
+  html { background: var(--void); }
   body {
     margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font: 400 15px/1.5 var(--text);
+    min-height: 100vh;
+    color: var(--text);
+    font: 400 15px/1.5 var(--body);
+    font-variation-settings: "wdth" 92;
     font-variant-numeric: tabular-nums;
+    background:
+      radial-gradient(900px 600px at 18% 8%, rgba(95, 212, 255, .10), transparent 70%),
+      radial-gradient(700px 500px at 90% 100%, rgba(43, 113, 148, .12), transparent 70%),
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
+      var(--void);
   }
   button { font: inherit; color: inherit; }
-  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  :focus-visible { outline: 1px solid var(--amber); outline-offset: 3px; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-  .page {
-    max-width: 1240px;
+  .hud {
+    max-width: 1320px;
     margin: 0 auto;
-    padding: 28px 32px 64px;
+    padding: 22px 28px 56px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: 430px minmax(0, 1fr);
     grid-template-areas:
-      "top top"
-      "note side"
-      "ledger ledger";
-    gap: 28px 32px;
+      "bar bar"
+      "gauge trace"
+      "left ledger";
+    gap: 22px 28px;
   }
 
-  /* ---------------------------------------------------------------- top */
-  .top { grid-area: top; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-  .wordmark {
-    margin: 0;
-    font: 600 30px/1 var(--display);
-    font-variation-settings: "opsz" 96;
-    letter-spacing: -.01em;
+  /* -------------------------------------------------------------- bar */
+  .bar {
+    grid-area: bar;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--frame);
   }
-  #updated { color: var(--ink-2); font-size: 13px; }
-  #updated.error { color: var(--loss); }
+  .callsign { margin: 0; font: 600 22px/1 var(--display); letter-spacing: .32em; color: var(--holo); }
+  .callsign small { margin-left: 14px; font: 400 14px/1 var(--body); letter-spacing: 0; color: var(--text-2); }
+  .link { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
+  .link::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bull); box-shadow: 0 0 10px var(--bull); }
+  .link.lost { color: var(--bear); }
+  .link.lost::before { background: var(--bear); box-shadow: 0 0 10px var(--bear); }
 
-  /* --------------------------------------------------------------- note */
-  .note {
-    grid-area: note;
+  /* ------------------------------------------------------------ frames */
+  /* Corner brackets rather than boxes: a HUD marks out a region, it does not fill one. */
+  .frame {
+    --c: var(--holo-dim);
     position: relative;
-    overflow: hidden;
-    background: var(--note);
-    border-radius: 18px;
-    padding: 28px 32px 24px;
-    /* The double border of a printed note: an outer frame and an inset line. */
-    box-shadow: inset 0 0 0 1px var(--rule), inset 0 0 0 7px var(--note), inset 0 0 0 8px var(--rule);
-    isolation: isolate;
+    padding: 18px 20px;
+    background:
+      linear-gradient(var(--c), var(--c)) top left / 16px 1px no-repeat,
+      linear-gradient(var(--c), var(--c)) top left / 1px 16px no-repeat,
+      linear-gradient(var(--c), var(--c)) top right / 16px 1px no-repeat,
+      linear-gradient(var(--c), var(--c)) top right / 1px 16px no-repeat,
+      linear-gradient(var(--c), var(--c)) bottom left / 16px 1px no-repeat,
+      linear-gradient(var(--c), var(--c)) bottom left / 1px 16px no-repeat,
+      linear-gradient(var(--c), var(--c)) bottom right / 16px 1px no-repeat,
+      linear-gradient(var(--c), var(--c)) bottom right / 1px 16px no-repeat,
+      var(--glass);
   }
-  .rosette {
-    position: absolute;
-    z-index: -1;
-    width: 460px;
-    height: 460px;
-    right: -120px;
-    top: -150px;
-    color: var(--ink);
-    opacity: .22;
-    pointer-events: none;
+  .frame-title {
+    display: flex; align-items: center; gap: 12px;
+    margin: 0 0 14px;
+    font: 500 15px/1.2 var(--display);
+    letter-spacing: .06em;
+    color: var(--holo);
   }
-  .rosette path { fill: none; stroke: currentColor; stroke-width: .7; vector-effect: non-scaling-stroke; }
-  .rosette path.gilt { stroke: var(--gold); }
-  .note[data-regime="bull"] .rosette { animation: turn 90s linear infinite; }
-  .note[data-regime="bear"] .rosette { animation: turn 90s linear infinite reverse; }
-  @keyframes turn { to { transform: rotate(1turn); } }
-  .rosette.drawing path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: engrave 1.8s cubic-bezier(.5, 0, .2, 1) forwards; }
-  .rosette.drawing path:nth-child(2) { animation-delay: .15s; }
-  .rosette.drawing path:nth-child(3) { animation-delay: .3s; }
-  .rosette.drawing path:nth-child(4) { animation-delay: .45s; }
-  @keyframes engrave { to { stroke-dashoffset: 0; } }
+  .frame-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--frame), transparent); }
 
-  .note-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-  .note-head h2 { margin: 0; font: 500 19px/1.2 var(--display); font-style: italic; color: var(--ink-2); }
+  /* ------------------------------------------------------------- gauge */
+  .gauge { grid-area: gauge; position: relative; aspect-ratio: 1; align-self: start; }
+  .gauge svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .gauge .tick { stroke: var(--holo-dim); stroke-width: 1; }
+  .gauge .tick.major { stroke: var(--holo); stroke-width: 1.5; }
+  .gauge .track { fill: none; stroke: var(--frame); stroke-width: 2; }
+  .gauge .band { fill: none; stroke: rgba(95, 212, 255, .22); stroke-width: 10; }
+  .gauge .level {
+    fill: none; stroke: var(--holo); stroke-width: 3; stroke-linecap: round;
+    filter: drop-shadow(0 0 6px var(--holo));
+    transition: d .8s cubic-bezier(.2, .8, .2, 1);
+  }
+  .gauge .needle { stroke: var(--text); stroke-width: 2.5; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--holo)); transition: transform .8s cubic-bezier(.2, .8, .2, 1); }
+  .gauge .scale-label { fill: var(--text-2); font: 500 11px var(--display); }
+  .gauge .inner { fill: none; stroke: var(--frame); stroke-width: 1; }
+  .gauge .sweep { transform-box: view-box; transform-origin: 0 0; animation: sweep 14s linear infinite; }
+  .gauge .sweep circle { fill: none; stroke: var(--holo-dim); stroke-width: 1.5; stroke-dasharray: 2 9; }
+  .gauge .sweep path { fill: none; stroke: var(--holo); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 8px var(--holo)); }
+  .gauge[data-regime="bull"] .sweep { animation-duration: 4s; }
+  .gauge[data-regime="bear"] .sweep { animation-duration: 4s; animation-direction: reverse; }
+  .gauge[data-regime="bull"] .sweep path { stroke: var(--bull); filter: drop-shadow(0 0 10px var(--bull)); }
+  .gauge[data-regime="bear"] .sweep path { stroke: var(--bear); filter: drop-shadow(0 0 10px var(--bear)); }
+  @keyframes sweep { to { transform: rotate(1turn); } }
 
-  .range { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--wash); }
+  .gauge.boot .track, .gauge.boot .band, .gauge.boot .inner { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.2s cubic-bezier(.6, 0, .2, 1) forwards; }
+  .gauge.boot .tick { opacity: 0; animation: blink-in .05s linear forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes blink-in { to { opacity: 1; } }
+
+  .readout {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; pointer-events: none;
+  }
+  .readout .what { font: 500 14px/1 var(--display); letter-spacing: .14em; color: var(--text-2); }
+  .readout .price {
+    margin: 10px 0 6px;
+    font: 600 clamp(44px, 6vw, 64px)/1 var(--display);
+    color: var(--text);
+    text-shadow: 0 0 24px rgba(95, 212, 255, .45);
+  }
+  .readout .price small { font-size: .42em; vertical-align: .9em; margin-right: 2px; color: var(--holo); }
+  .readout .state { font: 500 15px/1.3 var(--display); color: var(--holo); }
+  .readout .state.bull { color: var(--bull); }
+  .readout .state.bear { color: var(--bear); }
+
+  /* ------------------------------------------------------------- trace */
+  .trace { grid-area: trace; display: flex; flex-direction: column; }
+  .trace-head { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; margin-bottom: 6px; }
+  .moves { display: flex; gap: 6px 22px; flex-wrap: wrap; font-size: 14px; color: var(--text-2); }
+  .moves b { font: 600 15px var(--display); }
+  .up { color: var(--bull); }
+  .down { color: var(--bear); }
+  .range { display: flex; }
   .range button {
-    border: 0; background: none; cursor: pointer;
-    padding: 5px 12px; border-radius: 999px;
-    font-size: 13px; font-weight: 500; color: var(--ink-2);
+    cursor: pointer; padding: 6px 14px;
+    border: 1px solid var(--frame); background: none;
+    font: 500 13px var(--display); color: var(--text-2);
   }
-  .range button[aria-pressed="true"] { background: var(--ink); color: var(--note); }
+  .range button + button { border-left: 0; }
+  .range button[aria-pressed="true"] { color: var(--void); background: var(--holo); border-color: var(--holo); }
+  .chart-box { position: relative; flex: 1; min-height: 300px; }
 
-  .denomination {
-    margin: 14px 0 0;
-    display: flex;
-    align-items: flex-start;
-    font: 500 clamp(64px, 9vw, 112px)/.9 var(--display);
-    font-variation-settings: "opsz" 96;
-    letter-spacing: -.02em;
-  }
-  .denomination .currency { font-size: .38em; margin: .12em .06em 0 0; color: var(--ink-2); }
+  /* ---------------------------------------------------------- override */
+  .left { grid-area: left; display: flex; flex-direction: column; gap: 22px; }
+  .override[data-armed] { --c: var(--amber); }
+  .override[data-armed] .frame-title { color: var(--amber); }
+  .override p { margin: 0 0 14px; color: var(--text-2); }
 
-  .moves { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 14px 0 0; font-size: 14px; color: var(--ink-2); }
-  .up { color: var(--gain); }
-  .down { color: var(--loss); }
-  .moves strong { font-weight: 600; }
-
-  .price-chart { position: relative; height: 280px; margin: 18px -8px 0; }
-
-  .corners {
-    display: flex; flex-direction: column; gap: 18px;
-    margin-top: auto; padding-top: 20px;
-    border-top: 1px solid var(--rule);
-  }
-  .corner span { display: block; font-size: 13px; color: var(--ink-2); }
-  .corner b { font: 500 34px/1.15 var(--display); }
-  .corner small { font-size: 13px; color: var(--ink-2); margin-left: 6px; }
-
-  /* --------------------------------------------------------------- side */
-  .side { grid-area: side; display: flex; flex-direction: column; gap: 14px; padding: 8px 0 4px; }
-  .side h2 { margin: 0; font: 500 24px/1.2 var(--display); }
-  .side p { margin: 0; color: var(--ink-2); max-width: 36ch; }
-
-  .switch {
-    position: relative;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    margin-top: 6px;
-    padding: 5px;
-    border-radius: 999px;
-    background: var(--note);
-    box-shadow: inset 0 0 0 1px var(--rule);
-  }
-  .switch::before {
-    content: "";
-    position: absolute;
-    top: 5px; bottom: 5px; left: 5px;
-    width: calc((100% - 10px) / 3);
-    border-radius: 999px;
-    background: var(--ink);
-    transform: translateX(calc(var(--pos, 1) * 100%));
-    transition: transform .35s cubic-bezier(.3, 1.3, .5, 1), background .2s;
-  }
-  .switch[data-pending]::before { background: var(--gold); }
+  .switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
   .switch button {
-    position: relative;
-    border: 0; background: none; cursor: pointer;
-    padding: 11px 0;
-    border-radius: 999px;
-    font-weight: 600;
-    font-variation-settings: "wdth" 112;
-    color: var(--ink-2);
-    transition: color .2s;
-  }
-  .switch button[aria-pressed="true"] { color: var(--note); }
-  .switch button:disabled { cursor: not-allowed; opacity: .4; }
-
-  .confirm { display: flex; gap: 8px; flex-wrap: wrap; }
-  .confirm[hidden] { display: none; }
-  .confirm button {
     cursor: pointer;
-    padding: 9px 16px;
-    border-radius: 10px;
-    border: 1px solid var(--rule);
-    background: transparent;
-    font-weight: 600;
+    padding: 12px 0;
+    border: 0;
+    background: rgba(95, 212, 255, .07);
+    font: 600 15px var(--display);
+    letter-spacing: .08em;
+    color: var(--text-2);
+    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+    transition: background .2s, color .2s;
   }
-  .confirm .go { background: var(--gold); border-color: var(--gold); color: var(--note); }
-  #result { min-height: 1.5em; font-size: 14px; }
-  #result.error { color: var(--loss); }
+  .switch button:hover:not(:disabled) { background: rgba(95, 212, 255, .14); color: var(--text); }
+  .switch button[aria-pressed="true"] { background: var(--holo); color: var(--void); }
+  .switch button[aria-pressed="true"][data-direction="bull"] { background: var(--bull); }
+  .switch button[aria-pressed="true"][data-direction="bear"] { background: var(--bear); }
+  .switch button.armed { background: var(--amber) !important; color: var(--void); }
+  .switch button:disabled { cursor: not-allowed; opacity: .3; }
 
-  /* ------------------------------------------------------------- ledger */
-  .ledger { grid-area: ledger; }
-  .ledger-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
-  .ledger-head h2 { margin: 0; font: 500 24px/1.2 var(--display); }
-  .tabs { display: flex; gap: 22px; }
-  .tabs button {
-    border: 0; background: none; cursor: pointer; padding: 6px 0;
-    font-weight: 500; color: var(--ink-2);
-    border-bottom: 2px solid transparent;
+  .arm { display: flex; gap: 8px; margin-top: 12px; }
+  .arm[hidden] { display: none; }
+  .hold {
+    --fill: 0%;
+    flex: 1;
+    cursor: pointer;
+    padding: 12px 14px;
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    background: linear-gradient(90deg, rgba(255, 181, 71, .35) var(--fill), transparent var(--fill));
+    font: 600 15px var(--display);
+    letter-spacing: .04em;
+    user-select: none;
+    touch-action: none;
   }
-  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--gold); }
+  .cancel { cursor: pointer; padding: 12px 16px; border: 1px solid var(--frame); background: none; color: var(--text-2); }
+  #result { min-height: 1.5em; margin: 12px 0 0; font-size: 14px; color: var(--text); }
+  #result.error { color: var(--bear); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .stat .label { font-size: 14px; color: var(--text-2); }
+  .stat .value { margin-top: 4px; font: 600 28px/1.1 var(--display); }
+  .stat .sub { font-size: 13px; color: var(--text-2); }
+
+  /* ------------------------------------------------------------ ledger */
+  .ledger { grid-area: ledger; }
+  .ledger-head { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
+  .ledger-head .frame-title { flex: 1; margin: 0; }
+  .tabs { display: flex; gap: 18px; }
+  .tabs button {
+    cursor: pointer; border: 0; background: none; padding: 4px 0;
+    font: 500 14px var(--display); color: var(--text-2);
+    border-bottom: 1px solid transparent;
+  }
+  .tabs button[aria-selected="true"] { color: var(--holo); border-bottom-color: var(--holo); }
 
   table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-weight: 500; font-size: 13px; color: var(--ink-2); padding: 10px 12px 8px 0; border-bottom: 1px solid var(--rule); }
-  td { padding: 11px 12px 11px 0; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  th { text-align: left; font: 400 13px var(--body); color: var(--text-2); padding: 10px 10px 6px 0; }
+  td { padding: 9px 10px 9px 0; border-top: 1px solid var(--grid); vertical-align: middle; }
   th.num, td.num { text-align: right; padding-right: 0; }
-  td.rank { width: 2.5em; font: 500 18px/1 var(--display); color: var(--ink-2); }
+  td.rank { width: 2.6em; font: 600 14px var(--display); color: var(--holo-dim); }
   td.name { font-weight: 500; }
-  td.amount { font: 500 18px/1 var(--display); }
-  td.spark { width: 160px; }
-  td.spark svg { display: block; width: 140px; height: 30px; overflow: visible; }
-  td.spark polyline { fill: none; stroke: var(--ink-2); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-  td.change { width: 140px; font-size: 14px; }
-  .ledger[data-board="net_worth"] .flat-only,
+  td.amount { font: 600 16px var(--display); }
+  td.share { width: 22%; }
+  .meter { height: 3px; background: var(--grid); }
+  .meter i { display: block; height: 100%; background: var(--holo); box-shadow: 0 0 8px var(--holo); }
+  td.spark { width: 130px; }
+  td.spark svg { display: block; width: 120px; height: 26px; overflow: visible; }
+  td.spark polyline { fill: none; stroke: var(--holo); stroke-width: 1.5; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px var(--holo)); }
+  td.change { width: 120px; font-size: 14px; }
   .ledger:not([data-board="net_worth"]) .worth-only { display: none; }
-  .empty td { color: var(--ink-2); padding: 24px 0; }
+  .empty td { color: var(--text-2); padding: 22px 0; }
 
-  @media (max-width: 960px) {
-    .page { grid-template-columns: 1fr; grid-template-areas: "top" "note" "side" "ledger"; padding: 20px 16px 48px; }
-    .side p { max-width: none; }
-    .corners { flex-direction: row; flex-wrap: wrap; gap: 12px 40px; }
+  @media (max-width: 1060px) {
+    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "left" "ledger"; padding: 18px 16px 48px; }
+    .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
-    .note { padding: 22px 18px 18px; }
-    .rosette { width: 280px; height: 280px; right: -110px; top: -110px; opacity: .14; }
-    .price-chart { height: 220px; }
-    td.spark, th.spark { display: none; }
-    td.change { width: auto; }
+    .callsign small { display: none; }
+    td.spark, th.spark, td.share, th.share { display: none; }
+    .chart-box { min-height: 240px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .note .rosette, .rosette.drawing path { animation: none !important; stroke-dashoffset: 0; }
-    .switch::before { transition: none; }
+    .gauge .sweep, .gauge.boot * { animation: none !important; opacity: 1 !important; stroke-dashoffset: 0 !important; }
+    .gauge .level, .gauge .needle { transition: none; }
   }
 </style>
 </head>
 <body>
-<div class="page">
-  <header class="top">
-    <h1 class="wordmark">Flyconomy</h1>
-    <span id="updated" role="status">Connecting to the bot…</span>
+<div class="hud">
+  <header class="bar">
+    <h1 class="callsign">FLYCONOMY<small>Economy monitor</small></h1>
+    <span id="link" class="link" role="status">Connecting to the bot</span>
   </header>
 
-  <section class="note" data-regime="calm" aria-labelledby="note-title">
-    <svg class="rosette drawing" viewBox="-110 -110 220 220" aria-hidden="true"></svg>
-    <div class="note-head">
-      <h2 id="note-title">Flyxcoin</h2>
+  <section class="gauge boot" data-regime="calm" aria-label="Flyxcoin price gauge">
+    <svg id="dial" viewBox="-200 -200 400 400" aria-hidden="true"></svg>
+    <div class="readout">
+      <span class="what">Flyxcoin</span>
+      <span class="price"><small>$</small><span id="price">–</span></span>
+      <span class="state" id="state">Reading the market</span>
+    </div>
+  </section>
+
+  <section class="trace frame" aria-labelledby="trace-title">
+    <h2 class="frame-title" id="trace-title">Price trace</h2>
+    <div class="trace-head">
+      <div class="moves"><span id="tick-move"></span><span id="range-move"></span></div>
       <div class="range" role="group" aria-label="Time range">
-        <button data-hours="24" aria-pressed="true">24 hours</button>
+        <button data-hours="24" aria-pressed="true">24 h</button>
         <button data-hours="168" aria-pressed="false">7 days</button>
         <button data-hours="744" aria-pressed="false">31 days</button>
       </div>
     </div>
-    <p class="denomination" aria-live="polite"><span class="currency">$</span><span id="price">–</span></p>
-    <p class="moves"><span id="tick-move"></span><span id="range-move"></span></p>
-    <div class="price-chart"><canvas id="price-chart" role="img" aria-label="Flyxcoin price over the selected range"></canvas></div>
+    <div class="chart-box"><canvas id="price-chart" role="img" aria-label="Flyxcoin price over the selected range, with the calm band shaded"></canvas></div>
   </section>
 
-  <aside class="side" aria-labelledby="steer-title">
-    <h2 id="steer-title">Steer the market</h2>
-    <p id="regime-text">Reading the market…</p>
-    <div class="switch" role="group" aria-label="Market direction">
-      <button data-direction="bear" aria-pressed="false">Bear</button>
-      <button data-direction="calm" aria-pressed="true">Calm</button>
-      <button data-direction="bull" aria-pressed="false">Bull</button>
-    </div>
-    <div class="confirm" hidden>
-      <button class="go" id="confirm-go"></button>
-      <button id="confirm-cancel">Cancel</button>
-    </div>
-    <p id="result" role="status"></p>
-    <div class="corners">
-      <div class="corner"><span>Lottery pot</span><b id="pot">–</b></div>
-      <div class="corner"><span>Flyxcoin held by members</span><b id="circulating">–</b><small id="circulating-value"></small></div>
-    </div>
-  </aside>
+  <div class="left">
+    <section class="override frame" aria-labelledby="override-title">
+      <h2 class="frame-title" id="override-title">Market override</h2>
+      <p id="regime-text">Reading the market…</p>
+      <div class="switch" role="group" aria-label="Market direction">
+        <button data-direction="bear" aria-pressed="false">Bear</button>
+        <button data-direction="calm" aria-pressed="true">Calm</button>
+        <button data-direction="bull" aria-pressed="false">Bull</button>
+      </div>
+      <div class="arm" hidden>
+        <button class="hold" id="hold"></button>
+        <button class="cancel" id="cancel">Cancel</button>
+      </div>
+      <p id="result" role="status"></p>
+    </section>
 
-  <section class="ledger" data-board="net_worth" aria-labelledby="ledger-title">
+    <section class="stats frame" aria-label="Economy totals">
+      <div class="stat"><div class="label">Lottery pot</div><div class="value" id="pot">–</div></div>
+      <div class="stat"><div class="label">Flyxcoin held</div><div class="value" id="circulating">–</div><div class="sub" id="circulating-value"></div></div>
+    </section>
+  </div>
+
+  <section class="ledger frame" data-board="net_worth" aria-labelledby="ledger-title">
     <div class="ledger-head">
-      <h2 id="ledger-title">Richest members</h2>
+      <h2 class="frame-title" id="ledger-title">Richest members</h2>
       <div class="tabs" role="tablist" aria-label="Rank by">
         <button role="tab" data-board="net_worth" aria-selected="true">Net worth</button>
         <button role="tab" data-board="wallet" aria-selected="false">Wallets</button>
@@ -301,6 +323,7 @@
         <tr>
           <th scope="col"><span class="visually-hidden">Rank</span></th>
           <th scope="col">Member</th>
+          <th scope="col" class="share">Share of the leader</th>
           <th scope="col" class="spark worth-only">Trend</th>
           <th scope="col" class="change worth-only">Change</th>
           <th scope="col" class="num">Amount</th>
@@ -317,34 +340,79 @@ const css = name => getComputedStyle(document.documentElement).getPropertyValue(
 const whole = n => Math.round(n).toLocaleString();
 const money = n => "$" + whole(n);
 const RANGE_NAMES = { 24: "24 hours", 168: "7 days", 744: "31 days" };
-const POSITIONS = { bear: 0, calm: 1, bull: 2 };
+const SVG = "http://www.w3.org/2000/svg";
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 let hours = 24;
 let overview = null;
 let history = null;
 let board = "net_worth";
-let pending = null;
+let armed = null;
 let chart = null;
+let booted = false;
 
-// ------------------------------------------------------------- the rosette
-// Hypotrochoids, the curves a banknote's guilloché lathe engraves.
-function hypotrochoid(R, r, d, turns) {
-  const points = [];
-  const steps = 900 * turns;
-  for (let i = 0; i <= steps; i++) {
-    const t = (i / steps) * Math.PI * 2 * turns;
-    const k = (R - r) / r;
-    points.push(`${((R - r) * Math.cos(t) + d * Math.cos(k * t)).toFixed(2)},${((R - r) * Math.sin(t) - d * Math.sin(k * t)).toFixed(2)}`);
-  }
-  return "M" + points.join("L");
+// ---------------------------------------------------------------- the dial
+// 270 degrees from the floor at bottom left to the ceiling at bottom right.
+const START = 135, SWEEP = 270, R = 168;
+let scale = { floor: 5000, ceiling: 20000 };
+const angleOf = v => START + SWEEP * Math.min(1, Math.max(0, (v - scale.floor) / (scale.ceiling - scale.floor)));
+const point = (r, deg) => [r * Math.cos(deg * Math.PI / 180), r * Math.sin(deg * Math.PI / 180)];
+function arc(r, a0, a1) {
+  const [x0, y0] = point(r, a0), [x1, y1] = point(r, a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 }
-const rosette = document.querySelector(".rosette");
-rosette.innerHTML = [
-  [96, 36, 58, 3, ""], [96, 36, 44, 3, "gilt"], [90, 25, 52, 5, ""], [70, 20, 18, 2, "gilt"],
-].map(([R, r, d, turns, cls]) => `<path pathLength="1" class="${cls}" d="${hypotrochoid(R, r, d, turns)}"/>`).join("");
-setTimeout(() => rosette.classList.remove("drawing"), 2600);
+function el(name, attrs, parent) {
+  const node = document.createElementNS(SVG, name);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  parent?.append(node);
+  return node;
+}
 
-// ------------------------------------------------------------------- data
+function buildDial(market) {
+  scale = { floor: market.floor, ceiling: market.ceiling };
+  const dial = $("dial");
+  dial.replaceChildren();
+  for (let i = 0; i <= 60; i++) {
+    const a = START + (SWEEP * i) / 60, major = i % 10 === 0;
+    const [x0, y0] = point(R + 8, a), [x1, y1] = point(R + (major ? 22 : 15), a);
+    const tick = el("line", { x1: x0, y1: y0, x2: x1, y2: y1, class: major ? "tick major" : "tick" }, dial);
+    tick.style.animationDelay = `${0.2 + i * 0.015}s`;
+  }
+  el("path", { d: arc(R, START, START + SWEEP), class: "track", pathLength: 1 }, dial);
+  const spread = market.anchor * market.calm_band_percent / 100;
+  el("path", { d: arc(R - 12, angleOf(market.anchor - spread), angleOf(market.anchor + spread)), class: "band", pathLength: 1 }, dial);
+  el("path", { id: "level", class: "level" }, dial);
+  for (const [value, anchor] of [[market.floor, "end"], [market.anchor, "middle"], [market.ceiling, "start"]]) {
+    const [x, y] = point(R + 38, angleOf(value));
+    const label = el("text", { x, y: y + 4, "text-anchor": anchor, class: "scale-label" }, dial);
+    label.textContent = "$" + (value / 1000) + "k";
+  }
+  el("circle", { r: 132, class: "inner", pathLength: 1 }, dial);
+  const sweep = el("g", { class: "sweep" }, dial);
+  el("circle", { r: 118 }, sweep);
+  el("path", { d: arc(118, -30, 15) }, sweep);
+  el("line", { id: "needle", x1: R - 26, y1: 0, x2: R + 6, y2: 0, class: "needle" }, dial);
+}
+
+function setDial(price) {
+  const a = angleOf(price);
+  $("level").setAttribute("d", arc(R, START, Math.max(START + 0.5, a)));
+  $("needle").style.transform = `rotate(${a}deg)`;
+}
+
+function countUp(target) {
+  if (reducedMotion) { $("price").textContent = whole(target); return; }
+  const from = scale.floor, start = performance.now(), length = 1400;
+  const frame = now => {
+    const t = Math.min(1, (now - start) / length), eased = 1 - Math.pow(1 - t, 3);
+    $("price").textContent = whole(from + (target - from) * eased);
+    setDial(from + (target - from) * eased);
+    if (t < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+// -------------------------------------------------------------------- data
 async function api(path, options) {
   const response = await fetch(path, options);
   const text = await response.text();
@@ -355,72 +423,75 @@ async function api(path, options) {
 }
 
 function signed(delta, format) {
-  const span = document.createElement("span");
-  span.className = delta > 0 ? "up" : delta < 0 ? "down" : "";
-  span.textContent = (delta > 0 ? "▲ " : delta < 0 ? "▼ " : "") + format(Math.abs(delta));
-  return span;
+  const b = document.createElement("b");
+  b.className = delta > 0 ? "up" : delta < 0 ? "down" : "";
+  b.textContent = (delta > 0 ? "▲ " : delta < 0 ? "▼ " : "") + format(Math.abs(delta));
+  return b;
 }
 
-function renderNote() {
-  if (!overview) return;
+function renderGauge() {
   const { market } = overview;
-  $("price").textContent = whole(market.price);
-  $("pot").textContent = money(overview.lottery_pot);
-  $("circulating").textContent = whole(overview.circulating) + " coins";
-  $("circulating-value").textContent = "worth " + money(overview.circulating * market.price);
-  document.querySelector(".note").dataset.regime = market.regime;
+  if (!booted) {
+    buildDial(market);
+    countUp(market.price);
+    setTimeout(() => document.querySelector(".gauge").classList.remove("boot"), 2200);
+    booted = true;
+  } else {
+    $("price").textContent = whole(market.price);
+    setDial(market.price);
+  }
+  document.querySelector(".gauge").dataset.regime = market.regime;
+  const state = $("state");
+  state.className = "state " + market.regime;
+  state.textContent = market.regime === "calm" ? "Market calm" : `${market.regime === "bull" ? "Bull" : "Bear"} run, ${market.minutes_left} min left`;
 
+  $("pot").textContent = money(overview.lottery_pot);
+  $("circulating").textContent = whole(overview.circulating);
+  $("circulating-value").textContent = "coins, worth " + money(overview.circulating * market.price);
+}
+
+function renderMoves() {
   const prices = history?.prices ?? [];
   const tick = $("tick-move"), range = $("range-move");
   tick.replaceChildren(); range.replaceChildren();
-  if (prices.length >= 2) {
-    const last = prices[prices.length - 1][1];
-    tick.append(signed(last - prices[prices.length - 2][1], money), " on the last tick");
-    const first = prices[0][1];
-    range.append(signed(((last - first) / first) * 100, v => v.toFixed(1) + "%"), ` over ${RANGE_NAMES[hours]}`);
-  } else {
-    tick.textContent = "Price history starts with the next market tick.";
-  }
+  if (prices.length < 2) { tick.textContent = "The trace starts with the next market tick."; return; }
+  const last = prices[prices.length - 1][1];
+  tick.append(signed(last - prices[prices.length - 2][1], money), " last tick");
+  range.append(signed(((last - prices[0][1]) / prices[0][1]) * 100, v => v.toFixed(1) + "%"), ` over ${RANGE_NAMES[hours]}`);
 }
 
-function renderSteer() {
-  if (!overview) return;
+function renderOverride() {
   const { regime, minutes_left } = overview.market;
-  const sw = document.querySelector(".switch");
-  const shown = pending ?? regime;
-  sw.style.setProperty("--pos", POSITIONS[shown]);
-  sw.toggleAttribute("data-pending", pending !== null);
-  sw.querySelectorAll("button").forEach(b => {
+  const panel = document.querySelector(".override");
+  panel.toggleAttribute("data-armed", armed !== null);
+  document.querySelectorAll(".switch button").forEach(b => {
     const d = b.dataset.direction;
-    b.setAttribute("aria-pressed", d === shown);
+    b.setAttribute("aria-pressed", d === regime);
+    b.classList.toggle("armed", d === armed);
     // A run in flight has to be called off before the other one can start.
     b.disabled = regime !== "calm" && d !== "calm" && d !== regime;
   });
-
-  $("regime-text").textContent = regime === "calm"
-    ? "The market is calm. An armed run starts on the next tick, within five minutes."
-    : `A ${regime} run is going, with about ${minutes_left} minutes left. Call it off and the price eases home over the next few ticks.`;
-
-  const confirm = document.querySelector(".confirm");
-  confirm.hidden = pending === null;
-  if (pending !== null) {
-    $("confirm-go").textContent = pending === "calm" ? `Call off ${regime} run` : `Arm ${pending} run`;
-  }
+  $("regime-text").textContent = armed !== null
+    ? (armed === "calm"
+        ? "Hold to call off the run. The price eases home over the next few ticks."
+        : `Hold to arm a ${armed} run. It starts on the next tick, within five minutes.`)
+    : regime === "calm"
+      ? "The market is calm. Pick a direction to start a run."
+      : `A ${regime} run is on, with about ${minutes_left} minutes left. Pick Calm to call it off.`;
+  document.querySelector(".arm").hidden = armed === null;
+  if (armed !== null) $("hold").textContent = armed === "calm" ? `Hold to call off ${regime} run` : `Hold to arm ${armed} run`;
 }
 
 function sparkline(points) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = document.createElementNS(SVG, "svg");
   if (!points || points.length < 2) return svg;
   const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
-  const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
-  const [y0, y1] = [Math.min(...ys), Math.max(...ys)];
-  svg.setAttribute("viewBox", "0 0 140 30");
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  svg.setAttribute("viewBox", "0 0 120 26");
   svg.setAttribute("preserveAspectRatio", "none");
   svg.setAttribute("aria-hidden", "true");
-  const line = document.createElementNS(svg.namespaceURI, "polyline");
-  line.setAttribute("points", points.map(([x, y]) =>
-    `${((x - x0) / (x1 - x0 || 1) * 140).toFixed(1)},${(28 - (y - y0) / (y1 - y0 || 1) * 26).toFixed(1)}`).join(" "));
-  svg.append(line);
+  el("polyline", { points: points.map(([x, y]) =>
+    `${((x - x0) / (x1 - x0 || 1) * 120).toFixed(1)},${(24 - (y - y0) / (y1 - y0 || 1) * 22).toFixed(1)}`).join(" ") }, svg);
   return svg;
 }
 
@@ -432,42 +503,64 @@ function cell(className, content) {
 }
 
 function renderLedger() {
-  if (!overview) return;
   document.querySelector(".ledger").dataset.board = board;
   const rows = overview.leaderboards[board];
   const format = board === "crypto" ? n => whole(n) + " coins" : money;
   const series = new Map((history?.members ?? []).map(m => [m.id, m.points]));
   const body = $("ledger-rows");
   if (!rows.length) {
-    body.innerHTML = '<tr class="empty"><td colspan="5">Nobody here yet. Members appear once they run their first command.</td></tr>';
+    body.innerHTML = '<tr class="empty"><td colspan="6">No members yet. They appear after their first command.</td></tr>';
     return;
   }
+  const top = rows[0].amount || 1;
   body.replaceChildren(...rows.map((row, i) => {
     const tr = document.createElement("tr");
+    const meter = document.createElement("div");
+    meter.className = "meter";
+    meter.innerHTML = `<i style="width:${Math.max(2, (row.amount / top) * 100).toFixed(1)}%"></i>`;
     const points = series.get(row.id);
-    const change = points && points.length >= 2
-      ? signed(points[points.length - 1][1] - points[0][1], money) : "–";
     tr.append(
-      cell("rank", String(i + 1)),
+      cell("rank", String(i + 1).padStart(2, "0")),
       cell("name", row.name),
+      cell("share", meter),
       cell("spark worth-only", sparkline(points)),
-      cell("change worth-only", change),
+      cell("change worth-only", points && points.length >= 2 ? signed(points[points.length - 1][1] - points[0][1], money) : "–"),
       cell("amount num", format(row.amount)),
     );
     return tr;
   }));
 }
 
-// ------------------------------------------------------------------ chart
-const crosshair = {
-  id: "crosshair",
-  afterDraw(c) {
+// ------------------------------------------------------------------- chart
+const hudChart = {
+  id: "hud",
+  beforeDatasetsDraw(c) {
+    // The calm band, shaded the same way the dial shades it.
+    const m = overview?.market;
+    if (!m) return;
+    const spread = m.anchor * m.calm_band_percent / 100, y = c.scales.y, { left, right } = c.chartArea;
+    const top = y.getPixelForValue(m.anchor + spread), bottom = y.getPixelForValue(m.anchor - spread);
+    const ctx = c.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(95, 212, 255, .06)";
+    ctx.fillRect(left, top, right - left, bottom - top);
+    ctx.strokeStyle = "rgba(95, 212, 255, .35)";
+    ctx.setLineDash([2, 6]);
+    const anchorY = y.getPixelForValue(m.anchor);
+    ctx.beginPath(); ctx.moveTo(left, anchorY); ctx.lineTo(right, anchorY); ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.shadowColor = css("--holo");
+    ctx.shadowBlur = 10;
+  },
+  afterDatasetsDraw(c) {
+    c.ctx.restore();
     const active = c.tooltip?.getActiveElements?.();
     if (!active?.length) return;
     const x = active[0].element.x, { top, bottom } = c.chartArea, ctx = c.ctx;
     ctx.save();
-    ctx.strokeStyle = css("--ink-3");
-    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = css("--amber");
+    ctx.globalAlpha = .6;
     ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
     ctx.restore();
   },
@@ -483,14 +576,17 @@ function timeLabel(seconds) {
 function renderChart() {
   if (!history) return;
   const data = history.prices.map(([x, y]) => ({ x, y }));
+  const canvas = $("price-chart");
+  const gradient = canvas.getContext("2d").createLinearGradient(0, 0, 0, canvas.clientHeight || 300);
+  gradient.addColorStop(0, "rgba(95, 212, 255, .22)");
+  gradient.addColorStop(1, "rgba(95, 212, 255, 0)");
   chart?.destroy();
-  chart = new Chart($("price-chart"), {
+  chart = new Chart(canvas, {
     type: "line",
     data: { datasets: [{
       label: "Price", data,
-      borderColor: css("--ink"), borderWidth: 2,
-      backgroundColor: css("--wash"), fill: "start",
-      pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: css("--gold"), pointHoverBorderColor: css("--note"), pointHoverBorderWidth: 2,
+      borderColor: css("--holo"), borderWidth: 1.75, backgroundColor: gradient, fill: "start",
+      pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: css("--amber"), pointHoverBorderWidth: 0,
       tension: 0,
     }] },
     options: {
@@ -501,9 +597,9 @@ function renderChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: css("--ink"), titleColor: css("--note"), bodyColor: css("--note"),
-          titleFont: { family: "Archivo", weight: "500" }, bodyFont: { family: "Bodoni Moda", size: 16 },
-          padding: 10, displayColors: false, cornerRadius: 8,
+          backgroundColor: "rgba(4, 8, 13, .92)", borderColor: css("--amber"), borderWidth: 1,
+          titleColor: css("--text-2"), bodyColor: css("--text"), cornerRadius: 0, padding: 10, displayColors: false,
+          titleFont: { family: "Saira", size: 12 }, bodyFont: { family: "Chakra Petch", size: 16, weight: "600" },
           callbacks: {
             title: items => new Date(items[0].parsed.x * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }),
             label: item => money(item.parsed.y),
@@ -513,44 +609,45 @@ function renderChart() {
       scales: {
         x: {
           type: "linear", min: data[0]?.x, max: data[data.length - 1]?.x,
-          ticks: { color: css("--ink-3"), maxTicksLimit: 6, callback: timeLabel, font: { family: "Archivo", size: 12 } },
-          grid: { display: false }, border: { color: css("--rule") },
+          ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: timeLabel, font: { family: "Chakra Petch", size: 11 } },
+          grid: { color: css("--grid") }, border: { color: css("--frame") },
         },
         y: {
           position: "right",
-          ticks: { color: css("--ink-3"), maxTicksLimit: 5, callback: v => money(v), font: { family: "Archivo", size: 12 } },
-          grid: { color: css("--rule"), drawTicks: false }, border: { display: false },
+          ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: v => money(v), font: { family: "Chakra Petch", size: 11 } },
+          grid: { color: css("--grid") }, border: { display: false },
         },
       },
     },
-    plugins: [crosshair],
+    plugins: [hudChart],
   });
 }
 
-// ---------------------------------------------------------------- refresh
+// ----------------------------------------------------------------- refresh
 async function loadOverview() { overview = await api("/api/overview"); }
 async function loadHistory() { history = await api(`/api/history?hours=${hours}`); }
 
-function renderAll() { renderNote(); renderSteer(); renderLedger(); renderChart(); }
+function setLink(ok, text) {
+  $("link").className = ok ? "link" : "link lost";
+  $("link").textContent = text;
+}
 
 async function refresh() {
   try {
     await Promise.all([loadOverview(), loadHistory()]);
-    renderAll();
-    $("updated").className = "";
-    $("updated").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    renderGauge(); renderMoves(); renderOverride(); renderLedger(); renderChart();
+    setLink(true, "Linked, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
   } catch (error) {
-    $("updated").className = "error";
-    $("updated").textContent = `Can't reach the bot: ${error.message} Check that it's running and that FLYCONOMY_DASHBOARD_API_URL points at it.`;
+    setLink(false, `Link lost: ${error.message} Check the bot is running and FLYCONOMY_DASHBOARD_API_URL points at it.`);
   }
 }
 
-// ---------------------------------------------------------------- actions
+// ----------------------------------------------------------------- actions
 document.querySelectorAll(".range button").forEach(button => button.addEventListener("click", async () => {
   hours = Number(button.dataset.hours);
   document.querySelectorAll(".range button").forEach(b => b.setAttribute("aria-pressed", b === button));
-  try { await loadHistory(); renderNote(); renderLedger(); renderChart(); }
-  catch (error) { $("updated").className = "error"; $("updated").textContent = error.message; }
+  try { await loadHistory(); renderMoves(); renderLedger(); renderChart(); }
+  catch (error) { setLink(false, `Link lost: ${error.message}`); }
 }));
 
 document.querySelectorAll(".tabs button").forEach(button => button.addEventListener("click", () => {
@@ -562,18 +659,48 @@ document.querySelectorAll(".tabs button").forEach(button => button.addEventListe
 document.querySelectorAll(".switch button").forEach(button => button.addEventListener("click", () => {
   if (!overview) return;
   const wanted = button.dataset.direction;
-  pending = wanted === overview.market.regime ? null : wanted;
+  armed = wanted === overview.market.regime ? null : wanted;
   $("result").textContent = "";
-  renderSteer();
-  if (pending) $("confirm-go").focus();
+  renderOverride();
+  if (armed) $("hold").focus();
 }));
 
-$("confirm-cancel").addEventListener("click", () => { pending = null; renderSteer(); });
+function disarm() { armed = null; renderOverride(); }
+$("cancel").addEventListener("click", disarm);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && armed) disarm(); });
 
-$("confirm-go").addEventListener("click", async () => {
-  const direction = pending === "calm" ? "neutral" : pending;
-  const go = $("confirm-go");
-  go.disabled = true;
+// Hold to confirm: a steady press, not a stray click, is what moves the market.
+const HOLD_MS = 1100;
+let holdStart = null;
+function startHold() {
+  if (holdStart !== null || armed === null) return;
+  holdStart = performance.now();
+  const frame = now => {
+    if (holdStart === null) return;
+    const t = Math.min(1, (now - holdStart) / HOLD_MS);
+    $("hold").style.setProperty("--fill", `${t * 100}%`);
+    if (t < 1) requestAnimationFrame(frame); else { holdStart = null; fire(); }
+  };
+  requestAnimationFrame(frame);
+}
+function stopHold() {
+  holdStart = null;
+  $("hold").style.setProperty("--fill", "0%");
+}
+const hold = $("hold");
+hold.addEventListener("pointerdown", e => {
+  // Capture keeps the hold alive if the pointer drifts off the button; losing it is not fatal.
+  try { hold.setPointerCapture(e.pointerId); } catch {}
+  startHold();
+});
+hold.addEventListener("pointerup", stopHold);
+hold.addEventListener("pointercancel", stopHold);
+hold.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); startHold(); } });
+hold.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter") stopHold(); });
+hold.addEventListener("click", e => e.preventDefault());
+
+async function fire() {
+  const direction = armed === "calm" ? "neutral" : armed;
   try {
     const { message } = await api("/api/market", {
       method: "POST",
@@ -582,23 +709,18 @@ $("confirm-go").addEventListener("click", async () => {
     });
     $("result").className = "";
     $("result").textContent = message;
-    pending = null;
+    armed = null;
     await loadOverview();
-    renderNote(); renderSteer();
+    renderGauge(); renderOverride();
   } catch (error) {
     $("result").className = "error";
     $("result").textContent = error.message;
   } finally {
-    go.disabled = false;
+    stopHold();
   }
-});
+}
 
-document.addEventListener("keydown", event => {
-  if (event.key === "Escape" && pending) { pending = null; renderSteer(); }
-});
-
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderChart);
-document.fonts.ready.then(renderChart);
+document.fonts.ready.then(() => chart && renderChart());
 refresh();
 setInterval(refresh, 60_000);
 </script>

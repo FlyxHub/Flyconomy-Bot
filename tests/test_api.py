@@ -106,7 +106,15 @@ class TestApi:
 
         body = await (await client.get("/api/overview", headers=AUTH)).json()
 
-        assert body["market"] == {"price": economy.FLX_PRICE, "regime": "calm", "minutes_left": 0}
+        assert body["market"] == {
+            "price": economy.FLX_PRICE,
+            "regime": "calm",
+            "minutes_left": 0,
+            "floor": economy.FLX_PRICE_FLOOR,
+            "anchor": economy.FLX_PRICE,
+            "ceiling": economy.FLX_PRICE_CEILING,
+            "calm_band_percent": economy.FLX_CALM_BAND_PERCENT,
+        }
         assert body["leaderboards"]["net_worth"][0]["name"] == str(ALICE)
         assert body["leaderboards"]["net_worth"][0]["id"] == str(ALICE)
 

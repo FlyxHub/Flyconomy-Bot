@@ -112,6 +112,12 @@ class Api(BaseCog, name="Api"):
                     "price": market.price,
                     "regime": market.regime,
                     "minutes_left": market.ticks_left * economy.FLX_TICK_MINUTES,
+                    # The band the walk lives in, so the dashboard draws the
+                    # bot's own bounds rather than a copy of them.
+                    "floor": economy.FLX_PRICE_FLOOR,
+                    "anchor": economy.FLX_PRICE,
+                    "ceiling": economy.FLX_PRICE_CEILING,
+                    "calm_band_percent": economy.FLX_CALM_BAND_PERCENT,
                 },
                 "lottery_pot": lottery.pot,
                 "circulating": await self.db.total_crypto(),
