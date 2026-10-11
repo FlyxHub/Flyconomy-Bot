@@ -252,8 +252,12 @@ checkpoints that file so the copy is complete.
 ## Run the owner's dashboard
 
 The dashboard is a web page for you, the owner. It shows the Flyxcoin price
-and every member's net worth over time, the leaderboards, and the lottery pot,
-and it has buttons that do what `$market bull|bear|neutral` does. It is not
+and every member's net worth over time, the leaderboards, and the lottery pot.
+Two charts track the season's health: the money supply, split into banks,
+wallets, and Flyxcoin, which shows whether the economy is inflating; and the
+share of all money held by the richest 10% of members, which shows whether a
+few players are pulling away. It also has buttons that do what
+`$market bull|bear|neutral` does. It is not
 for members: it names the market's regime, which nothing member-facing does.
 
 To show it to someone, press **P** or the eye button in the top corner. That

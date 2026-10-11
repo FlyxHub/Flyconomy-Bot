@@ -9,7 +9,7 @@ import pytest
 from aiohttp import test_utils, web
 
 from flyconomy import dashboard, economy
-from flyconomy.cogs.api import Api
+from flyconomy.cogs.api import Api, top_share
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB
@@ -83,6 +83,37 @@ class TestHistory:
         assert [point.user_id for point in await db.net_worth_history(0)] == [ALICE]
 
 
+class TestTopShare:
+    def test_even_shares_give_back_the_fraction(self):
+        assert top_share([100] * 10) == pytest.approx(10)
+
+    def test_one_member_holding_everything_is_all_of_it(self):
+        assert top_share([0, 0, 0, 500]) == 100
+
+    def test_the_top_is_rounded_up_and_never_empty(self):
+        # Eleven accounts: the richest 10% is two of them, not one.
+        assert top_share([10] + [1] * 10) == pytest.approx(100 * 11 / 20)
+        assert top_share([7]) == 100
+
+    def test_no_money_is_no_concentration(self):
+        assert top_share([]) == 0
+        assert top_share([0, 0]) == 0
+
+
+class TestSupply:
+    async def test_the_supply_splits_banks_wallets_and_coins_at_the_snapshot_price(self, db):
+        await db.ensure_account(ALICE)
+        await db.ensure_account(BOB)
+        await db.add_crypto(BOB, 3)
+        await db.record_history(1_000_000, 7_000)
+
+        alice, bob = await db.get_account(ALICE), await db.get_account(BOB)
+        [point] = await db.supply_history(0)
+        assert point.banks == alice.bank + bob.bank
+        assert point.wallets == alice.wallet + bob.wallet
+        assert point.coins == 3 * 7_000
+
+
 class TestApi:
     @pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer wrong"}, {"X": TOKEN}])
     async def test_every_route_needs_the_token(self, client, headers):
@@ -128,6 +159,23 @@ class TestApi:
 
         assert body["prices"][0][1] == 5_000
         assert body["members"][0]["id"] == str(ALICE)
+
+    async def test_history_carries_the_supply_and_its_concentration(self, client, db):
+        await db.ensure_account(ALICE)
+        await db.ensure_account(BOB)
+        await db.add_bank(ALICE, 9_000)
+        at = int(time.time())
+        await db.record_history(at, 5_000)
+
+        body = await (await client.get("/api/history?hours=1", headers=AUTH)).json()
+
+        alice, bob = await db.get_account(ALICE), await db.get_account(BOB)
+        assert body["supply"] == [[at, alice.bank + bob.bank, alice.wallet + bob.wallet, 0]]
+        [[when, share, top, accounts]] = body["concentration"]
+        assert (when, top, accounts) == (at, 1, 2)
+        assert share == pytest.approx(
+            100 * alice.net_worth / (alice.net_worth + bob.net_worth), abs=0.01
+        )
 
     async def test_a_bad_range_is_refused(self, client):
         response = await client.get("/api/history?hours=lots", headers=AUTH)

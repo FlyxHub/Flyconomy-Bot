@@ -190,6 +190,23 @@ class NetWorthPoint:
 
 
 @dataclass(frozen=True, slots=True)
+class SupplyPoint:
+    """All the money in the economy at one recorded moment, by where it sits.
+
+    Attributes:
+        at: Unix time of the snapshot.
+        banks: Dollars deposited across every account.
+        wallets: Dollars undeposited across every account.
+        coins: Flyxcoin held across every account, valued at that moment's price.
+    """
+
+    at: int
+    banks: int
+    wallets: int
+    coins: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResetOutcome:
     """What a member's self-reset did, and what the next one would be worth.
 
@@ -537,6 +554,26 @@ class Database:
             rows = await cursor.fetchall()
         return [
             NetWorthPoint(at=int(row["at"]), user_id=int(row["user"]), net_worth=row["net_worth"])
+            for row in rows
+        ]
+
+    async def supply_history(self, since: int) -> list[SupplyPoint]:
+        """Return the economy's total money at each snapshot from ``since`` on, oldest first."""
+        async with self._reader.execute(
+            "SELECT b.at, SUM(b.bank) AS banks, SUM(b.wallet) AS wallets, "
+            "SUM(b.crypto * p.price) AS coins "
+            "FROM balance_history AS b JOIN price_history AS p USING (at) "
+            "WHERE b.at >= ? GROUP BY b.at ORDER BY b.at",
+            (since,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [
+            SupplyPoint(
+                at=int(row["at"]),
+                banks=int(row["banks"]),
+                wallets=int(row["wallets"]),
+                coins=int(row["coins"]),
+            )
             for row in rows
         ]
 

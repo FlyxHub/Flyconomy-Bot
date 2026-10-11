@@ -14,8 +14,11 @@ name, and can arm a run. Without ``api_token`` set the server never starts.
 from __future__ import annotations
 
 import hmac
+import itertools
 import logging
+import math
 import time
+from collections.abc import Sequence
 from typing import Final
 
 from aiohttp import web
@@ -33,9 +36,33 @@ log = logging.getLogger(__name__)
 #: maps it, and the dashboard's default URL names it.
 API_PORT: Final = 8765
 
+#: The slice of members whose share of the money the dashboard tracks.
+TOP_FRACTION: Final = 0.10
+
 #: The longest history one request may ask for. A season of hourly snapshots
 #: across a server's worth of members is far more than a chart can show.
 _MAX_HISTORY_HOURS: Final = 24 * 31
+
+
+def top_share(worths: Sequence[int], fraction: float = TOP_FRACTION) -> float:
+    """Return the percentage of all money held by the richest ``fraction`` of accounts.
+
+    The slice is rounded up and never empty, so a server of five still has a
+    "richest 10%": its one richest member. Even shares give back ``fraction``
+    itself as a percentage, which is the reference line the chart draws.
+
+    Args:
+        worths: Every account's net worth at one moment.
+        fraction: How much of the population counts as the top.
+
+    Returns:
+        A percentage from 0 to 100, or 0 when there is no money at all.
+    """
+    total = sum(worths)
+    if total <= 0:
+        return 0.0
+    top = max(1, math.ceil(len(worths) * fraction))
+    return 100 * sum(sorted(worths, reverse=True)[:top]) / total
 
 
 class Api(BaseCog, name="Api"):
@@ -130,7 +157,7 @@ class Api(BaseCog, name="Api"):
         )
 
     async def history(self, request: web.Request) -> web.Response:
-        """The price and every member's net worth over the last ``hours``."""
+        """The price, every member's net worth, and the economy's totals over the last ``hours``."""
         try:
             hours = int(request.query.get("hours", "24"))
         except ValueError:
@@ -138,9 +165,22 @@ class Api(BaseCog, name="Api"):
         hours = max(1, min(hours, _MAX_HISTORY_HOURS))
         since = int(time.time()) - hours * 3600
 
+        snapshots = await self.db.net_worth_history(since)
         series: dict[int, list[list[int]]] = {}
-        for point in await self.db.net_worth_history(since):
+        for point in snapshots:
             series.setdefault(point.user_id, []).append([point.at, point.net_worth])
+        # Snapshots arrive ordered by time, so each moment is one run of rows.
+        concentration = []
+        for at, group in itertools.groupby(snapshots, key=lambda point: point.at):
+            worths = [point.net_worth for point in group]
+            concentration.append(
+                [
+                    at,
+                    round(top_share(worths), 2),
+                    max(1, math.ceil(len(worths) * TOP_FRACTION)),
+                    len(worths),
+                ]
+            )
         return web.json_response(
             {
                 "prices": [list(p) for p in await self.db.price_history(since)],
@@ -148,6 +188,12 @@ class Api(BaseCog, name="Api"):
                     {"id": str(user_id), "name": self._name(user_id), "points": points}
                     for user_id, points in series.items()
                 ],
+                "supply": [
+                    [p.at, p.banks, p.wallets, p.coins] for p in await self.db.supply_history(since)
+                ],
+                # [at, percent held by the top, how many that is, how many accounts]
+                "concentration": concentration,
+                "top_fraction": TOP_FRACTION,
             }
         )
 

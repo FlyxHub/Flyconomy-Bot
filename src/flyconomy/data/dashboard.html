@@ -26,6 +26,11 @@
     --amber: #ffb547;
     --bull: #4dffc3;
     --bear: #ff5468;
+    /* Series colours for the money supply, validated as a set against --void:
+       mid-lightness so none glares, and apart under every colour-vision type. */
+    --banks: #1f9fd0;
+    --wallets: #7d6be8;
+    --coins: #c08a1e;
     --display: "Chakra Petch", system-ui, sans-serif;
     --body: "Saira", system-ui, sans-serif;
   }
@@ -71,6 +76,7 @@
     grid-template-areas:
       "bar bar"
       "gauge trace"
+      "conc supply"
       "left ledger";
     gap: 22px 28px;
   }
@@ -190,6 +196,22 @@
   .range button[aria-pressed="true"] { color: var(--void); background: var(--holo); border-color: var(--holo); }
   .chart-box { position: relative; flex: 1; min-height: 300px; }
 
+  /* ------------------------------------------------------------ economy */
+  .supply { grid-area: supply; display: flex; flex-direction: column; }
+  .conc { grid-area: conc; display: flex; flex-direction: column; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 26px; margin-bottom: 8px; }
+  .legend .key { display: flex; flex-direction: column; }
+  .legend .key span { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+  .legend .key span::before { content: ""; width: 10px; height: 10px; background: var(--swatch); box-shadow: 0 0 8px var(--swatch); }
+  .legend .key b { font: 600 18px/1.3 var(--display); }
+  .legend .total { margin-left: auto; text-align: right; }
+  .legend .total span::before { display: none; }
+  .legend .total span { justify-content: flex-end; }
+  .conc-now { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .conc-now > b { font: 600 40px/1 var(--display); text-shadow: 0 0 20px rgba(95, 212, 255, .35); }
+  .conc p { margin: 6px 0 10px; font-size: 14px; color: var(--text-2); max-width: 40ch; }
+  .conc .chart-box { min-height: 200px; }
+
   /* ---------------------------------------------------------- override */
   .left { grid-area: left; display: flex; flex-direction: column; }
 
@@ -301,7 +323,7 @@
   .empty td { color: var(--text-2); padding: 22px 0; }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "left" "ledger"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "left" "ledger"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -322,6 +344,11 @@
   <header class="bar">
     <h1 class="callsign">FLYCONOMY<small>Economy monitor</small></h1>
     <div class="bar-right">
+      <div class="range" role="group" aria-label="Time range for the charts">
+        <button data-hours="24" aria-pressed="true">24 h</button>
+        <button data-hours="168" aria-pressed="false">7 days</button>
+        <button data-hours="744" aria-pressed="false">31 days</button>
+      </div>
       <span id="link" class="link" role="status">Connecting to the bot</span>
       <button id="present" class="present" aria-pressed="false" aria-label="Hide market controls" title="Hide market controls (P)">
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -346,13 +373,26 @@
     <h2 class="frame-title" id="trace-title">Price trace</h2>
     <div class="trace-head">
       <div class="moves"><span id="tick-move"></span><span id="range-move"></span></div>
-      <div class="range" role="group" aria-label="Time range">
-        <button data-hours="24" aria-pressed="true">24 h</button>
-        <button data-hours="168" aria-pressed="false">7 days</button>
-        <button data-hours="744" aria-pressed="false">31 days</button>
-      </div>
     </div>
     <div class="chart-box"><canvas id="price-chart" role="img" aria-label="Flyxcoin price over the selected range, with the calm band shaded"></canvas></div>
+  </section>
+
+  <section class="conc frame" aria-labelledby="conc-title">
+    <h2 class="frame-title" id="conc-title">Richest 10%</h2>
+    <div class="conc-now"><b id="conc-now">–</b><span class="moves" id="conc-move"></span></div>
+    <p id="conc-note">Waiting for the first hourly snapshot.</p>
+    <div class="chart-box"><canvas id="conc-chart" role="img" aria-label="Share of all money held by the richest tenth of members over the selected range"></canvas></div>
+  </section>
+
+  <section class="supply frame" aria-labelledby="supply-title">
+    <h2 class="frame-title" id="supply-title">Money supply</h2>
+    <div class="legend">
+      <div class="key" style="--swatch: var(--banks)"><span>Banks</span><b id="supply-banks">–</b></div>
+      <div class="key" style="--swatch: var(--wallets)"><span>Wallets</span><b id="supply-wallets">–</b></div>
+      <div class="key" style="--swatch: var(--coins)"><span>Flyxcoin</span><b id="supply-coins">–</b></div>
+      <div class="key total"><span id="supply-move">All money</span><b id="supply-total">–</b></div>
+    </div>
+    <div class="chart-box"><canvas id="supply-chart" role="img" aria-label="All money in the economy over the selected range, stacked by banks, wallets, and Flyxcoin"></canvas></div>
   </section>
 
   <div class="left">
@@ -798,6 +838,143 @@ async function advanceChart(previous) {
   c.update("none");
 }
 
+// ------------------------------------------------------------- economy
+const pct = v => v.toFixed(1) + "%";
+const economyCharts = {};
+
+function axes(formatY, extraY = {}) {
+  return {
+    x: {
+      type: "linear",
+      ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: timeLabel, font: { family: "Chakra Petch", size: 11 } },
+      grid: { color: css("--grid") }, border: { color: css("--frame") },
+    },
+    y: {
+      position: "right",
+      ticks: { color: css("--text-2"), maxTicksLimit: 5, callback: formatY, font: { family: "Chakra Petch", size: 11 } },
+      grid: { color: css("--grid") }, border: { display: false },
+      ...extraY,
+    },
+  };
+}
+
+function tooltip(callbacks) {
+  return {
+    backgroundColor: "rgba(4, 8, 13, .92)", borderColor: css("--frame"), borderWidth: 1,
+    titleColor: css("--text-2"), bodyColor: css("--text"), footerColor: css("--text"), cornerRadius: 0, padding: 10,
+    titleFont: { family: "Saira", size: 12 }, bodyFont: { family: "Chakra Petch", size: 13 }, footerFont: { family: "Chakra Petch", size: 14, weight: "600" },
+    boxWidth: 10, boxHeight: 10, boxPadding: 4,
+    callbacks: { title: items => new Date(items[0].parsed.x * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }), ...callbacks },
+  };
+}
+
+// Builds a chart the first time and refreshes it in place after that, so a
+// poll never throws away a tooltip someone is reading.
+function upsert(id, datasets, options, plugins = []) {
+  const existing = economyCharts[id];
+  if (existing) {
+    existing.data.datasets.forEach((d, i) => { d.data = datasets[i].data; });
+    Object.assign(existing.options.scales.x, { min: options.scales.x.min, max: options.scales.x.max });
+    existing.update("none");
+    return;
+  }
+  economyCharts[id] = new Chart($(id), {
+    type: "line", data: { datasets }, plugins,
+    options: { animation: false, maintainAspectRatio: false, parsing: false, interaction: { mode: "index", intersect: false }, ...options },
+  });
+}
+
+function renderSupply() {
+  const rows = history?.supply ?? [];
+  if (!rows.length) return;
+  const series = [["Banks", "--banks", 1], ["Wallets", "--wallets", 2], ["Flyxcoin", "--coins", 3]];
+  const datasets = series.map(([label, color, column], i) => ({
+    label,
+    data: rows.map(r => ({ x: r[0], y: r[column] })),
+    borderColor: css(color), borderWidth: 1.5,
+    backgroundColor: css(color) + "59", fill: i === 0 ? "origin" : "-1",
+    pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: css(color), tension: 0,
+  }));
+  upsert("supply-chart", datasets, {
+    plugins: {
+      legend: { display: false },
+      tooltip: tooltip({
+        label: item => `${item.dataset.label}: ${money(item.parsed.y)}`,
+        footer: items => "All money: " + money(items.reduce((sum, item) => sum + item.parsed.y, 0)),
+      }),
+    },
+    scales: { ...axes(v => money(v), { stacked: true, beginAtZero: true }), x: { ...axes(money).x, min: rows[0][0], max: rows.at(-1)[0] } },
+  });
+
+  const [, banks, wallets, coins] = rows.at(-1);
+  const total = banks + wallets + coins;
+  rollNumber($("supply-banks"), banks, money);
+  rollNumber($("supply-wallets"), wallets, money);
+  rollNumber($("supply-coins"), coins, money);
+  rollNumber($("supply-total"), total, money);
+  const first = rows[0][1] + rows[0][2] + rows[0][3];
+  const move = $("supply-move");
+  move.replaceChildren();
+  if (rows.length >= 2 && first > 0) move.append(signed(((total - first) / first) * 100, pct), ` over ${RANGE_NAMES[hours]}`);
+  else move.textContent = "All money";
+}
+
+const evenSplit = {
+  id: "evenSplit",
+  afterDatasetsDraw(c) {
+    // Where the line would sit if everyone held the same.
+    const even = (history?.top_fraction ?? 0.1) * 100, y = c.scales.y.getPixelForValue(even);
+    const { left, right } = c.chartArea, ctx = c.ctx;
+    ctx.save();
+    ctx.strokeStyle = css("--text-2");
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    ctx.fillStyle = css("--text-2");
+    ctx.font = "12px Saira";
+    ctx.fillText("Even split", left + 6, y - 6);
+    ctx.restore();
+  },
+};
+
+function concentrationCeiling(rows) {
+  const highest = Math.max(...rows.map(r => r[1]), (history?.top_fraction ?? 0.1) * 100);
+  return Math.min(100, Math.ceil(highest / 10) * 10 + 10);
+}
+
+function renderConcentration() {
+  const rows = history?.concentration ?? [];
+  if (!rows.length) return;
+  const canvas = $("conc-chart");
+  const gradient = canvas.getContext("2d").createLinearGradient(0, 0, 0, canvas.clientHeight || 200);
+  gradient.addColorStop(0, "rgba(95, 212, 255, .18)");
+  gradient.addColorStop(1, "rgba(95, 212, 255, 0)");
+  upsert("conc-chart", [{
+    label: "Richest 10%",
+    data: rows.map(([x, y]) => ({ x, y })),
+    borderColor: css("--holo"), borderWidth: 1.75, backgroundColor: gradient, fill: "start",
+    pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: css("--amber"), tension: 0,
+  }], {
+    plugins: {
+      legend: { display: false },
+      tooltip: tooltip({ label: item => `Held by the richest 10%: ${pct(item.parsed.y)}` }),
+    },
+    // Zero stays the baseline so the line is not exaggerated, but the top
+    // sits just above the data rather than at 100%, or a typical server's
+    // line lies flat along the floor.
+    scales: { ...axes(v => v + "%", { min: 0, max: concentrationCeiling(rows) }), x: { ...axes(pct).x, min: rows[0][0], max: rows.at(-1)[0] } },
+  }, [evenSplit]);
+  economyCharts["conc-chart"].options.scales.y.max = concentrationCeiling(rows);
+
+  const [, share, top, accounts] = rows.at(-1);
+  rollNumber($("conc-now"), share, pct);
+  const move = $("conc-move");
+  move.replaceChildren();
+  if (rows.length >= 2) move.append(signed(share - rows[0][1], v => v.toFixed(1) + " pts"), ` over ${RANGE_NAMES[hours]}`);
+  $("conc-note").textContent = `of all money is held by the richest ${top === 1 ? "member" : top + " members"} out of ${accounts}. An even split would be ${pct((history.top_fraction ?? 0.1) * 100)}.`;
+}
+
+function renderEconomy() { renderSupply(); renderConcentration(); }
+
 // ----------------------------------------------------------------- refresh
 //
 // The overview is a handful of small reads, so it is polled every few
@@ -831,7 +1008,7 @@ async function poll() {
       || Date.now() - historyFetchedAt > HISTORY_MAX_AGE_MS;
     if (stale) await loadHistory();
     renderGauge(); renderOverride(); renderLedger();
-    if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
+    if (stale) { renderMoves(); renderEconomy(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
   } catch (error) {
     setLink(false, `Link lost: ${error.message} Check the bot is running and FLYCONOMY_DASHBOARD_API_URL points at it.`);
@@ -848,7 +1025,7 @@ document.addEventListener("visibilitychange", () => {
 document.querySelectorAll(".range button").forEach(button => button.addEventListener("click", async () => {
   hours = Number(button.dataset.hours);
   document.querySelectorAll(".range button").forEach(b => b.setAttribute("aria-pressed", b === button));
-  try { await loadHistory(); renderMoves(); renderLedger(); renderChart(); }
+  try { await loadHistory(); renderMoves(); renderLedger(); renderChart(); renderEconomy(); }
   catch (error) { setLink(false, `Link lost: ${error.message}`); }
 }));
 
