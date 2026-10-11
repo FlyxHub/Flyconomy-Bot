@@ -681,7 +681,12 @@ function renderLedger() {
     bar.style.width = last === undefined ? share(row.amount) : (lastShares.get(row.id) ?? share(row.amount));
     bars.push([bar, share(row.amount)]);
     meter.append(bar);
-    const points = series.get(row.id);
+    // The hourly trend, finished on the live amount so the trend, the
+    // change, and the amount in this row all describe the same moment.
+    const snapshots = series.get(row.id) ?? [];
+    const points = board === "net_worth" && overview.economy
+      ? [...snapshots, [overview.economy.at, row.amount]]
+      : snapshots;
     const amount = cell("amount num", format(last ?? row.amount));
     tr.append(
       cell("rank", String(i + 1).padStart(2, "0")),
@@ -885,7 +890,9 @@ function upsert(id, datasets, options, plugins = []) {
 }
 
 function renderSupply() {
-  const rows = history?.supply ?? [];
+  // Hourly snapshots, then the economy as it stands this second.
+  const now = overview?.economy;
+  const rows = [...(history?.supply ?? []), ...(now ? [[now.at, now.banks, now.wallets, now.coins]] : [])];
   if (!rows.length) return;
   const series = [["Banks", "--banks", 1], ["Wallets", "--wallets", 2], ["Flyxcoin", "--coins", 3]];
   const datasets = series.map(([label, color, column], i) => ({
@@ -942,7 +949,8 @@ function concentrationCeiling(rows) {
 }
 
 function renderConcentration() {
-  const rows = history?.concentration ?? [];
+  const now = overview?.economy;
+  const rows = [...(history?.concentration ?? []), ...(now ? [[now.at, now.top_share, now.top_count, now.accounts]] : [])];
   if (!rows.length) return;
   const canvas = $("conc-chart");
   const gradient = canvas.getContext("2d").createLinearGradient(0, 0, 0, canvas.clientHeight || 200);
@@ -1007,8 +1015,10 @@ async function poll() {
       || overview.market.price !== history.prices.at(-1)?.[1]
       || Date.now() - historyFetchedAt > HISTORY_MAX_AGE_MS;
     if (stale) await loadHistory();
-    renderGauge(); renderOverride(); renderLedger();
-    if (stale) { renderMoves(); renderEconomy(); previous && chart ? advanceChart(previous) : renderChart(); }
+    // Everything that ends on a live value redraws every poll; only the
+    // price trace waits for a tick, because only a tick can move it.
+    renderGauge(); renderOverride(); renderLedger(); renderEconomy();
+    if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
   } catch (error) {
     setLink(false, `Link lost: ${error.message} Check the bot is running and FLYCONOMY_DASHBOARD_API_URL points at it.`);

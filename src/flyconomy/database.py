@@ -577,6 +577,38 @@ class Database:
             for row in rows
         ]
 
+    async def current_supply(self, at: int, price: int) -> SupplyPoint:
+        """Return the economy's total money as it stands now, in the shape of a snapshot.
+
+        The hourly snapshots are the history; this is the live end of it, so
+        a chart can finish on the present rather than on the last hour.
+
+        Args:
+            at: The moment to stamp it with.
+            price: The Flyxcoin price to value coins at, so the caller can use
+                the same price it shows everywhere else.
+        """
+        async with self._reader.execute(
+            "SELECT COALESCE(SUM(bank), 0) AS banks, COALESCE(SUM(wallet), 0) AS wallets, "
+            "COALESCE(SUM(crypto), 0) AS coins FROM bank"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None  # noqa: S101 - an aggregate always returns a row
+        return SupplyPoint(
+            at=at,
+            banks=int(row["banks"]),
+            wallets=int(row["wallets"]),
+            coins=int(row["coins"]) * price,
+        )
+
+    async def net_worths(self, price: int) -> list[int]:
+        """Return every account's net worth right now, valuing coins at ``price``."""
+        async with self._reader.execute(
+            "SELECT wallet + bank + crypto * ? AS worth FROM bank", (price,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [int(row["worth"]) for row in rows]
+
     async def coins_bought_today(self, day: str, user_id: int) -> int:
         """Return how much Flyxcoin a member has already bought on ``day``.
 

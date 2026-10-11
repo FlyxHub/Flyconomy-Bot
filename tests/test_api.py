@@ -149,6 +149,32 @@ class TestApi:
         assert body["leaderboards"]["net_worth"][0]["name"] == str(ALICE)
         assert body["leaderboards"]["net_worth"][0]["id"] == str(ALICE)
 
+    async def test_the_overview_carries_the_economy_as_it_stands_now(self, client, db):
+        # No snapshot has been taken at all: these come from the live balances.
+        await db.ensure_account(ALICE)
+        await db.ensure_account(BOB)
+        await db.add_bank(ALICE, 9_000)
+        await db.add_crypto(BOB, 2)
+
+        body = await (await client.get("/api/overview", headers=AUTH)).json()
+
+        alice, bob = await db.get_account(ALICE), await db.get_account(BOB)
+        now = body["economy"]
+        assert now["banks"] == alice.bank + bob.bank
+        assert now["wallets"] == alice.wallet + bob.wallet
+        assert now["coins"] == 2 * body["market"]["price"]
+        assert (now["top_count"], now["accounts"]) == (1, 2)
+        richest = max(alice.net_worth, bob.net_worth)
+        assert now["top_share"] == pytest.approx(
+            100 * richest / (alice.net_worth + bob.net_worth), abs=0.01
+        )
+
+    async def test_an_empty_economy_has_no_concentration(self, client):
+        body = await (await client.get("/api/overview", headers=AUTH)).json()
+
+        assert body["economy"]["accounts"] == 0
+        assert body["economy"]["top_share"] == 0
+
     async def test_history_carries_ids_as_strings(self, client, db):
         # Snowflakes are past JavaScript's safe integers; a number would be
         # silently rounded into someone else's id in the browser.

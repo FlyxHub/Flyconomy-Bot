@@ -44,6 +44,11 @@ TOP_FRACTION: Final = 0.10
 _MAX_HISTORY_HOURS: Final = 24 * 31
 
 
+def top_count(accounts: int, fraction: float = TOP_FRACTION) -> int:
+    """How many accounts make up the top ``fraction``: rounded up, and never none."""
+    return max(1, math.ceil(accounts * fraction))
+
+
 def top_share(worths: Sequence[int], fraction: float = TOP_FRACTION) -> float:
     """Return the percentage of all money held by the richest ``fraction`` of accounts.
 
@@ -61,8 +66,7 @@ def top_share(worths: Sequence[int], fraction: float = TOP_FRACTION) -> float:
     total = sum(worths)
     if total <= 0:
         return 0.0
-    top = max(1, math.ceil(len(worths) * fraction))
-    return 100 * sum(sorted(worths, reverse=True)[:top]) / total
+    return 100 * sum(sorted(worths, reverse=True)[: top_count(len(worths), fraction)]) / total
 
 
 class Api(BaseCog, name="Api"):
@@ -133,6 +137,10 @@ class Api(BaseCog, name="Api"):
         """The market, the lottery, and the leaderboards as they stand."""
         market = await self.db.get_market()
         lottery = await self.db.lottery_state()
+        # The live end of the hourly charts, valued at the same price as the
+        # rest of this response so the page never disagrees with itself.
+        supply = await self.db.current_supply(int(time.time()), market.price)
+        worths = await self.db.net_worths(market.price)
         return web.json_response(
             {
                 "market": {
@@ -147,6 +155,15 @@ class Api(BaseCog, name="Api"):
                     "calm_band_percent": economy.FLX_CALM_BAND_PERCENT,
                 },
                 "lottery_pot": lottery.pot,
+                "economy": {
+                    "at": supply.at,
+                    "banks": supply.banks,
+                    "wallets": supply.wallets,
+                    "coins": supply.coins,
+                    "top_share": round(top_share(worths), 2),
+                    "top_count": top_count(len(worths)),
+                    "accounts": len(worths),
+                },
                 "circulating": await self.db.total_crypto(),
                 "leaderboards": {
                     "net_worth": self._board(await self.db.top_net_worth()),
@@ -174,12 +191,7 @@ class Api(BaseCog, name="Api"):
         for at, group in itertools.groupby(snapshots, key=lambda point: point.at):
             worths = [point.net_worth for point in group]
             concentration.append(
-                [
-                    at,
-                    round(top_share(worths), 2),
-                    max(1, math.ceil(len(worths) * TOP_FRACTION)),
-                    len(worths),
-                ]
+                [at, round(top_share(worths), 2), top_count(len(worths)), len(worths)]
             )
         return web.json_response(
             {

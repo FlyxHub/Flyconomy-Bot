@@ -102,7 +102,11 @@ anywhere a member can see. And its market buttons go through `admin.steer_market
 function `$market` calls, so a run armed from the web is the same run as one armed from
 Discord. Don't give the web its own copy. History is written by the market tick
 (`Database.record_history`): the price every tick, balances hourly, sharing one `at` so net worth
-is always valued at the price of its own snapshot.
+is always valued at the price of its own snapshot. Hourly is the history, not the present: the
+overview also carries the economy's live totals, valued at the same price as the rest of that
+response, and every snapshot-based chart ends on that live point. Without it a leaderboard's
+change and its amount, or the supply legend and the coins-held figure, describe different
+moments and the page contradicts itself.
 
 ## The member guide
 
