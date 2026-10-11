@@ -364,7 +364,10 @@ class Database:
         if account is not None:
             return account
 
-        await self.ensure_account(user_id)
+        # Under the lock, or the insert joins whatever transaction another
+        # coroutine has open on the writer and is rolled back along with it.
+        async with self._transaction():
+            await self.ensure_account(user_id)
         created = await self.find_account(user_id)
         if created is None:  # pragma: no cover - only on a concurrent DELETE
             msg = f"account {user_id} vanished immediately after creation"

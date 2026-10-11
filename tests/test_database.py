@@ -471,6 +471,20 @@ class TestTaxedTransfers:
         assert (await db.get_account(BOB)).bank == economy.STARTING_BANK + 3 * 950
 
 
+class TestAccountCreation:
+    async def test_a_refused_write_elsewhere_does_not_undo_a_new_account(self, db: Database):
+        # A refused bet rolls its transaction back; a new member's account
+        # created alongside it must not be rolled back with it.
+        await db.get_account(ALICE)
+        refused, created = await asyncio.gather(
+            db.add_wallet(ALICE, -1_000_000), db.get_account(BOB), return_exceptions=True
+        )
+
+        assert isinstance(refused, InsufficientFundsError)
+        assert not isinstance(created, BaseException)
+        assert created.bank == economy.STARTING_BANK
+
+
 class TestMinerUpgrades:
     async def test_upgrading_charges_the_bank_and_raises_the_level(self, db: Database):
         assert await db.buy_miner_upgrade(ALICE) == (1, economy.UPGRADE_COST[0])
