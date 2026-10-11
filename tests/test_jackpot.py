@@ -8,6 +8,7 @@ place of the countdown, so a whole round runs without a gateway or a delay.
 
 from __future__ import annotations
 
+import asyncio
 import random
 import sqlite3
 from collections.abc import AsyncIterator
@@ -428,6 +429,25 @@ class TestRound:
 
         assert view.state.pot == 1_000
         assert view.paid == jackpot.payout(1_000)
+
+    async def test_a_join_still_committing_as_the_round_closes_is_in_the_draw(self, db):
+        clock = _FakeClock()
+        state = await open_round(db, (ALICE, 400), (BOB, 600))
+        # Ticket 1,500 can only land on Carol, so she has to be in the draw.
+        view = make_view(db, state, clock=clock, rng=FixedTicket(1_500))
+        await db.add_wallet(CAROL, 1_000)
+
+        async with db._lock:  # another write is in flight
+            join = asyncio.create_task(view.apply_join(CAROL, 1_000))
+            await asyncio.sleep(0)
+            clock.advance(jackpot.ROUND_SECONDS)
+            settle = asyncio.create_task(view.settle())
+            await asyncio.sleep(0)
+
+        assert await join is None
+        await settle
+        assert view.winner_id == CAROL
+        assert view.paid == jackpot.payout(2_000)
 
     async def test_the_house_cut_feeds_the_lottery_pot(self, db):
         state = await open_round(db, (ALICE, 10_000), (BOB, 10_000))

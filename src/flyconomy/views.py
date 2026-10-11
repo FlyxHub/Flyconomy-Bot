@@ -754,6 +754,10 @@ class JackpotView(discord.ui.View):
         self.paid = 0
         self.refunded = False
         self._settled = False
+        # Holds a join's open check and ante together, and the draw's read and
+        # payout together, so an ante can never land between the read the
+        # winner is drawn from and the payout that sweeps the pot.
+        self._lock = asyncio.Lock()
 
     # ----------------------------------------------------------- rendering --
 
@@ -805,21 +809,22 @@ class JackpotView(discord.ui.View):
         Returns:
             ``None`` on success, or a message explaining the refusal.
         """
-        if not self.is_open():
-            return "That round has already closed. Start a new one with `jackpot`."
+        async with self._lock:
+            if not self.is_open():
+                return "That round has already closed. Start a new one with `jackpot`."
 
-        try:
-            entered = await self.db.enter_jackpot(user_id, amount)
-        except InsufficientFundsError as exc:
-            return (
-                f"An ante of {embeds.money(amount)} is more than your wallet holds "
-                f"({embeds.money(exc.available)})."
-            )
-        if not entered:
-            return "You are already in this round. Everyone antes once."
+            try:
+                entered = await self.db.enter_jackpot(user_id, amount)
+            except InsufficientFundsError as exc:
+                return (
+                    f"An ante of {embeds.money(amount)} is more than your wallet holds "
+                    f"({embeds.money(exc.available)})."
+                )
+            if not entered:
+                return "You are already in this round. Everyone antes once."
 
-        await self.refresh()
-        return None
+            await self.refresh()
+            return None
 
     async def settle(self) -> None:
         """Close the round, draw a winner, and pay the pot out.
@@ -835,25 +840,26 @@ class JackpotView(discord.ui.View):
             return
         self._settled = True
 
-        # Read once more before anything moves: a join landing in the same
-        # moment the round closes is either in this pot or in none.
-        await self.refresh()
+        # Wait out a join already past its open check, then read once more
+        # before anything moves, so that join is in the draw and the pot both.
+        async with self._lock:
+            await self.refresh()
 
-        if self.state.entrants < jackpot.MIN_ENTRANTS:
-            await self.db.refund_jackpot()
-            self.refunded = True
-        else:
-            cut = jackpot.house_cut(self.state.pot)
-            self.winner_id = jackpot.draw_winner(self.state.entries, self.rng)
-            self.paid = await self.db.award_jackpot(self.winner_id, cut=cut)
+            if self.state.entrants < jackpot.MIN_ENTRANTS:
+                await self.db.refund_jackpot()
+                self.refunded = True
+            else:
+                cut = jackpot.house_cut(self.state.pot)
+                self.winner_id = jackpot.draw_winner(self.state.entries, self.rng)
+                self.paid = await self.db.award_jackpot(self.winner_id, cut=cut)
 
-            share = int(cut * self.rake)
-            if share > 0:
-                await self.db.add_to_pot(share)
-            if self.creator_tax_user_id is not None:
-                tax = int(cut * self.creator_tax_rate)
-                if tax > 0:
-                    await self.db.add_bank(self.creator_tax_user_id, tax)
+                share = int(cut * self.rake)
+                if share > 0:
+                    await self.db.add_to_pot(share)
+                if self.creator_tax_user_id is not None:
+                    tax = int(cut * self.creator_tax_rate)
+                    if tax > 0:
+                        await self.db.add_bank(self.creator_tax_user_id, tax)
 
         self._refresh_buttons()
         self.stop()

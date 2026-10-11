@@ -15,6 +15,7 @@ and the rake is a share of what the house already won.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 from zoneinfo import ZoneInfo
@@ -35,6 +36,9 @@ class Lottery(BaseCog, name="Lottery"):
     def __init__(self, bot: FlyconomyBot) -> None:
         """Bind the cog and start the draw timer."""
         super().__init__(bot)
+        # Holds an entry against the draw, so a ticket bought mid-draw cannot
+        # land in the pot after the winner was picked without it.
+        self._draw_lock = asyncio.Lock()
         hour, minute = (int(part) for part in bot.settings.lottery_draw_time.split(":"))
         draw_time = datetime.time(hour, minute, tzinfo=ZoneInfo(bot.settings.timezone))
         self.draw_loop.change_interval(time=draw_time)
@@ -57,15 +61,16 @@ class Lottery(BaseCog, name="Lottery"):
             A ``(winner_id, amount)`` pair. The winner is ``None`` when the draw
             rolled over, and the amount is then the pot carried forward.
         """
-        draw = (await self.db.lottery_state()).draw
-        entrants = await self.db.lottery_entrants()
-        if not entrants:
-            carried = await self.db.roll_over_lottery()
-            log.info("Lottery rolled over with no entrants; pot is now %d", carried)
-            return None, carried
+        async with self._draw_lock:
+            draw = (await self.db.lottery_state()).draw
+            entrants = await self.db.lottery_entrants()
+            if not entrants:
+                carried = await self.db.roll_over_lottery()
+                log.info("Lottery rolled over with no entrants; pot is now %d", carried)
+                return None, carried
 
-        winner = self.rng.choice(entrants)
-        amount = await self.db.award_lottery(winner)
+            winner = self.rng.choice(entrants)
+            amount = await self.db.award_lottery(winner)
         log.info("Lottery paid %d to %s across %d entrants", amount, winner, len(entrants))
         await self._announce_winner(winner, amount, draw)
         return winner, amount
@@ -134,7 +139,8 @@ class Lottery(BaseCog, name="Lottery"):
     async def lottery_enter(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """Enter the current draw. One entry per member, paid from your bank."""
         price = self.settings.lottery_ticket_price
-        entered = await self.db.enter_lottery(ctx.author.id, price)
+        async with self._draw_lock:
+            entered = await self.db.enter_lottery(ctx.author.id, price)
         if not entered:
             await ctx.send("You are already in this draw. Everyone gets exactly one entry.")
             return

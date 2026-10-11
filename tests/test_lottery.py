@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -48,6 +49,7 @@ def make_cog(
     from flyconomy.cogs.base import BaseCog
 
     BaseCog.__init__(cog, FakeBot(db, settings, channels=channels))
+    cog._draw_lock = asyncio.Lock()
     return cog
 
 
@@ -529,6 +531,33 @@ class TestRunDraw:
         assert winner in (ALICE, BOB)
         assert amount == 100_000
         assert (await db.get_account(winner)).bank >= 100_000
+
+    async def test_a_ticket_still_committing_when_the_draw_starts_is_in_it(self, db, settings, ctx):
+        cog = make_cog(db, settings)
+        drawn_from: list[list[int]] = []
+
+        def choice(pool: list[int]) -> int:
+            drawn_from.append(pool)
+            return pool[0]
+
+        cog.rng.choice = choice
+        await db.add_bank(ALICE, 100_000)
+        await db.add_bank(BOB, 100_000)
+        await db.enter_lottery(BOB, PRICE)
+
+        async with db._lock:  # a busy database holds Alice's ticket mid-commit
+            enter: asyncio.Task[None] = asyncio.create_task(cog.lottery_enter.callback(cog, ctx))
+            await asyncio.sleep(0)
+            draw = asyncio.create_task(cog.run_draw())
+            # Long enough for an unguarded draw to read the entrants on the
+            # reader connection, which needs no lock.
+            await asyncio.sleep(0.1)
+
+        await enter
+        _, amount = await draw
+        # Alice paid into this pot, so she has to have been in this draw.
+        assert drawn_from == [sorted([ALICE, BOB])]
+        assert amount == 2 * PRICE
 
     async def test_an_empty_draw_rolls_over(self, db, settings):
         cog = make_cog(db, settings)
