@@ -124,6 +124,31 @@ class Gambling(BaseCog, name="Casino"):
             await self.db.add_wallet(ctx.author.id, bet * multiplier)
         await self.rake(bet - bet * multiplier)
 
+    async def _post(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        view: BlackjackView | CrashView | MinesView,
+        bet: int,
+    ) -> discord.Message:
+        """Send a game's board, handing the stake back if it never lands.
+
+        A view's timeout only starts once its message is sent, so a failed send
+        would leave the stake debited with nothing left to settle or refund it.
+
+        Args:
+            ctx: Invocation context, used to identify the player.
+            view: The game to post, already holding the debited stake.
+            bet: The stake to refund if the send fails.
+
+        Returns:
+            The posted message.
+        """
+        try:
+            return await ctx.send(embed=view.embed(), view=view)
+        except discord.HTTPException:
+            await self.db.add_wallet(ctx.author.id, bet)
+            raise
+
     @commands.hybrid_command(name="coinflip", aliases=["cf"])  # type: ignore[arg-type]
     @app_commands.describe(guess="Which side you are betting on.", bet="Dollars to stake.")
     @app_commands.choices(
@@ -266,7 +291,7 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send(embed=view.embed())
             return
 
-        view.message = await ctx.send(embed=view.embed(), view=view)
+        view.message = await self._post(ctx, view, bet)
 
     @commands.hybrid_command(name="crash")  # type: ignore[arg-type]
     @app_commands.describe(bet="Dollars to stake.")
@@ -294,7 +319,7 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send(embed=view.embed())
             return
 
-        view.message = await ctx.send(embed=view.embed(), view=view)
+        view.message = await self._post(ctx, view, bet)
         view.start_ticking()
 
     @commands.hybrid_command(name="mines")  # type: ignore[arg-type]
@@ -337,7 +362,7 @@ class Gambling(BaseCog, name="Casino"):
             creator_tax_rate=self.settings.creator_tax_rate,
             creator_tax_user_id=self.settings.creator_tax_user_id,
         )
-        view.message = await ctx.send(embed=view.embed(), view=view)
+        view.message = await self._post(ctx, view, bet)
 
     @commands.hybrid_command(name="jackpot", aliases=["jp"])  # type: ignore[arg-type]
     @app_commands.describe(ante="Dollars to ante into the pot.")
@@ -562,15 +587,15 @@ class Gambling(BaseCog, name="Casino"):
         pocket = self.rng.choice(economy.ROULETTE_WHEEL)
         multiplier = economy.roulette_payout_multiplier(wager, pocket)
 
+        # Settled before anything is sent, so a failed send cannot strand a win.
+        await self._settle(ctx, amount, multiplier)
         await ctx.send(f"And the roll is..... **{pocket}**")
         if multiplier:
-            await self._settle(ctx, amount, multiplier)
             await ctx.send(
                 f"Congratulations {ctx.author.mention}, "
                 f"you won **{embeds.money(amount * multiplier)}**"
             )
         else:
-            await self._settle(ctx, amount, 0)
             await ctx.send("Sorry, you lost your bet.")
 
 

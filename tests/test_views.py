@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import discord
 import pytest
 
 from flyconomy import blackjack, crash, economy, embeds
@@ -24,7 +25,7 @@ from flyconomy.errors import InsufficientFundsError
 from flyconomy.views import BlackjackView, CrashView
 from tests.conftest import ALICE, BOB
 from tests.test_blackjack import ACE, KING, hand
-from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
+from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser, _FakeResponse
 
 
 @dataclass
@@ -473,6 +474,28 @@ class TestBlackjackCommand:
             await cog.blackjack_command.callback(cog, ctx, 11)
 
         assert (await db.get_account(ALICE)).wallet == 10
+
+
+class _CannotPost(FakeContext):
+    """A channel the bot cannot post in."""
+
+    async def send(self, *_: Any, **__: Any) -> Any:
+        raise discord.Forbidden(_FakeResponse(), "Missing Permissions")
+
+
+class TestABoardThatNeverPosts:
+    @pytest.mark.parametrize("game", ["crash_command", "mines_command"])
+    async def test_hands_the_stake_back(self, db, settings, game):
+        # Neither game is ever decided on the deal by these seeds, so each one
+        # reaches the send that fails.
+        cog = Gambling(FakeBot(db, settings))
+        cog.rng.seed(1)
+        await db.add_wallet(ALICE, 1_000)
+
+        with pytest.raises(discord.Forbidden):
+            await getattr(cog, game).callback(cog, _CannotPost(author=FakeUser(id=ALICE)), 100)
+
+        assert (await db.get_account(ALICE)).wallet == 1_000
 
 
 @dataclass
