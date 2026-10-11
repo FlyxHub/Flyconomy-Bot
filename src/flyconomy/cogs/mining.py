@@ -56,10 +56,15 @@ class Mining(BaseCog, name="Flyxcoin"):
             )
             return
 
-        level = await self.db.buy_miner_upgrade(ctx.author.id, cost)
+        bought = await self.db.buy_miner_upgrade(ctx.author.id)
+        if bought is None:  # pragma: no cover - only when two upgrades race
+            await ctx.send("Your miner is already at the maximum level.")
+            return
+
+        level, paid = bought
         chance = economy.mine_chance_percent(level)
         await ctx.send(
-            f"Miner upgraded to level {level} for {embeds.money(cost)}! "
+            f"Miner upgraded to level {level} for {embeds.money(paid)}! "
             f"You have a {chance}% chance of mining a Flyxcoin."
         )
 

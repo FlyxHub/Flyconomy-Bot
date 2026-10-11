@@ -473,18 +473,29 @@ class TestTaxedTransfers:
 
 class TestMinerUpgrades:
     async def test_upgrading_charges_the_bank_and_raises_the_level(self, db: Database):
-        level = await db.buy_miner_upgrade(ALICE, 100)
+        assert await db.buy_miner_upgrade(ALICE) == (1, economy.UPGRADE_COST[0])
         account = await db.get_account(ALICE)
-        assert level == 1
         assert account.miner == 1
-        assert account.bank == economy.STARTING_BANK - 100
+        assert account.bank == economy.STARTING_BANK - economy.UPGRADE_COST[0]
 
     async def test_an_unaffordable_upgrade_changes_nothing(self, db: Database):
+        await db.buy_miner_upgrade(ALICE)
         with pytest.raises(InsufficientFundsError):
-            await db.buy_miner_upgrade(ALICE, 5_000)
+            await db.buy_miner_upgrade(ALICE)
         account = await db.get_account(ALICE)
-        assert account.miner == 0
-        assert account.bank == economy.STARTING_BANK
+        assert account.miner == 1
+        assert account.bank == economy.STARTING_BANK - economy.UPGRADE_COST[0]
+
+    async def test_racing_upgrades_each_pay_their_own_level(self, db: Database):
+        await db.add_bank(ALICE, sum(economy.UPGRADE_COST.values()))
+
+        bought = await asyncio.gather(*(db.buy_miner_upgrade(ALICE) for _ in range(7)))
+
+        assert sorted(b for b in bought if b) == [
+            (level + 1, cost) for level, cost in sorted(economy.UPGRADE_COST.items())
+        ]
+        assert bought.count(None) == 2
+        assert (await db.get_account(ALICE)).miner == economy.MAX_MINER_LEVEL
 
     async def test_set_miner_level_overrides_the_level(self, db: Database):
         await db.set_miner_level(ALICE, economy.ADMIN_MINER_LEVEL)
@@ -623,7 +634,7 @@ class TestSelfReset:
         await db.add_wallet(ALICE, 9_000)
         await db.add_bank(ALICE, 50_000)
         await db.add_crypto(ALICE, 4)
-        await db.buy_miner_upgrade(ALICE, cost=economy.UPGRADE_COST[0])
+        await db.buy_miner_upgrade(ALICE)
 
         outcome = await db.reset_account(ALICE, now=0.0)
 

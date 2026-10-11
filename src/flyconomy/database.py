@@ -824,28 +824,38 @@ class Database:
         async with self._transaction() as db:
             await db.execute("DELETE FROM guide")
 
-    async def buy_miner_upgrade(self, user_id: int, cost: int) -> int:
+    async def buy_miner_upgrade(self, user_id: int) -> tuple[int, int] | None:
         """Charge a member's bank balance and raise their miner one level.
+
+        Priced inside the transaction from the level the row holds, exactly as
+        :meth:`buy_security_upgrade` is: a caller-supplied price let racing
+        upgrades all pay the level-0 price and climb past the maximum.
 
         Args:
             user_id: The member's Discord snowflake.
-            cost: Dollars to charge against the bank balance.
 
         Returns:
-            The new miner level.
+            The new level and the dollars charged, or ``None`` when the miner
+            is already at :data:`economy.MAX_MINER_LEVEL` or above. Nothing is
+            charged in that case.
 
         Raises:
             InsufficientFundsError: If the bank balance is too small.
         """
         async with self._transaction() as db:
             await self.ensure_account(user_id)
+            level = await self._read_column(db, user_id, "miner")
+            cost = economy.upgrade_cost(level)
+            if cost is None:
+                return None
+
             cursor = await db.execute(
                 "UPDATE bank SET bank = bank - ?, miner = miner + 1 WHERE user = ? AND bank >= ?",
                 (cost, user_id, cost),
             )
             if cursor.rowcount == 0:
                 raise InsufficientFundsError(await self._read_column(db, user_id, "bank"), cost)
-            return await self._read_column(db, user_id, "miner")
+            return level + 1, cost
 
     async def buy_security_upgrade(self, user_id: int) -> tuple[int, int] | None:
         """Charge a member's bank balance and raise their wallet security a level.
