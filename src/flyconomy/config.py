@@ -156,18 +156,18 @@ class Settings(BaseSettings):
             "so set this while developing. Leave unset in production to sync globally."
         ),
     )
-    api_token: Annotated[SecretStr, Field(min_length=16)] | None = Field(
-        default=None,
+    dashboard_enabled: bool = Field(
+        default=False,
         description=(
-            "Shared secret for the dashboard API. Unset, the API does not "
-            "start at all. The API can steer the market, so this is the only "
-            "thing standing between whoever can reach the port and a run."
+            "Serve the owner's dashboard on port 8765. It has no login and can "
+            "steer the market, so it is off unless asked for, and only as safe "
+            "as the network it is reachable from."
         ),
     )
     api_host: str = Field(
         default="127.0.0.1",
         description=(
-            "Interface the dashboard API listens on. The Compose service sets "
+            "Interface the dashboard listens on. The Compose service sets "
             "0.0.0.0 inside the container and leaves exposure to its port mapping."
         ),
     )
@@ -186,7 +186,6 @@ class Settings(BaseSettings):
         "creator_tax_user_id",
         "lottery_announce_channel_id",
         "guide_channel_id",
-        "api_token",
         mode="before",
     )
     @classmethod

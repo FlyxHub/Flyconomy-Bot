@@ -1,4 +1,4 @@
-"""Tests for the history the dashboard graphs, its API, and the local dashboard."""
+"""Tests for the history the dashboard graphs, and the dashboard the bot serves."""
 
 from __future__ import annotations
 
@@ -8,14 +8,12 @@ from collections.abc import AsyncIterator
 import pytest
 from aiohttp import test_utils, web
 
-from flyconomy import dashboard, economy
+from flyconomy import economy
 from flyconomy.cogs.api import Api, top_share
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB
 
-TOKEN = "a-test-token-of-some-length"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 HOUR = 3600
 
 
@@ -32,7 +30,7 @@ class FakeApiBot:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(discord_token="placeholder", api_token=TOKEN)
+    return Settings(discord_token="placeholder", dashboard_enabled=True)
 
 
 @pytest.fixture
@@ -115,27 +113,24 @@ class TestSupply:
 
 
 class TestApi:
-    @pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer wrong"}, {"X": TOKEN}])
-    async def test_every_route_needs_the_token(self, client, headers):
-        for method, path in [
-            ("GET", "/api/overview"),
-            ("GET", "/api/history"),
-            ("POST", "/api/market"),
-        ]:
-            response = await client.request(
-                method, path, headers=headers, json={"direction": "bull"}
-            )
-            assert response.status == 401, path
+    async def test_the_page_is_served_from_the_same_origin_as_its_data(self, client):
+        page = await client.get("/")
 
-    async def test_without_the_token_the_market_is_untouched(self, client, db):
-        await client.post("/api/market", json={"direction": "bull"})
+        assert page.status == 200
+        assert page.content_type == "text/html"
+        assert "/api/overview" in await page.text()
 
-        assert (await db.get_market()).regime == "calm"
+    async def test_it_is_off_unless_asked_for(self, db):
+        cog = Api(FakeApiBot(db, Settings(discord_token="placeholder")))  # type: ignore[arg-type]
+
+        await cog.cog_load()
+
+        assert cog._runner is None
 
     async def test_the_overview_reports_the_market_and_the_boards(self, client, db):
         await db.ensure_account(ALICE)
 
-        body = await (await client.get("/api/overview", headers=AUTH)).json()
+        body = await (await client.get("/api/overview")).json()
 
         assert body["market"] == {
             "price": economy.FLX_PRICE,
@@ -156,7 +151,7 @@ class TestApi:
         await db.add_bank(ALICE, 9_000)
         await db.add_crypto(BOB, 2)
 
-        body = await (await client.get("/api/overview", headers=AUTH)).json()
+        body = await (await client.get("/api/overview")).json()
 
         alice, bob = await db.get_account(ALICE), await db.get_account(BOB)
         now = body["economy"]
@@ -170,7 +165,7 @@ class TestApi:
         )
 
     async def test_an_empty_economy_has_no_concentration(self, client):
-        body = await (await client.get("/api/overview", headers=AUTH)).json()
+        body = await (await client.get("/api/overview")).json()
 
         assert body["economy"]["accounts"] == 0
         assert body["economy"]["top_share"] == 0
@@ -181,7 +176,7 @@ class TestApi:
         await db.ensure_account(ALICE)
         await db.record_history(int(time.time()), 5_000)
 
-        body = await (await client.get("/api/history?hours=1", headers=AUTH)).json()
+        body = await (await client.get("/api/history?hours=1")).json()
 
         assert body["prices"][0][1] == 5_000
         assert body["members"][0]["id"] == str(ALICE)
@@ -193,7 +188,7 @@ class TestApi:
         at = int(time.time())
         await db.record_history(at, 5_000)
 
-        body = await (await client.get("/api/history?hours=1", headers=AUTH)).json()
+        body = await (await client.get("/api/history?hours=1")).json()
 
         alice, bob = await db.get_account(ALICE), await db.get_account(BOB)
         assert body["supply"] == [[at, alice.bank + bob.bank, alice.wallet + bob.wallet, 0]]
@@ -204,46 +199,21 @@ class TestApi:
         )
 
     async def test_a_bad_range_is_refused(self, client):
-        response = await client.get("/api/history?hours=lots", headers=AUTH)
+        response = await client.get("/api/history?hours=lots")
         assert response.status == 400
 
     async def test_a_run_can_be_armed_and_called_off(self, client, db):
-        response = await client.post("/api/market", headers=AUTH, json={"direction": "bull"})
+        response = await client.post("/api/market", json={"direction": "bull"})
         assert response.status == 200
         assert (await db.get_market()).regime == "bull"
 
-        response = await client.post("/api/market", headers=AUTH, json={"direction": "neutral"})
+        response = await client.post("/api/market", json={"direction": "neutral"})
         assert "Called off" in (await response.json())["message"]
         assert (await db.get_market()).regime == "calm"
 
     @pytest.mark.parametrize("body", [{"direction": "sideways"}, {}, ["bull"]])
     async def test_a_bad_direction_is_refused(self, client, db, body):
-        response = await client.post("/api/market", headers=AUTH, json=body)
+        response = await client.post("/api/market", json=body)
 
         assert response.status == 400
         assert (await db.get_market()).regime == "calm"
-
-
-class TestDashboard:
-    async def test_it_forwards_to_the_bot_with_the_token(self, client):
-        settings = dashboard.DashboardSettings(
-            api_token=TOKEN, dashboard_api_url=str(client.make_url("/"))
-        )
-        app = dashboard.make_app(settings)
-        async with test_utils.TestClient(test_utils.TestServer(app)) as local:
-            page = await local.get("/")
-            assert "Flyconomy" in await page.text()
-
-            response = await local.post("/api/market", json={"direction": "bear"})
-            assert response.status == 200
-            assert "Armed a bear run" in (await response.json())["message"]
-
-    async def test_an_unreachable_bot_is_a_502_not_a_crash(self):
-        settings = dashboard.DashboardSettings(
-            api_token=TOKEN, dashboard_api_url="http://127.0.0.1:1"
-        )
-        async with test_utils.TestClient(
-            test_utils.TestServer(dashboard.make_app(settings))
-        ) as local:
-            response = await local.get("/api/overview")
-            assert response.status == 502

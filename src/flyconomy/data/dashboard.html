@@ -1021,7 +1021,7 @@ async function poll() {
     if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
   } catch (error) {
-    setLink(false, `Link lost: ${error.message} Check the bot is running and FLYCONOMY_DASHBOARD_API_URL points at it.`);
+    setLink(false, `Link lost: ${error.message} Check the bot is running.`);
   }
   if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
 }

@@ -93,12 +93,13 @@ is lost. Keep that passing.
 
 ## The owner's dashboard
 
-`cogs/api.py` serves a token-guarded JSON API from inside the bot, and `dashboard.py` is a
-separate process the owner runs on their own PC that serves `data/dashboard.html` and forwards
-to it. The API is in the bot's process because the database is: SQLite must not be shared over
-a network or opened by a second writer. Two things are load-bearing. The API is **owner-only by
-token, never member-facing** — it names the regime, which the rule under Anti-abuse forbids
-anywhere a member can see. And its market buttons go through `admin.steer_market`, the same
+`cogs/api.py` serves `data/dashboard.html` and the JSON it reads, from inside the bot, on one
+port and one origin, switched on by `dashboard_enabled`. It is in the bot's process because the
+database is: SQLite must not be shared over a network or opened by a second writer. It has **no
+login, by the owner's decision**, resting on a network only they use — a `ponytail:` comment in
+`make_app` marks where Basic auth goes if that stops being true. Two things are load-bearing.
+The dashboard is **owner-only, never member-facing** — it names the regime, which the rule under
+Anti-abuse forbids anywhere a member can see. And its market buttons go through `admin.steer_market`, the same
 function `$market` calls, so a run armed from the web is the same run as one armed from
 Discord. Don't give the web its own copy. History is written by the market tick
 (`Database.record_history`): the price every tick, balances hourly, sharing one `at` so net worth

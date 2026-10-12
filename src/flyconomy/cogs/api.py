@@ -1,28 +1,25 @@
-"""A small JSON API for the owner's dashboard, served from inside the bot.
+"""The owner's dashboard: one page and the JSON it reads, served from inside the bot.
 
 It lives in the bot's process rather than beside it because the database does:
 SQLite is not safe to share over a network, and a second process opening the
 same file would be a second writer the migrations and transactions know nothing
-about. The dashboard itself runs elsewhere -- ``python -m flyconomy.dashboard``
-on the owner's own machine -- and talks to this over HTTP.
+about. The page and its API share one origin, so there is nothing to proxy.
 
-Everything here is owner-only, enforced by one bearer token rather than by
-Discord: the API reports the market's regime, which nothing member-facing may
-name, and can arm a run. Without ``api_token`` set the server never starts.
+Off unless ``dashboard_enabled`` is set. It is for the owner only: it names the
+market's regime, which nothing member-facing may, and it can arm a run.
 """
 
 from __future__ import annotations
 
-import hmac
 import itertools
 import logging
 import math
 import time
 from collections.abc import Sequence
+from importlib import resources
 from typing import Final
 
 from aiohttp import web
-from aiohttp.typedefs import Handler
 
 from flyconomy import economy
 from flyconomy.bot import FlyconomyBot
@@ -32,9 +29,12 @@ from flyconomy.database import LeaderboardEntry
 
 log = logging.getLogger(__name__)
 
-#: Where the API listens. Fixed rather than a setting because ``compose.yaml``
-#: maps it, and the dashboard's default URL names it.
-API_PORT: Final = 8765
+#: Where the dashboard listens. Fixed rather than a setting because
+#: ``compose.yaml`` maps it.
+PORT: Final = 8765
+
+#: The page, shipped as package data beside the member guide.
+PAGE_RESOURCE: Final = "data/dashboard.html"
 
 #: The slice of members whose share of the money the dashboard tracks.
 TOP_FRACTION: Final = 0.10
@@ -70,7 +70,7 @@ def top_share(worths: Sequence[int], fraction: float = TOP_FRACTION) -> float:
 
 
 class Api(BaseCog, name="Api"):
-    """Serves the dashboard API while ``api_token`` is set."""
+    """Serves the dashboard while ``dashboard_enabled`` is set."""
 
     def __init__(self, bot: FlyconomyBot) -> None:
         """Bind the cog. The server starts in :meth:`cog_load`."""
@@ -78,23 +78,23 @@ class Api(BaseCog, name="Api"):
         self._runner: web.AppRunner | None = None
 
     async def cog_load(self) -> None:
-        """Start listening, unless the API is switched off.
+        """Start listening, unless the dashboard is switched off.
 
         A port that cannot be bound is logged rather than raised: the dashboard
         is a convenience, and it must never be the reason the bot is down.
         """
-        if self.settings.api_token is None:
+        if not self.settings.dashboard_enabled:
             return
         runner = web.AppRunner(self.make_app(), access_log=None)
         await runner.setup()
         try:
-            await web.TCPSite(runner, self.settings.api_host, API_PORT).start()
+            await web.TCPSite(runner, self.settings.api_host, PORT).start()
         except OSError:
-            log.exception("Dashboard API could not listen on port %d", API_PORT)
+            log.exception("Dashboard could not listen on port %d", PORT)
             await runner.cleanup()
             return
         self._runner = runner
-        log.info("Dashboard API listening on %s:%d", self.settings.api_host, API_PORT)
+        log.info("Dashboard listening on %s:%d", self.settings.api_host, PORT)
 
     async def cog_unload(self) -> None:
         """Stop listening."""
@@ -104,18 +104,17 @@ class Api(BaseCog, name="Api"):
 
     def make_app(self) -> web.Application:
         """Build the application. Separate from :meth:`cog_load` so tests can serve it."""
-        token = self.settings.api_token
-        assert token is not None  # noqa: S101 - cog_load returns early otherwise
-        expected = f"Bearer {token.get_secret_value()}".encode()
+        page = (resources.files("flyconomy") / PAGE_RESOURCE).read_text(encoding="utf-8")
 
-        @web.middleware
-        async def require_token(request: web.Request, handler: Handler) -> web.StreamResponse:
-            given = request.headers.get("Authorization", "").encode()
-            if not hmac.compare_digest(given, expected):
-                raise web.HTTPUnauthorized
-            return await handler(request)
+        async def index(_request: web.Request) -> web.Response:
+            return web.Response(text=page, content_type="text/html")
 
-        app = web.Application(middlewares=[require_token])
+        # ponytail: no login, on the owner's word that only they use their
+        # network. Anything that can reach the port can steer the market, so
+        # add HTTP Basic auth here before the network is shared or the port is
+        # forwarded.
+        app = web.Application()
+        app.router.add_get("/", index)
         app.router.add_get("/api/overview", self.overview)
         app.router.add_get("/api/history", self.history)
         app.router.add_post("/api/market", self.market)
