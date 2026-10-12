@@ -77,7 +77,7 @@
       "bar bar"
       "gauge trace"
       "conc supply"
-      "radar pulse"
+      "pulse swarm"
       "left ledger";
     gap: 22px 28px;
   }
@@ -336,18 +336,18 @@
   }
   @keyframes ping { from { transform: scale(1); opacity: .9; } to { transform: scale(4.5); opacity: 0; } }
 
-  /* ------------------------------------------------------------ radar */
-  .radar { grid-area: radar; display: flex; flex-direction: column; }
-  .radar p, .pulse p { margin: 0 0 10px; font-size: 14px; color: var(--text-2); }
-  .radar-box { position: relative; width: 100%; aspect-ratio: 1; }
-  .radar-box canvas, .pulse-box canvas { display: block; width: 100%; height: 100%; }
-  .radar-tip {
-    position: absolute; pointer-events: none; transform: translate(12px, -50%);
+  /* ------------------------------------------------------------ swarm */
+  .swarm { grid-area: swarm; display: flex; flex-direction: column; }
+  .swarm p, .pulse p { margin: 0 0 10px; font-size: 14px; color: var(--text-2); }
+  .swarm-box { position: relative; flex: 1; min-height: 340px; }
+  .swarm-box canvas, .pulse-box canvas { display: block; width: 100%; height: 100%; }
+  .swarm-tip {
+    position: absolute; pointer-events: none; transform: translate(-50%, calc(-100% - 12px));
     padding: 6px 10px; white-space: nowrap;
     background: rgba(4, 8, 13, .92); border: 1px solid var(--amber);
     font: 600 14px var(--display);
   }
-  .radar-tip span { display: block; font: 400 12px var(--body); color: var(--text-2); }
+  .swarm-tip span { display: block; font: 400 12px var(--body); color: var(--text-2); }
 
   /* ------------------------------------------------------------ pulse */
   .pulse { grid-area: pulse; display: flex; flex-direction: column; }
@@ -411,7 +411,7 @@
   }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "radar" "pulse" "left" "ledger"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "swarm" "pulse" "left" "ledger"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -485,12 +485,6 @@
     <div class="chart-box"><canvas id="supply-chart" role="img" aria-label="All money in the economy over the selected range, stacked by banks, wallets, and Flyxcoin"></canvas></div>
   </section>
 
-  <section class="radar frame" aria-labelledby="radar-title">
-    <h2 class="frame-title" id="radar-title">Member radar</h2>
-    <p>Richer members sit further out. A blip flares when its balance changes.</p>
-    <div class="radar-box"><canvas id="radar" role="img" aria-label="Every member plotted by net worth, flaring when a balance changes"></canvas><div class="radar-tip" id="radar-tip" hidden></div></div>
-  </section>
-
   <section class="pulse frame" aria-labelledby="pulse-title">
     <h2 class="frame-title" id="pulse-title">Economy pulse</h2>
     <p>Every spike is money changing balances. Flyxcoin's price moving is not counted.</p>
@@ -499,6 +493,12 @@
       <div><span class="label">Biggest burst since you opened this</span><b id="pulse-peak">–</b></div>
     </div>
     <div class="pulse-box"><canvas id="pulse" role="img" aria-label="A scrolling trace that spikes with how much money moved in each five-second window"></canvas></div>
+  </section>
+
+  <section class="swarm frame" aria-labelledby="swarm-title">
+    <h2 class="frame-title" id="swarm-title">Wealth spread</h2>
+    <p>Each dot is a member, placed by net worth. A dot flares when its balance changes and trails where it moved from.</p>
+    <div class="swarm-box"><canvas id="swarm" role="img" aria-label="Every member plotted along a net worth axis, flaring when a balance changes"></canvas><div class="swarm-tip" id="swarm-tip" hidden></div></div>
   </section>
 
   <div class="left">
@@ -1311,7 +1311,7 @@ setTimeout(() => document.body.classList.remove("instant"), 50);
 // ============================================================ live motion
 //
 // Everything below reads the same five-second poll. Each poll is compared
-// with the one before it, and that one comparison feeds the radar's flares,
+// with the one before it, and that one comparison feeds the swarm's flares,
 // the ticker, and the pulse, so the three can never tell different stories.
 
 const C = {};
@@ -1347,7 +1347,7 @@ function observe() {
   seen.clear();
   for (const [id, , cash, coins] of overview.members) seen.set(id, { cash, coins });
 
-  radarUpdate(changes, price);
+  swarmUpdate(changes, price);
   if (observed) {
     const moved = changes.reduce((sum, c) => sum + Math.abs(c.dCash) + Math.abs(c.dCoins) * price, 0);
     pulsePush(moved);
@@ -1356,122 +1356,192 @@ function observe() {
   observed = true;
   lastPrice = price;
   lastPot = overview.lottery_pot;
-  if (reducedMotion) { drawRadar(performance.now()); drawPulse(performance.now()); }
+  if (reducedMotion) { drawSwarm(performance.now()); drawPulse(performance.now()); }
 }
 
-// ------------------------------------------------------------------ radar
-const SWEEP_MS = 5000;
-const blips = new Map(); // id -> { angle, r, target, name, worth, rank, flare }
+// ------------------------------------------------------------------ swarm
+//
+// A beeswarm: every member on one net worth axis, nudged up or down only as
+// far as it takes not to overlap, so where a dot sits across the axis is the
+// whole reading and a crowd of similar balances shows as a crowd.
+const DOT = 5, SCAN_MS = 6000, TRAIL_MS = 1600;
+const dots = new Map(); // id -> { name, worth, rank, x, y, tx, ty, trail, flare }
+let swarmScale = null, laidOutAt = "";
 
-// A member keeps one bearing for good, so a blip only ever moves in and out.
-function bearing(id) {
-  let h = 2166136261;
-  for (const ch of id) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
-  // Finish by mixing every bit into every other, so ids that differ by one
-  // digit still land far apart.
-  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
-  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return ((h >>> 0) / 2 ** 32) * Math.PI * 2;
-}
-
-function radarUpdate(changes, price) {
-  const members = overview.members;
-  // Distance is logarithmic: balances span orders of magnitude, and a linear
-  // scale would pile everyone but the richest into the middle.
-  const logs = members.map(([, , cash, coins]) => Math.log10(Math.max(0, cash + coins * price) + 1));
-  const lo = Math.min(...logs), hi = Math.max(...logs);
+function swarmUpdate(changes, price) {
   const present = new Set();
-  members.forEach(([id, name, cash, coins], i) => {
-    const target = 0.12 + 0.82 * (hi > lo ? (logs[i] - lo) / (hi - lo) : 1);
-    let blip = blips.get(id);
-    if (!blip) { blip = { angle: bearing(id), r: target, flare: null }; blips.set(id, blip); }
-    Object.assign(blip, { target, name, worth: cash + coins * price, rank: i });
+  overview.members.forEach(([id, name, cash, coins], i) => {
+    let dot = dots.get(id);
+    if (!dot) { dot = { x: null, y: null, trail: [], flare: null }; dots.set(id, dot); }
+    Object.assign(dot, { name, worth: Math.max(0, cash + coins * price), rank: i });
     present.add(id);
   });
-  for (const id of [...blips.keys()]) if (!present.has(id)) blips.delete(id);
+  for (const id of [...dots.keys()]) if (!present.has(id)) dots.delete(id);
   for (const c of changes) {
-    const blip = blips.get(c.id);
-    if (blip) blip.flare = { start: performance.now(), up: c.dCash + c.dCoins * price >= 0 };
+    const dot = dots.get(c.id);
+    if (dot) dot.flare = { start: performance.now(), up: c.dCash + c.dCoins * price >= 0 };
+  }
+  laidOutAt = ""; // the balances moved, so the targets must too
+}
+
+const shortMoney = v => v >= 1e9 ? `$${+(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `$${+(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${+(v / 1e3).toFixed(1)}k` : `$${Math.round(v)}`;
+
+// The axis is logarithmic and spans whole decades, so its labels are always
+// round figures. Balances span orders of magnitude; a linear axis would pin
+// everyone but the richest against the left edge.
+function scaleFor(w) {
+  const worths = [...dots.values()].map(d => d.worth).filter(v => v > 0);
+  let lo = worths.length ? Math.floor(Math.log10(Math.min(...worths))) : 3;
+  const hi = worths.length ? Math.max(lo + 1, Math.ceil(Math.log10(Math.max(...worths)))) : 6;
+  if (hi - lo < 2) lo = hi - 2;
+  const left = 24, right = w - 24;
+  return { lo, hi, x: v => left + ((Math.log10(Math.max(v, 10 ** lo)) - lo) / (hi - lo)) * (right - left) };
+}
+
+function layoutSwarm(w, h) {
+  swarmScale = scaleFor(w);
+  const axisY = h - 28, mid = (axisY + 22) / 2, need = DOT * 2 + 2;
+  const placed = [];
+  // The richest are placed first, so they hold the centre line and the
+  // crowd at the bottom of the economy fans out around them.
+  for (const dot of [...dots.values()].sort((a, b) => b.worth - a.worth)) {
+    dot.tx = swarmScale.x(dot.worth);
+    const near = placed.filter(p => Math.abs(p.tx - dot.tx) < need);
+    let offset = 0;
+    for (let k = 0; k < 200; k++) {
+      offset = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2;
+      if (near.every(p => Math.hypot(p.tx - dot.tx, p.ty - (mid + offset)) >= need)) break;
+    }
+    dot.ty = Math.max(30, Math.min(axisY - DOT - 4, mid + offset));
+    placed.push(dot);
+    if (dot.x === null) { dot.x = dot.tx; dot.y = dot.ty; }
   }
 }
 
-function drawRadar(now) {
-  const { ctx, w } = fitCanvas($("radar"));
+function drawSwarm(now) {
+  const { ctx, w, h } = fitCanvas($("swarm"));
   if (!w) return;
-  const c = w / 2, R = w / 2 - 12, TAU = Math.PI * 2;
-  ctx.clearRect(0, 0, w, w);
+  if (laidOutAt !== `${w}x${h}`) { layoutSwarm(w, h); laidOutAt = `${w}x${h}`; }
+  const scale = swarmScale, axisY = h - 28, TAU = Math.PI * 2;
+  ctx.clearRect(0, 0, w, h);
 
+  // Decades: a gridline and a label at each, small ticks at 2x and 5x.
+  ctx.font = "11px Chakra Petch";
+  ctx.textAlign = "center";
+  for (let p = scale.lo; p <= scale.hi; p++) {
+    const x = scale.x(10 ** p);
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, 22); ctx.lineTo(x, axisY); ctx.stroke();
+    ctx.fillStyle = C["text-2"];
+    ctx.fillText(shortMoney(10 ** p), x, axisY + 18);
+    if (p < scale.hi) {
+      ctx.strokeStyle = C.frame;
+      for (const m of [2, 5]) {
+        const mx = scale.x(m * 10 ** p);
+        ctx.beginPath(); ctx.moveTo(mx, axisY); ctx.lineTo(mx, axisY + 4); ctx.stroke();
+      }
+    }
+  }
   ctx.strokeStyle = C.frame;
-  ctx.lineWidth = 1;
-  for (let k = 1; k <= 4; k++) { ctx.beginPath(); ctx.arc(c, c, (R * k) / 4, 0, TAU); ctx.stroke(); }
-  ctx.beginPath();
-  ctx.moveTo(c - R, c); ctx.lineTo(c + R, c); ctx.moveTo(c, c - R); ctx.lineTo(c, c + R);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(scale.x(10 ** scale.lo), axisY); ctx.lineTo(scale.x(10 ** scale.hi), axisY); ctx.stroke();
 
-  const theta = reducedMotion ? -Math.PI / 2 : ((now / SWEEP_MS) * TAU) % TAU;
-  if (!reducedMotion) {
-    const trail = 1.1;
-    const glow = ctx.createConicGradient(theta - trail, c, c);
-    glow.addColorStop(0, "rgba(95, 212, 255, 0)");
-    glow.addColorStop(trail / TAU, "rgba(95, 212, 255, .22)");
-    glow.addColorStop(trail / TAU + 0.0001, "rgba(95, 212, 255, 0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(c, c, R, 0, TAU); ctx.fill();
+  // The median member, so "typical" is a place on the axis, not a guess.
+  const sorted = [...dots.values()].map(d => d.worth).sort((a, b) => a - b);
+  if (sorted.length) {
+    const median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+    const mx = scale.x(median);
     ctx.save();
-    ctx.strokeStyle = C.holo; ctx.shadowColor = C.holo; ctx.shadowBlur = 10; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(c, c); ctx.lineTo(c + Math.cos(theta) * R, c + Math.sin(theta) * R); ctx.stroke();
+    ctx.strokeStyle = C.amber; ctx.globalAlpha = 0.7; ctx.setLineDash([3, 5]);
+    ctx.beginPath(); ctx.moveTo(mx, 18); ctx.lineTo(mx, axisY); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    ctx.fillStyle = C.amber; ctx.font = "12px Saira";
+    ctx.textAlign = mx > w * 0.75 ? "right" : "left";
+    ctx.fillText(`Median ${shortMoney(median)}`, mx + (mx > w * 0.75 ? -6 : 6), 14);
     ctx.restore();
   }
 
-  ctx.font = "12px Saira";
-  for (const blip of blips.values()) {
-    blip.r += (blip.target - blip.r) * (reducedMotion ? 1 : 0.06);
-    const x = c + Math.cos(blip.angle) * blip.r * R, y = c + Math.sin(blip.angle) * blip.r * R;
-    blip.sx = x; blip.sy = y;
-    // Bright as the sweep crosses it, fading until the next pass.
-    const behind = (((theta - blip.angle) % TAU) + TAU) % TAU;
-    const glow = reducedMotion ? 0.85 : 0.3 + 0.7 * Math.exp(-behind * 1.3);
-    const size = blip.rank < 3 ? 4.5 : 3;
+  // A scan line crossing left to right, lighting each dot as it passes.
+  const scanX = reducedMotion ? Infinity : ((now % SCAN_MS) / SCAN_MS) * (w + 160) - 80;
+  if (!reducedMotion) {
+    const beam = ctx.createLinearGradient(scanX - 90, 0, scanX, 0);
+    beam.addColorStop(0, "rgba(95, 212, 255, 0)");
+    beam.addColorStop(1, "rgba(95, 212, 255, .12)");
+    ctx.fillStyle = beam;
+    ctx.fillRect(scanX - 90, 22, 90, axisY - 22);
+    ctx.strokeStyle = "rgba(95, 212, 255, .45)";
+    ctx.beginPath(); ctx.moveTo(scanX, 22); ctx.lineTo(scanX, axisY); ctx.stroke();
+  }
 
-    const flare = blip.flare, age = flare ? now - flare.start : Infinity;
+  ctx.font = "12px Saira";
+  ctx.textAlign = "center";
+  for (const dot of dots.values()) {
+    if (dot.tx === undefined) continue;
+    const before = [dot.x, dot.y], k = reducedMotion ? 1 : 0.07;
+    dot.x += (dot.tx - dot.x) * k;
+    dot.y += (dot.ty - dot.y) * k;
+    if (Math.hypot(dot.x - before[0], dot.y - before[1]) > 0.25) dot.trail.push({ x: dot.x, y: dot.y, t: now });
+    dot.trail = dot.trail.filter(pt => now - pt.t < TRAIL_MS);
+
+    const flare = dot.flare, age = flare ? now - flare.start : Infinity;
+    if (age >= 2400) dot.flare = null;
     const colour = age < 2400 ? (flare.up ? C.bull : C.bear) : C.holo;
+
+    // Where it came from, fading out behind it.
+    if (!reducedMotion) {
+      for (let i = 1; i < dot.trail.length; i++) {
+        const a = dot.trail[i - 1], b = dot.trail[i];
+        ctx.strokeStyle = colour; ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.6 * (1 - (now - b.t) / TRAIL_MS);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
     if (age < 2400 && !reducedMotion) {
       const t = age / 2400;
       ctx.strokeStyle = colour; ctx.globalAlpha = 1 - t; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x, y, size + t * 24, 0, TAU); ctx.stroke();
-    } else if (age >= 2400) {
-      blip.flare = null;
+      ctx.beginPath(); ctx.arc(dot.x, dot.y, DOT + t * 22, 0, TAU); ctx.stroke();
     }
+
+    const behind = scanX - dot.x;
+    const glow = reducedMotion ? 0.85 : behind >= 0 ? 0.45 + 0.55 * Math.exp(-behind / 110) : 0.45;
+    const size = dot.rank < 3 ? DOT + 1.5 : DOT;
     ctx.globalAlpha = age < 2400 ? 1 : glow;
     ctx.fillStyle = colour; ctx.shadowColor = colour; ctx.shadowBlur = 8;
-    ctx.beginPath(); ctx.arc(x, y, size, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(dot.x, dot.y, size, 0, TAU); ctx.fill();
     ctx.shadowBlur = 0;
-    if (blip.rank < 3) {
-      ctx.globalAlpha = Math.max(glow, 0.6);
-      ctx.fillStyle = C["text-2"];
-      ctx.fillText(blip.name, x + 9, y + 4);
-    }
+    ctx.globalAlpha = 1;
+  }
+
+  // The three richest are named on rows of their own above the swarm, with
+  // a leader line down to the dot: they usually sit side by side at the
+  // right edge, where labels beside the dots would land on each other.
+  for (const dot of dots.values()) {
+    if (dot.rank > 2 || dot.tx === undefined) continue;
+    const labelY = 32 + dot.rank * 15, edge = dot.x > w - 60 ? "right" : dot.x < 60 ? "left" : "center";
+    ctx.strokeStyle = C["text-2"]; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(dot.x, labelY + 4); ctx.lineTo(dot.x, dot.y - DOT - 3); ctx.stroke();
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = C.text; ctx.textAlign = edge;
+    ctx.fillText(dot.name, dot.x + (edge === "right" ? 4 : edge === "left" ? -4 : 0), labelY);
     ctx.globalAlpha = 1;
   }
 }
 
-$("radar").addEventListener("mousemove", e => {
+$("swarm").addEventListener("mousemove", e => {
   const box = e.currentTarget.getBoundingClientRect(), mx = e.clientX - box.left, my = e.clientY - box.top;
-  let best = null, bestDistance = 14;
-  for (const blip of blips.values()) {
-    const d = Math.hypot(blip.sx - mx, blip.sy - my);
-    if (d < bestDistance) { best = blip; bestDistance = d; }
+  let best = null, bestDistance = DOT + 8;
+  for (const dot of dots.values()) {
+    const d = Math.hypot(dot.x - mx, dot.y - my);
+    if (d < bestDistance) { best = dot; bestDistance = d; }
   }
-  const tip = $("radar-tip");
+  const tip = $("swarm-tip");
   tip.hidden = !best;
   if (!best) return;
-  tip.style.left = best.sx + "px";
-  tip.style.top = best.sy + "px";
+  tip.style.left = best.x + "px";
+  tip.style.top = best.y + "px";
   tip.innerHTML = "";
   tip.append(best.name, Object.assign(document.createElement("span"), { textContent: `#${best.rank + 1}, worth ${money(best.worth)}` }));
 });
-$("radar").addEventListener("mouseleave", () => { $("radar-tip").hidden = true; });
+$("swarm").addEventListener("mouseleave", () => { $("swarm-tip").hidden = true; });
 
 // ------------------------------------------------------------------ pulse
 const PULSE_WINDOW_MS = 60_000;
@@ -1631,7 +1701,7 @@ function frame(now) {
   // Real elapsed time, so the ticker keeps its speed when the browser throttles frames.
   const dt = lastFrame === null ? 0 : Math.min(1000, now - lastFrame);
   lastFrame = now;
-  drawRadar(now);
+  drawSwarm(now);
   drawPulse(now);
   moveTicker(dt);
   updateTimers();

@@ -260,8 +260,9 @@ few players are pulling away. It also has buttons that do what
 `$market bull|bear|neutral` does. It is not
 for members: it names the market's regime, which nothing member-facing does.
 
-The rest of the page shows the economy moving as it happens: a radar that
-plots every member by net worth and flares a blip when its balance changes, a
+The rest of the page shows the economy moving as it happens: a swarm that
+places every member along a net worth axis, marks the median, and flares a dot
+when its balance changes, a
 heartbeat-style trace that spikes with how much money moved in each
 five-second window, a ticker along the bottom of the screen naming who gained
 or lost what, and countdowns to the next market tick, daily interest payout,
