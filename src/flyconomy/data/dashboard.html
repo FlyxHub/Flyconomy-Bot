@@ -492,10 +492,18 @@ function buildDial(market) {
   const spread = market.anchor * market.calm_band_percent / 100;
   el("path", { d: arc(R - 12, angleOf(market.anchor - spread), angleOf(market.anchor + spread)), class: "band", pathLength: 1 }, dial);
   el("path", { id: "level", class: "level" }, dial);
-  for (const [value, anchor] of [[market.floor, "end"], [market.anchor, "middle"], [market.ceiling, "start"]]) {
-    const [x, y] = point(R + 38, angleOf(value));
+  // A label on every other major tick: thirds of the band, which for the
+  // default $5k-$20k band is every $5k. Labels on the left of the dial hang
+  // off its edge, on the right they lead away from it, and at the top they
+  // centre on their tick.
+  for (let i = 0; i <= 60; i += 20) {
+    const value = scale.floor + (scale.ceiling - scale.floor) * i / 60;
+    const a = angleOf(value);
+    const [x, y] = point(R + 38, a);
+    const side = Math.cos(a * Math.PI / 180);
+    const anchor = side < -0.3 ? "end" : side > 0.3 ? "start" : "middle";
     const label = el("text", { x, y: y + 4, "text-anchor": anchor, class: "scale-label" }, dial);
-    label.textContent = "$" + (value / 1000) + "k";
+    label.textContent = "$" + +(value / 1000).toFixed(1) + "k";
   }
   el("circle", { r: 132, class: "inner", pathLength: 1 }, dial);
   const sweep = el("g", { class: "sweep" }, dial);
