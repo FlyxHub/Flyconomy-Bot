@@ -107,7 +107,12 @@ is always valued at the price of its own snapshot. Hourly is the history, not th
 overview also carries the economy's live totals, valued at the same price as the rest of that
 response, and every snapshot-based chart ends on that live point. Without it a leaderboard's
 change and its amount, or the supply legend and the coins-held figure, describe different
-moments and the page contradicts itself.
+moments and the page contradicts itself. The radar, the pulse, and the ticker are all fed by one
+comparison of each poll's `members` with the last, which is why that list carries cash and coins
+apart rather than a net worth: Flyxcoin's price moves every member's net worth at once, and
+counting that as activity would make every tick look like the whole server played. The
+countdowns read each scheduled job's own `tasks.Loop.next_iteration`, not the settings, so they
+can only show the time the bot will actually act.
 
 ## The member guide
 

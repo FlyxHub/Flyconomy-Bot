@@ -207,6 +207,24 @@ class SupplyPoint:
 
 
 @dataclass(frozen=True, slots=True)
+class MemberBalance:
+    """One member's money right now, with cash and coins kept apart.
+
+    Kept apart so a caller can tell money moving from Flyxcoin's price moving:
+    the price changes every member's net worth at once without anyone acting.
+
+    Attributes:
+        user_id: The member's Discord snowflake.
+        cash: Wallet and bank together.
+        coins: Flyxcoin held.
+    """
+
+    user_id: int
+    cash: int
+    coins: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResetOutcome:
     """What a member's self-reset did, and what the next one would be worth.
 
@@ -608,6 +626,19 @@ class Database:
         ) as cursor:
             rows = await cursor.fetchall()
         return [int(row["worth"]) for row in rows]
+
+    async def member_balances(self, price: int, limit: int) -> list[MemberBalance]:
+        """Return the richest ``limit`` members' cash and coins, richest first at ``price``."""
+        async with self._reader.execute(
+            "SELECT user, wallet + bank AS cash, crypto FROM bank "
+            "ORDER BY wallet + bank + crypto * ? DESC, user ASC LIMIT ?",
+            (price, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [
+            MemberBalance(user_id=int(row["user"]), cash=int(row["cash"]), coins=int(row["crypto"]))
+            for row in rows
+        ]
 
     async def coins_bought_today(self, day: str, user_id: int) -> int:
         """Return how much Flyxcoin a member has already bought on ``day``.

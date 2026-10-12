@@ -260,6 +260,14 @@ few players are pulling away. It also has buttons that do what
 `$market bull|bear|neutral` does. It is not
 for members: it names the market's regime, which nothing member-facing does.
 
+The rest of the page shows the economy moving as it happens: a radar that
+plots every member by net worth and flares a blip when its balance changes, a
+heartbeat-style trace that spikes with how much money moved in each
+five-second window, a ticker along the bottom of the screen naming who gained
+or lost what, and countdowns to the next market tick, daily interest payout,
+and lottery draw, read from the bot's own schedule. All of them follow the
+operating system's reduced-motion setting.
+
 To show it to someone, press **P** or the eye button in the top corner. That
 hides the market override and everything that gives a run away: the run status
 under the price, and the gauge ring's run colours and speed. Press it again to

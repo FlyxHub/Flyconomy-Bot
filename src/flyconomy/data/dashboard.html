@@ -77,6 +77,7 @@
       "bar bar"
       "gauge trace"
       "conc supply"
+      "radar pulse"
       "left ledger";
     gap: 22px 28px;
   }
@@ -322,8 +323,95 @@
   .ledger:not([data-board="net_worth"]) .worth-only { display: none; }
   .empty td { color: var(--text-2); padding: 22px 0; }
 
+  /* --------------------------------------------------------- live dot */
+  /* The price trace's newest point, marked as the live edge it is. */
+  .live-dot {
+    position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+    border-radius: 50%; background: var(--holo); box-shadow: 0 0 10px var(--holo);
+    pointer-events: none;
+  }
+  .live-dot::after {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    border: 1px solid var(--holo); animation: ping 2s cubic-bezier(.2, .6, .3, 1) infinite;
+  }
+  @keyframes ping { from { transform: scale(1); opacity: .9; } to { transform: scale(4.5); opacity: 0; } }
+
+  /* ------------------------------------------------------------ radar */
+  .radar { grid-area: radar; display: flex; flex-direction: column; }
+  .radar p, .pulse p { margin: 0 0 10px; font-size: 14px; color: var(--text-2); }
+  .radar-box { position: relative; width: 100%; aspect-ratio: 1; }
+  .radar-box canvas, .pulse-box canvas { display: block; width: 100%; height: 100%; }
+  .radar-tip {
+    position: absolute; pointer-events: none; transform: translate(12px, -50%);
+    padding: 6px 10px; white-space: nowrap;
+    background: rgba(4, 8, 13, .92); border: 1px solid var(--amber);
+    font: 600 14px var(--display);
+  }
+  .radar-tip span { display: block; font: 400 12px var(--body); color: var(--text-2); }
+
+  /* ------------------------------------------------------------ pulse */
+  .pulse { grid-area: pulse; display: flex; flex-direction: column; }
+  .pulse-head { display: flex; gap: 8px 32px; flex-wrap: wrap; }
+  .pulse-head .label { display: block; font-size: 13px; color: var(--text-2); }
+  .pulse-head b { font: 600 24px/1.2 var(--display); }
+  .pulse-box { position: relative; flex: 1; min-height: 220px; margin-top: 10px; }
+
+  /* ----------------------------------------------------------- timers */
+  .timers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .timer { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+  .timer svg { width: 100%; max-width: 96px; transform: rotate(-90deg); overflow: visible; }
+  .timer circle { fill: none; stroke-width: 5; }
+  .timer .ring-track { stroke: var(--grid); }
+  .timer .ring-fill { stroke: var(--holo); stroke-dasharray: 1; stroke-linecap: round; filter: drop-shadow(0 0 5px var(--holo)); }
+  .timer b {
+    position: absolute; top: 0; left: 0; right: 0; aspect-ratio: 1; max-width: 96px; margin: 0 auto;
+    display: grid; place-items: center; font: 600 16px var(--display);
+  }
+  .timer span { font-size: 13px; color: var(--text-2); }
+  .timer.due .ring-fill { stroke: var(--amber); filter: drop-shadow(0 0 8px var(--amber)); }
+  .timer.due b { color: var(--amber); animation: due 1s ease-in-out infinite alternate; }
+  @keyframes due { to { opacity: .4; } }
+
+  /* ----------------------------------------------------------- ticker */
+  body { padding-bottom: 40px; }
+  .ticker {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+    height: 40px; display: flex; align-items: stretch;
+    background: rgba(4, 8, 13, .9); border-top: 1px solid var(--frame);
+    backdrop-filter: blur(6px);
+  }
+  .ticker-label {
+    flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px;
+    font: 600 14px var(--display); color: var(--void); background: var(--holo);
+  }
+  .ticker-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--void); animation: due 1s ease-in-out infinite alternate; }
+  .ticker-lane {
+    position: relative; flex: 1; overflow: hidden;
+    mask-image: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  }
+  .ticker-track { position: absolute; top: 0; left: 0; height: 100%; display: flex; align-items: center; gap: 36px; white-space: nowrap; will-change: transform; }
+  .ticker-item { font-size: 14px; color: var(--text-2); }
+  .ticker-item b { margin-right: 6px; font: 600 14px var(--display); color: var(--text); }
+  .ticker-idle[hidden] { display: none; }
+  .ticker-idle { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 40px; font-size: 14px; color: var(--text-2); }
+
+  /* ------------------------------------------------------------- boot */
+  /* One orchestrated moment on load: each panel powers on in reading
+     order, wiping down from its top edge with a brief flicker. */
+  body.booting .bar, body.booting .frame {
+    animation: power-on .8s cubic-bezier(.2, .8, .2, 1) backwards;
+    animation-delay: calc(var(--i, 0) * 90ms + 120ms);
+  }
+  @keyframes power-on {
+    0% { opacity: 0; clip-path: inset(0 0 100% 0); }
+    45% { opacity: 1; }
+    55% { opacity: .35; }
+    70% { opacity: 1; }
+    100% { opacity: 1; clip-path: inset(0); }
+  }
+
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "left" "ledger"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "radar" "pulse" "left" "ledger"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -336,6 +424,8 @@
     .meter i { transition: none; }
     .rise, .fall { animation: none; }
     .collapsible, body.presenting .collapsible, .readout .state { transition: none; }
+    .live-dot::after, .timer.due b, .ticker-label::before { animation: none; }
+    body.booting .bar, body.booting .frame { animation: none; }
   }
 </style>
 </head>
@@ -374,7 +464,7 @@
     <div class="trace-head">
       <div class="moves"><span id="tick-move"></span><span id="range-move"></span></div>
     </div>
-    <div class="chart-box"><canvas id="price-chart" role="img" aria-label="Flyxcoin price over the selected range, with the calm band shaded"></canvas></div>
+    <div class="chart-box"><canvas id="price-chart" role="img" aria-label="Flyxcoin price over the selected range, with the calm band shaded"></canvas><div class="live-dot" id="live-dot" hidden></div></div>
   </section>
 
   <section class="conc frame" aria-labelledby="conc-title">
@@ -395,6 +485,22 @@
     <div class="chart-box"><canvas id="supply-chart" role="img" aria-label="All money in the economy over the selected range, stacked by banks, wallets, and Flyxcoin"></canvas></div>
   </section>
 
+  <section class="radar frame" aria-labelledby="radar-title">
+    <h2 class="frame-title" id="radar-title">Member radar</h2>
+    <p>Richer members sit further out. A blip flares when its balance changes.</p>
+    <div class="radar-box"><canvas id="radar" role="img" aria-label="Every member plotted by net worth, flaring when a balance changes"></canvas><div class="radar-tip" id="radar-tip" hidden></div></div>
+  </section>
+
+  <section class="pulse frame" aria-labelledby="pulse-title">
+    <h2 class="frame-title" id="pulse-title">Economy pulse</h2>
+    <p>Every spike is money changing balances. Flyxcoin's price moving is not counted.</p>
+    <div class="pulse-head">
+      <div><span class="label">Moved in the last minute</span><b id="pulse-minute">–</b></div>
+      <div><span class="label">Biggest burst since you opened this</span><b id="pulse-peak">–</b></div>
+    </div>
+    <div class="pulse-box"><canvas id="pulse" role="img" aria-label="A scrolling trace that spikes with how much money moved in each five-second window"></canvas></div>
+  </section>
+
   <div class="left">
     <div class="collapsible" id="override-wrap"><div>
     <section class="override frame" aria-labelledby="override-title">
@@ -412,6 +518,15 @@
       <p id="result" role="status"></p>
     </section>
     </div></div>
+
+    <section class="timers-panel frame" aria-labelledby="timers-title">
+      <h2 class="frame-title" id="timers-title">Coming up</h2>
+      <div class="timers">
+        <div class="timer" data-key="tick"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="44"/><circle class="ring-fill" cx="50" cy="50" r="44" pathLength="1"/></svg><b>–</b><span>Market tick</span></div>
+        <div class="timer" data-key="interest"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="44"/><circle class="ring-fill" cx="50" cy="50" r="44" pathLength="1"/></svg><b>–</b><span>Daily interest</span></div>
+        <div class="timer" data-key="lottery"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="44"/><circle class="ring-fill" cx="50" cy="50" r="44" pathLength="1"/></svg><b>–</b><span>Lottery draw</span></div>
+      </div>
+    </section>
 
     <section class="stats frame" aria-label="Economy totals">
       <div class="stat"><div class="label">Lottery pot</div><div class="value" id="pot">–</div></div>
@@ -443,6 +558,14 @@
     </table>
   </section>
 </div>
+
+<footer class="ticker" aria-label="Recent activity">
+  <span class="ticker-label">Live</span>
+  <div class="ticker-lane" aria-live="off">
+    <div class="ticker-track" id="ticker-track"></div>
+    <div class="ticker-idle" id="ticker-idle">Watching for activity.</div>
+  </div>
+</footer>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -552,7 +675,18 @@ function flash(node, delta) {
 }
 
 // Rolls a number from what it last showed to its new value.
+function decode(node, text, ms = 900) {
+  return tween(node, ms, e => {
+    const locked = Math.floor(e * text.length);
+    node.textContent = [...text].map((ch, i) => i < locked || !/\d/.test(ch) ? ch : String(Math.floor(Math.random() * 10))).join("");
+  });
+}
+
 function rollNumber(node, to, format, from = node._value ?? to) {
+  if (node._value === undefined && document.body.classList.contains("booting") && !reducedMotion) {
+    node._value = to;
+    return decode(node, format(to));
+  }
   node._value = to;
   flash(node, to - from);
   return tween(node, TWEEN_MS, e => { node.textContent = format(from + (to - from) * e); });
@@ -752,6 +886,8 @@ const hudChart = {
   },
   afterDatasetsDraw(c) {
     c.ctx.restore();
+    const last = c.getDatasetMeta(0).data.at(-1), dot = $("live-dot");
+    if (last && dot) { dot.style.left = last.x + "px"; dot.style.top = last.y + "px"; dot.hidden = false; }
     const active = c.tooltip?.getActiveElements?.();
     if (!active?.length) return;
     const x = active[0].element.x, { top, bottom } = c.chartArea, ctx = c.ctx;
@@ -1014,7 +1150,10 @@ function setLink(ok, text) {
   $("link").textContent = text;
 }
 
+let polling = false;
 async function poll() {
+  if (polling) return;
+  polling = true;
   clearTimeout(pollTimer);
   try {
     await loadOverview();
@@ -1025,12 +1164,13 @@ async function poll() {
     if (stale) await loadHistory();
     // Everything that ends on a live value redraws every poll; only the
     // price trace waits for a tick, because only a tick can move it.
-    renderGauge(); renderOverride(); renderLedger(); renderEconomy();
+    renderGauge(); renderOverride(); renderLedger(); renderEconomy(); observe();
     if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
   } catch (error) {
     setLink(false, `Link lost: ${error.message} Check the bot is running.`);
   }
+  polling = false;
   if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
 }
 
@@ -1167,6 +1307,347 @@ document.addEventListener("keydown", e => {
 document.body.classList.add("instant");
 setPresenting(presenting);
 setTimeout(() => document.body.classList.remove("instant"), 50);
+
+// ============================================================ live motion
+//
+// Everything below reads the same five-second poll. Each poll is compared
+// with the one before it, and that one comparison feeds the radar's flares,
+// the ticker, and the pulse, so the three can never tell different stories.
+
+const C = {};
+function readColours() {
+  for (const name of ["holo", "holo-dim", "frame", "grid", "text", "text-2", "amber", "bull", "bear", "void"]) C[name] = css("--" + name);
+}
+
+// Sizes a canvas to its box at the screen's pixel density.
+function fitCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+const signedMoney = d => (d > 0 ? "+" : "−") + money(Math.abs(d));
+const seen = new Map(); // id -> { cash, coins }, as of the last poll
+let observed = false, lastPrice = null, lastPot = null;
+
+function observe() {
+  const price = overview.market.price;
+  const changes = [];
+  for (const [id, name, cash, coins] of overview.members) {
+    const before = seen.get(id);
+    if (before && (cash !== before.cash || coins !== before.coins)) {
+      changes.push({ id, name, dCash: cash - before.cash, dCoins: coins - before.coins });
+    }
+  }
+  seen.clear();
+  for (const [id, , cash, coins] of overview.members) seen.set(id, { cash, coins });
+
+  radarUpdate(changes, price);
+  if (observed) {
+    const moved = changes.reduce((sum, c) => sum + Math.abs(c.dCash) + Math.abs(c.dCoins) * price, 0);
+    pulsePush(moved);
+    tickerChanges(changes, price);
+  }
+  observed = true;
+  lastPrice = price;
+  lastPot = overview.lottery_pot;
+  if (reducedMotion) { drawRadar(performance.now()); drawPulse(performance.now()); }
+}
+
+// ------------------------------------------------------------------ radar
+const SWEEP_MS = 5000;
+const blips = new Map(); // id -> { angle, r, target, name, worth, rank, flare }
+
+// A member keeps one bearing for good, so a blip only ever moves in and out.
+function bearing(id) {
+  let h = 2166136261;
+  for (const ch of id) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  // Finish by mixing every bit into every other, so ids that differ by one
+  // digit still land far apart.
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return ((h >>> 0) / 2 ** 32) * Math.PI * 2;
+}
+
+function radarUpdate(changes, price) {
+  const members = overview.members;
+  // Distance is logarithmic: balances span orders of magnitude, and a linear
+  // scale would pile everyone but the richest into the middle.
+  const logs = members.map(([, , cash, coins]) => Math.log10(Math.max(0, cash + coins * price) + 1));
+  const lo = Math.min(...logs), hi = Math.max(...logs);
+  const present = new Set();
+  members.forEach(([id, name, cash, coins], i) => {
+    const target = 0.12 + 0.82 * (hi > lo ? (logs[i] - lo) / (hi - lo) : 1);
+    let blip = blips.get(id);
+    if (!blip) { blip = { angle: bearing(id), r: target, flare: null }; blips.set(id, blip); }
+    Object.assign(blip, { target, name, worth: cash + coins * price, rank: i });
+    present.add(id);
+  });
+  for (const id of [...blips.keys()]) if (!present.has(id)) blips.delete(id);
+  for (const c of changes) {
+    const blip = blips.get(c.id);
+    if (blip) blip.flare = { start: performance.now(), up: c.dCash + c.dCoins * price >= 0 };
+  }
+}
+
+function drawRadar(now) {
+  const { ctx, w } = fitCanvas($("radar"));
+  if (!w) return;
+  const c = w / 2, R = w / 2 - 12, TAU = Math.PI * 2;
+  ctx.clearRect(0, 0, w, w);
+
+  ctx.strokeStyle = C.frame;
+  ctx.lineWidth = 1;
+  for (let k = 1; k <= 4; k++) { ctx.beginPath(); ctx.arc(c, c, (R * k) / 4, 0, TAU); ctx.stroke(); }
+  ctx.beginPath();
+  ctx.moveTo(c - R, c); ctx.lineTo(c + R, c); ctx.moveTo(c, c - R); ctx.lineTo(c, c + R);
+  ctx.stroke();
+
+  const theta = reducedMotion ? -Math.PI / 2 : ((now / SWEEP_MS) * TAU) % TAU;
+  if (!reducedMotion) {
+    const trail = 1.1;
+    const glow = ctx.createConicGradient(theta - trail, c, c);
+    glow.addColorStop(0, "rgba(95, 212, 255, 0)");
+    glow.addColorStop(trail / TAU, "rgba(95, 212, 255, .22)");
+    glow.addColorStop(trail / TAU + 0.0001, "rgba(95, 212, 255, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(c, c, R, 0, TAU); ctx.fill();
+    ctx.save();
+    ctx.strokeStyle = C.holo; ctx.shadowColor = C.holo; ctx.shadowBlur = 10; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(c, c); ctx.lineTo(c + Math.cos(theta) * R, c + Math.sin(theta) * R); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.font = "12px Saira";
+  for (const blip of blips.values()) {
+    blip.r += (blip.target - blip.r) * (reducedMotion ? 1 : 0.06);
+    const x = c + Math.cos(blip.angle) * blip.r * R, y = c + Math.sin(blip.angle) * blip.r * R;
+    blip.sx = x; blip.sy = y;
+    // Bright as the sweep crosses it, fading until the next pass.
+    const behind = (((theta - blip.angle) % TAU) + TAU) % TAU;
+    const glow = reducedMotion ? 0.85 : 0.3 + 0.7 * Math.exp(-behind * 1.3);
+    const size = blip.rank < 3 ? 4.5 : 3;
+
+    const flare = blip.flare, age = flare ? now - flare.start : Infinity;
+    const colour = age < 2400 ? (flare.up ? C.bull : C.bear) : C.holo;
+    if (age < 2400 && !reducedMotion) {
+      const t = age / 2400;
+      ctx.strokeStyle = colour; ctx.globalAlpha = 1 - t; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, size + t * 24, 0, TAU); ctx.stroke();
+    } else if (age >= 2400) {
+      blip.flare = null;
+    }
+    ctx.globalAlpha = age < 2400 ? 1 : glow;
+    ctx.fillStyle = colour; ctx.shadowColor = colour; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(x, y, size, 0, TAU); ctx.fill();
+    ctx.shadowBlur = 0;
+    if (blip.rank < 3) {
+      ctx.globalAlpha = Math.max(glow, 0.6);
+      ctx.fillStyle = C["text-2"];
+      ctx.fillText(blip.name, x + 9, y + 4);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+$("radar").addEventListener("mousemove", e => {
+  const box = e.currentTarget.getBoundingClientRect(), mx = e.clientX - box.left, my = e.clientY - box.top;
+  let best = null, bestDistance = 14;
+  for (const blip of blips.values()) {
+    const d = Math.hypot(blip.sx - mx, blip.sy - my);
+    if (d < bestDistance) { best = blip; bestDistance = d; }
+  }
+  const tip = $("radar-tip");
+  tip.hidden = !best;
+  if (!best) return;
+  tip.style.left = best.sx + "px";
+  tip.style.top = best.sy + "px";
+  tip.innerHTML = "";
+  tip.append(best.name, Object.assign(document.createElement("span"), { textContent: `#${best.rank + 1}, worth ${money(best.worth)}` }));
+});
+$("radar").addEventListener("mouseleave", () => { $("radar-tip").hidden = true; });
+
+// ------------------------------------------------------------------ pulse
+const PULSE_WINDOW_MS = 60_000;
+const pulse = { samples: [], peak: 0 };
+
+function pulsePush(moved) {
+  const now = performance.now();
+  pulse.samples.push({ t: now, v: moved });
+  pulse.samples = pulse.samples.filter(s => now - s.t < PULSE_WINDOW_MS + 5000);
+  if (moved > pulse.peak) { pulse.peak = moved; rollNumber($("pulse-peak"), moved, money); }
+  else if ($("pulse-peak")._value === undefined) rollNumber($("pulse-peak"), 0, money);
+  const minute = pulse.samples.filter(s => now - s.t < PULSE_WINDOW_MS).reduce((sum, s) => sum + s.v, 0);
+  rollNumber($("pulse-minute"), minute, money);
+}
+
+function drawPulse(now) {
+  const { ctx, w, h } = fitCanvas($("pulse"));
+  if (!w) return;
+  ctx.clearRect(0, 0, w, h);
+
+  // A grid that scrolls with time, so the trace reads as moving even when
+  // nothing is happening -- which is itself the reading: a flat line.
+  const pxPerMs = w / PULSE_WINDOW_MS, step = w / 12;
+  ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = w - ((now * pxPerMs) % step); x > 0; x -= step) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+  for (let k = 1; k < 4; k++) { ctx.moveTo(0, (h * k) / 4); ctx.lineTo(w, (h * k) / 4); }
+  ctx.stroke();
+
+  const base = h * 0.62, amp = h * 0.5;
+  const peak = Math.max(1000, ...pulse.samples.map(s => s.v));
+  const scale = Math.log10(peak + 1);
+  ctx.save();
+  ctx.strokeStyle = C.holo; ctx.lineWidth = 1.75; ctx.lineJoin = "round";
+  ctx.shadowColor = C.holo; ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.moveTo(0, base);
+  for (const s of pulse.samples) {
+    if (!s.v) continue;
+    const x = w - (now - s.t) * pxPerMs, a = (amp * Math.log10(s.v + 1)) / scale;
+    // One heartbeat per burst of activity, sized by how much moved.
+    ctx.lineTo(x - 16, base); ctx.lineTo(x - 9, base + 0.12 * a); ctx.lineTo(x - 4, base - a);
+    ctx.lineTo(x + 2, base + 0.32 * a); ctx.lineTo(x + 8, base); ctx.lineTo(x + 16, base - 0.16 * a);
+    ctx.lineTo(x + 26, base);
+  }
+  ctx.lineTo(w, base);
+  ctx.stroke();
+  ctx.fillStyle = C.holo;
+  ctx.beginPath(); ctx.arc(w - 3, base, 3 + (reducedMotion ? 0 : Math.sin(now / 250) * 1), 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// ----------------------------------------------------------------- ticker
+const TICKER_GAP = 36;
+let tickerX = null;
+
+function tickerItem(label, text, delta) {
+  const item = document.createElement("span");
+  item.className = "ticker-item";
+  const name = document.createElement("b");
+  name.textContent = label;
+  const value = document.createElement("span");
+  value.className = delta > 0 ? "up" : delta < 0 ? "down" : "";
+  value.textContent = text;
+  item.append(name, value);
+  return item;
+}
+
+function tickerChanges(changes, price) {
+  const items = [];
+  if (lastPrice !== null && price !== lastPrice) {
+    const d = price - lastPrice;
+    items.push(tickerItem("Flyxcoin", `${d > 0 ? "▲" : "▼"} ${money(Math.abs(d))} to ${money(price)}`, d));
+  }
+  if (lastPot !== null && overview.lottery_pot !== lastPot) {
+    items.push(tickerItem("Lottery pot", signedMoney(overview.lottery_pot - lastPot), overview.lottery_pot - lastPot));
+  }
+  // A busy poll, like the daily interest landing on everyone at once, shows
+  // its biggest movers and folds the rest into one line.
+  const size = c => Math.abs(c.dCash) + Math.abs(c.dCoins) * price;
+  const sorted = changes.slice().sort((a, b) => size(b) - size(a));
+  const shown = sorted.length > 6 ? sorted.slice(0, 5) : sorted;
+  for (const c of shown) {
+    if (c.dCash) items.push(tickerItem(c.name, signedMoney(c.dCash), c.dCash));
+    if (c.dCoins) items.push(tickerItem(c.name, `${c.dCoins > 0 ? "+" : "−"}${whole(Math.abs(c.dCoins))} FLX`, c.dCoins));
+  }
+  if (sorted.length > shown.length) {
+    const rest = sorted.slice(shown.length), total = rest.reduce((sum, c) => sum + c.dCash, 0);
+    items.push(tickerItem(`${rest.length} more members`, signedMoney(total), total));
+  }
+  if (!items.length) return;
+
+  const track = $("ticker-track");
+  $("ticker-idle").hidden = true;
+  if (reducedMotion) {
+    track.prepend(...items.reverse());
+    while (track.children.length > 8) track.lastChild.remove();
+    track.style.transform = "translateX(40px)";
+    return;
+  }
+  if (!track.children.length) tickerX = track.parentElement.clientWidth;
+  track.append(...items);
+}
+
+function moveTicker(dt) {
+  const track = $("ticker-track");
+  if (reducedMotion || !track.children.length) return;
+  const lane = track.parentElement.clientWidth;
+  // Drift at reading speed, and hurry when a backlog builds up.
+  const backlog = Math.max(0, tickerX + track.scrollWidth - lane);
+  tickerX -= (60 + backlog / 8) * dt / 1000;
+  const first = track.firstElementChild;
+  if (tickerX + first.offsetWidth < 0) {
+    tickerX += first.offsetWidth + TICKER_GAP;
+    first.remove();
+    if (!track.children.length) $("ticker-idle").hidden = false;
+  }
+  track.style.transform = `translateX(${tickerX}px)`;
+}
+
+// ----------------------------------------------------------------- timers
+const timers = [...document.querySelectorAll(".timer")].map(node => ({
+  node, key: node.dataset.key, fill: node.querySelector(".ring-fill"), text: node.querySelector("b"), at: null, asked: false,
+}));
+
+function untilText(ms) {
+  const s = Math.ceil(ms / 1000);
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function updateTimers() {
+  const schedule = overview?.schedule;
+  if (!schedule) return;
+  for (const timer of timers) {
+    const { at, every } = schedule[timer.key] ?? {};
+    if (at !== timer.at) { timer.at = at; timer.asked = false; }
+    if (at == null) {
+      timer.text.textContent = "–";
+      timer.fill.style.strokeDashoffset = "1";
+      timer.node.classList.remove("due");
+      continue;
+    }
+    // The ring drains toward the event: full just after one, empty at the next.
+    const left = at * 1000 - Date.now();
+    timer.fill.style.strokeDashoffset = String(1 - Math.max(0, Math.min(1, left / (every * 1000))));
+    const label = left <= 0 ? "Now" : untilText(left);
+    if (timer.text.textContent !== label) timer.text.textContent = label;
+    timer.node.classList.toggle("due", left <= 0);
+    // Once it has happened, ask the bot what comes next.
+    if (left < -3000 && !timer.asked) { timer.asked = true; poll(); }
+  }
+}
+
+// -------------------------------------------------------------- the loop
+let lastFrame = null;
+function frame(now) {
+  // Real elapsed time, so the ticker keeps its speed when the browser throttles frames.
+  const dt = lastFrame === null ? 0 : Math.min(1000, now - lastFrame);
+  lastFrame = now;
+  drawRadar(now);
+  drawPulse(now);
+  moveTicker(dt);
+  updateTimers();
+  requestAnimationFrame(frame);
+}
+
+readColours();
+if (reducedMotion) setInterval(updateTimers, 1000);
+else requestAnimationFrame(frame);
+
+// The boot: panels power on in reading order, once, on load.
+if (!reducedMotion) {
+  document.querySelectorAll(".bar, .frame").forEach((node, i) => node.style.setProperty("--i", i));
+  document.body.classList.add("booting");
+  setTimeout(() => document.body.classList.remove("booting"), 2600);
+}
 
 document.fonts.ready.then(() => chart && renderChart());
 poll();

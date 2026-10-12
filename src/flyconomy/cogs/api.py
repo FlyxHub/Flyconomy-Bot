@@ -39,6 +39,10 @@ PAGE_RESOURCE: Final = "data/dashboard.html"
 #: The slice of members whose share of the money the dashboard tracks.
 TOP_FRACTION: Final = 0.10
 
+#: The most members the overview lists by name. Enough for every member of a
+#: community server; the cap only stops a huge one bloating a five-second poll.
+MEMBERS_SHOWN: Final = 300
+
 #: The longest history one request may ask for. A season of hourly snapshots
 #: across a server's worth of members is far more than a chart can show.
 _MAX_HISTORY_HOURS: Final = 24 * 31
@@ -120,6 +124,17 @@ class Api(BaseCog, name="Api"):
         app.router.add_post("/api/market", self.market)
         return app
 
+    def _next_run(self, cog_name: str, loop_name: str) -> float | None:
+        """When one of the bot's scheduled jobs next runs, as Unix time.
+
+        Read from the job's own loop rather than worked out again from the
+        settings, so a countdown can only ever show the time the bot will
+        actually act. ``None`` when the job is not running.
+        """
+        loop = getattr(self.bot.get_cog(cog_name), loop_name, None)
+        when = getattr(loop, "next_iteration", None)
+        return when.timestamp() if when is not None else None
+
     def _name(self, user_id: int) -> str:
         """A member's display name, or their id when the bot cannot see them."""
         user = self.bot.get_user(user_id)
@@ -140,6 +155,7 @@ class Api(BaseCog, name="Api"):
         # rest of this response so the page never disagrees with itself.
         supply = await self.db.current_supply(int(time.time()), market.price)
         worths = await self.db.net_worths(market.price)
+        members = await self.db.member_balances(market.price, MEMBERS_SHOWN)
         return web.json_response(
             {
                 "market": {
@@ -162,6 +178,19 @@ class Api(BaseCog, name="Api"):
                     "top_share": round(top_share(worths), 2),
                     "top_count": top_count(len(worths)),
                     "accounts": len(worths),
+                },
+                # [id, name, cash, coins]: cash and coins apart, so the page
+                # can tell members acting from the price moving under them.
+                "members": [
+                    [str(m.user_id), self._name(m.user_id), m.cash, m.coins] for m in members
+                ],
+                "schedule": {
+                    "tick": {
+                        "at": self._next_run("Market", "tick_loop"),
+                        "every": economy.FLX_TICK_MINUTES * 60,
+                    },
+                    "interest": {"at": self._next_run("Economy", "interest_loop"), "every": 86_400},
+                    "lottery": {"at": self._next_run("Lottery", "draw_loop"), "every": 86_400},
                 },
                 "circulating": await self.db.total_crypto(),
                 "leaderboards": {

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
 import time
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 
 import pytest
 from aiohttp import test_utils, web
@@ -23,9 +25,13 @@ class FakeApiBot:
     def __init__(self, db: Database, settings: Settings) -> None:
         self.db = db
         self.settings = settings
+        self.cogs: dict[str, object] = {}
 
     def get_user(self, _user_id: int) -> None:
         return None
+
+    def get_cog(self, name: str) -> object | None:
+        return self.cogs.get(name)
 
 
 @pytest.fixture
@@ -34,10 +40,15 @@ def settings() -> Settings:
 
 
 @pytest.fixture
+def bot(db: Database, settings: Settings) -> FakeApiBot:
+    return FakeApiBot(db, settings)
+
+
+@pytest.fixture
 async def client(
-    db: Database, settings: Settings
+    bot: FakeApiBot,
 ) -> AsyncIterator[test_utils.TestClient[web.Request, web.Application]]:
-    cog = Api(FakeApiBot(db, settings))  # type: ignore[arg-type]
+    cog = Api(bot)  # type: ignore[arg-type]
     cog.rng.seed(1)
     async with test_utils.TestClient(test_utils.TestServer(cog.make_app())) as client:
         yield client
@@ -163,6 +174,31 @@ class TestApi:
         assert now["top_share"] == pytest.approx(
             100 * richest / (alice.net_worth + bob.net_worth), abs=0.01
         )
+
+    async def test_the_overview_lists_every_member_with_cash_and_coins_apart(self, client, db):
+        await db.ensure_account(ALICE)
+        await db.ensure_account(BOB)
+        await db.add_crypto(BOB, 2)
+
+        body = await (await client.get("/api/overview")).json()
+
+        alice, bob = await db.get_account(ALICE), await db.get_account(BOB)
+        # Richest first, at the live price: Bob's coins put him on top.
+        assert body["members"] == [
+            [str(BOB), str(BOB), bob.wallet + bob.bank, 2],
+            [str(ALICE), str(ALICE), alice.wallet + alice.bank, 0],
+        ]
+
+    async def test_the_schedule_is_read_from_the_bots_own_loops(self, client, bot):
+        when = datetime.datetime(2026, 10, 12, 8, 0, tzinfo=datetime.UTC)
+        bot.cogs["Economy"] = SimpleNamespace(interest_loop=SimpleNamespace(next_iteration=when))
+
+        schedule = (await (await client.get("/api/overview")).json())["schedule"]
+
+        assert schedule["interest"] == {"at": when.timestamp(), "every": 86_400}
+        # A job that is not running has no time to count down to.
+        assert schedule["lottery"]["at"] is None
+        assert schedule["tick"]["every"] == economy.FLX_TICK_MINUTES * 60
 
     async def test_an_empty_economy_has_no_concentration(self, client):
         body = await (await client.get("/api/overview")).json()
