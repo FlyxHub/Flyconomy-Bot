@@ -966,24 +966,27 @@ async function advanceChart(previous) {
 
   const c = chart;
   const data = c.data.datasets[0].data;
-  const axis = c.options.scales.x;
+  // Chart.js rebuilds its options on every update, so the x axis is looked
+  // up afresh for each write: an options object held across an update is a
+  // discarded copy, and writing to one left the window stuck while new
+  // points ran off its right edge. For the same reason the window it starts
+  // from is the data's, never read back from the options.
+  const setWindow = (min, max) => Object.assign(c.options.scales.x, { min, max });
   for (const [x, y] of added.slice(0, -1)) data.push({ x, y });
   const from = data.at(-1);
   const [toX, toY] = added.at(-1);
   const head = { x: from.x, y: from.y };
   data.push(head);
-  const [minFrom, maxFrom, minTo] = [axis.min, axis.max, fresh[0][0]];
+  const [minFrom, maxFrom, minTo] = [old[0][0], lastX, fresh[0][0]];
   await tween("trace", 1100, e => {
     head.x = from.x + (toX - from.x) * e;
     head.y = from.y + (toY - from.y) * e;
-    axis.min = minFrom + (minTo - minFrom) * e;
-    axis.max = maxFrom + (toX - maxFrom) * e;
+    setWindow(minFrom + (minTo - minFrom) * e, maxFrom + (toX - maxFrom) * e);
     c.update("none");
   });
   if (c !== chart) return; // redrawn for another range while this ran
   c.data.datasets[0].data = fresh.map(([x, y]) => ({ x, y }));
-  axis.min = minTo;
-  axis.max = toX;
+  setWindow(minTo, toX);
   c.update("none");
 }
 
