@@ -78,7 +78,8 @@
       "gauge trace"
       "conc supply"
       "pulse swarm"
-      "left ledger";
+      "left ledger"
+      "games games";
     gap: 22px 28px;
   }
 
@@ -323,6 +324,24 @@
   .ledger:not([data-board="net_worth"]) .worth-only { display: none; }
   .empty td { color: var(--text-2); padding: 22px 0; }
 
+  /* ------------------------------------------------------------ games */
+  /* Every live mines board, mines face up. It folds away with the override
+     when presenting, since anyone who sees it plays a solved board. */
+  .games-wrap { grid-area: games; margin-bottom: 0; }
+  .games p { margin: 0; font-size: 14px; color: var(--text-2); }
+  .boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 22px; }
+  .board-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px; font-weight: 500; }
+  .board-head b { font: 600 15px var(--display); color: var(--amber); }
+  .board .sub { margin-bottom: 10px; font-size: 13px; color: var(--text-2); }
+  .tiles { display: grid; gap: 4px; }
+  .tile {
+    display: grid; place-items: center; aspect-ratio: 1;
+    font: 600 15px var(--display);
+    border: 1px solid rgba(77, 255, 195, .25); color: rgba(77, 255, 195, .45);
+  }
+  .tile.pressed { background: rgba(77, 255, 195, .18); border-color: var(--bull); color: var(--bull); }
+  .tile.mine { background: rgba(255, 84, 104, .16); border-color: var(--bear); color: var(--bear); }
+
   /* --------------------------------------------------------- live dot */
   /* The price trace's newest point, marked as the live edge it is. */
   .live-dot {
@@ -411,7 +430,7 @@
   }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "swarm" "pulse" "left" "ledger"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "swarm" "pulse" "left" "ledger" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -557,6 +576,14 @@
       <tbody id="ledger-rows"></tbody>
     </table>
   </section>
+
+  <div class="collapsible games-wrap"><div>
+  <section class="games frame" aria-labelledby="games-title">
+    <h2 class="frame-title" id="games-title">Live mines</h2>
+    <p id="games-empty">No rounds in play.</p>
+    <div class="boards" id="boards"></div>
+  </section>
+  </div></div>
 </div>
 
 <footer class="ticker" aria-label="Recent activity">
@@ -1130,6 +1157,45 @@ function renderConcentration() {
 
 function renderEconomy() { renderSupply(); renderConcentration(); }
 
+// -------------------------------------------------------------- live mines
+// Mines are marked by glyph as well as colour; a pressed tile shows the
+// order it was turned over in, so the path the player took reads at a glance.
+function renderGames() {
+  const { columns, tiles, games } = overview.mines;
+  $("games-empty").hidden = games.length > 0;
+  $("boards").replaceChildren(...games.map(game => {
+    const board = document.createElement("div");
+    board.className = "board";
+    const head = document.createElement("div");
+    head.className = "board-head";
+    const name = document.createElement("span");
+    name.textContent = game.player;
+    const at = document.createElement("b");
+    at.textContent = game.revealed.length ? game.multiplier.toFixed(2) + "x" : "–";
+    head.append(name, at);
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    const count = game.mines.length;
+    sub.textContent = `${money(game.stake)} on ${count} mine${count === 1 ? "" : "s"} · next ${game.next_multiplier.toFixed(2)}x`;
+    const grid = document.createElement("div");
+    grid.className = "tiles";
+    grid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+    const mines = new Set(game.mines);
+    for (let tile = 0; tile < tiles; tile++) {
+      const node = document.createElement("div");
+      const order = game.revealed.indexOf(tile);
+      node.className = "tile" + (mines.has(tile) ? " mine" : order >= 0 ? " pressed" : "");
+      node.textContent = mines.has(tile) ? "✕" : order >= 0 ? order + 1 : "·";
+      node.title = mines.has(tile) ? "Mine" : order >= 0 ? `Turned over ${order + 1}${["st", "nd", "rd"][order] ?? "th"}` : "Safe";
+      grid.append(node);
+    }
+    grid.setAttribute("role", "img");
+    grid.setAttribute("aria-label", `Mines at tiles ${game.mines.map(t => t + 1).join(", ")}; ${game.revealed.length} turned over`);
+    board.append(head, sub, grid);
+    return board;
+  }));
+}
+
 // ----------------------------------------------------------------- refresh
 //
 // The overview is a handful of small reads, so it is polled every few
@@ -1167,7 +1233,7 @@ async function poll() {
     if (stale) await loadHistory();
     // Everything that ends on a live value redraws every poll; only the
     // price trace waits for a tick, because only a tick can move it.
-    renderGauge(); renderOverride(); renderLedger(); renderEconomy(); observe();
+    renderGauge(); renderOverride(); renderLedger(); renderEconomy(); renderGames(); observe();
     if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
   } catch (error) {

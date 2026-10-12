@@ -112,7 +112,9 @@ comparison of each poll's `members` with the last, which is why that list carrie
 apart rather than a net worth: Flyxcoin's price moves every member's net worth at once, and
 counting that as activity would make every tick look like the whole server played. The
 countdowns read each scheduled job's own `tasks.Loop.next_iteration`, not the settings, so they
-can only show the time the bot will actually act.
+can only show the time the bot will actually act. The live mines panel serves every board in
+play with its mines face up, read from `Gambling.live_mines` (a `WeakSet`, so a settled board needs
+no cleanup); it is the answer to a live round, so it folds away with the override when presenting.
 
 ## The member guide
 

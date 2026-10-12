@@ -21,7 +21,7 @@ from typing import Final
 
 from aiohttp import web
 
-from flyconomy import economy
+from flyconomy import economy, mines
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.base import BaseCog
@@ -140,6 +140,30 @@ class Api(BaseCog, name="Api"):
         user = self.bot.get_user(user_id)
         return user.display_name if user is not None else str(user_id)
 
+    def _live_mines(self) -> list[dict[str, object]]:
+        """Every mines board in play, mines and all, oldest first.
+
+        This is the whole answer to the round, which is why it is only ever
+        served here: anyone who sees it plays a solved board.
+        """
+        live = getattr(self.bot.get_cog("Casino"), "live_mines", ())
+        # A board's message id is a snowflake, so it orders boards by start.
+        boards = sorted(
+            (v.message.id, v) for v in live if v.message is not None and not v.is_finished()
+        )
+        return [
+            {
+                "id": str(message_id),
+                "player": self._name(v.player.id),
+                "stake": v.game.stake,
+                "mines": sorted(v.game.mine_tiles),
+                "revealed": v.game.revealed,
+                "multiplier": v.game.multiplier,
+                "next_multiplier": v.game.next_multiplier,
+            }
+            for message_id, v in boards
+        ]
+
     def _board(self, entries: list[LeaderboardEntry]) -> list[dict[str, object]]:
         # Ids as strings: snowflakes are past JavaScript's safe integers.
         return [
@@ -191,6 +215,11 @@ class Api(BaseCog, name="Api"):
                     },
                     "interest": {"at": self._next_run("Economy", "interest_loop"), "every": 86_400},
                     "lottery": {"at": self._next_run("Lottery", "draw_loop"), "every": 86_400},
+                },
+                "mines": {
+                    "columns": mines.COLUMNS,
+                    "tiles": mines.TILES,
+                    "games": self._live_mines(),
                 },
                 "circulating": await self.db.total_crypto(),
                 "leaderboards": {

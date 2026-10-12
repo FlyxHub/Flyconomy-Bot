@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from collections.abc import Callable
 
 import discord
@@ -54,6 +55,9 @@ class Gambling(BaseCog, name="Casino"):
         # drawing from the same pot.
         self._live_jackpot: JackpotView | None = None
         self._jackpot_lock = asyncio.Lock()
+        # Every mines board in play, for the owner's dashboard. Weak, so a
+        # settled board drops out on its own once discord.py lets it go.
+        self.live_mines: weakref.WeakSet[MinesView] = weakref.WeakSet()
 
     async def cog_load(self) -> None:
         """Hand back every wager the last shutdown left in play.
@@ -364,6 +368,7 @@ class Gambling(BaseCog, name="Casino"):
             creator_tax_user_id=self.settings.creator_tax_user_id,
         )
         view.message = await self._post(ctx, view, bet)
+        self.live_mines.add(view)
 
     @commands.hybrid_command(name="jackpot", aliases=["jp"])  # type: ignore[arg-type]
     @app_commands.describe(ante="Dollars to ante into the pot.")

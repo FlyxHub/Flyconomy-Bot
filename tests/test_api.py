@@ -10,11 +10,13 @@ from types import SimpleNamespace
 import pytest
 from aiohttp import test_utils, web
 
-from flyconomy import economy
+from flyconomy import economy, mines
 from flyconomy.cogs.api import Api, top_share
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB
+from tests.test_cog_behavior import FakeUser
+from tests.test_mines import make_view
 
 HOUR = 3600
 
@@ -199,6 +201,32 @@ class TestApi:
         # A job that is not running has no time to count down to.
         assert schedule["lottery"]["at"] is None
         assert schedule["tick"]["every"] == economy.FLX_TICK_MINUTES * 60
+
+    async def test_live_mines_boards_are_served_face_up_until_settled(self, client, bot, db):
+        game = mines.Game(stake=500, mine_tiles=frozenset({3, 9}))
+        live = make_view(db, game, FakeUser(ALICE))
+        live.message = SimpleNamespace(id=2)  # type: ignore[assignment]
+        await live.apply_reveal(0)
+        done = make_view(db, mines.Game(stake=1, mine_tiles=frozenset({0})), FakeUser(BOB))
+        done.message = SimpleNamespace(id=1)  # type: ignore[assignment]
+        await done.apply_reveal(0)
+        bot.cogs["Casino"] = SimpleNamespace(live_mines={live, done})
+
+        body = (await (await client.get("/api/overview")).json())["mines"]
+
+        assert (body["columns"], body["tiles"]) == (mines.COLUMNS, mines.TILES)
+        # The busted round is over, so only the live one is shown.
+        assert body["games"] == [
+            {
+                "id": "2",
+                "player": str(ALICE),
+                "stake": 500,
+                "mines": [3, 9],
+                "revealed": [0],
+                "multiplier": game.multiplier,
+                "next_multiplier": game.next_multiplier,
+            }
+        ]
 
     async def test_an_empty_economy_has_no_concentration(self, client):
         body = await (await client.get("/api/overview")).json()
