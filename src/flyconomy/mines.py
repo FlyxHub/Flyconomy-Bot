@@ -124,9 +124,11 @@ def multiplier_for(mine_count: int, revealed: int) -> float:
 
     Returns:
         The multiplier, or ``0.0`` when nothing has been turned over yet --
-        a round with no presses in it has nothing to cash out.
+        a round with no presses in it has nothing to cash out -- or when
+        ``revealed`` is past the last safe tile.
     """
-    if revealed <= 0:
+    # Past the last safe tile nothing survives, so there is nothing to divide by.
+    if not 0 < revealed <= safe_tiles(mine_count):
         return 0.0
     fair = (1 - HOUSE_EDGE) / survival_probability(mine_count, revealed)
     return min(fair, MAX_MULTIPLIER)

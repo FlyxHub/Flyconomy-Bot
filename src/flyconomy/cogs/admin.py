@@ -258,11 +258,19 @@ async def steer_market(db: Database, wanted: economy.MarketRegime, rng: random.R
     Returns:
         A one-line report for the owner.
     """
-    state = await db.get_market()
+
+    def step(market: economy.MarketState) -> economy.MarketState:
+        if wanted == "calm":
+            return economy.end_run(market)
+        if market.regime != "calm":
+            return market
+        return economy.start_run(market, wanted, rng)
+
+    # One transaction, so a tick landing mid-steer cannot undo it or be undone.
+    state, started = await db.update_market(step)
     if wanted == "calm":
         if state.regime == "calm":
             return f"No run is going. Flyxcoin is at {embeds.money(state.price)}."
-        await db.set_market(economy.end_run(state))
         ticks = economy.flx_snapback_ticks(state.price)
         if ticks:
             recovery = (
@@ -279,8 +287,6 @@ async def steer_market(db: Database, wanted: economy.MarketRegime, rng: random.R
         # certainly did not know one was running.
         return f"A {state.regime} run is already going, {embeds.ticks_left(state.ticks_left)}."
 
-    started = economy.start_run(state, wanted, rng)
-    await db.set_market(started)
     return (
         f"Armed a {wanted} run of up to {started.ticks_left} ticks at "
         f"{embeds.money(started.price)}. It starts on the next tick."

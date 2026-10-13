@@ -268,6 +268,10 @@ class Api(BaseCog, name="Api"):
 
     async def market(self, request: web.Request) -> web.Response:
         """Arm a run or call one off, exactly as ``$market`` would."""
+        # A JSON content type is what forces a CORS preflight, which this app
+        # never answers, so any other site the owner has open cannot post here.
+        if request.content_type != "application/json":
+            raise web.HTTPUnsupportedMediaType(text="send the direction as application/json")
         try:
             body = await request.json()
             wanted = economy.parse_market_target(str(body["direction"]))

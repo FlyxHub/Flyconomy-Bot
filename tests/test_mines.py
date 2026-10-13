@@ -64,6 +64,11 @@ class TestMultiplierFor:
         assert mines.multiplier_for(3, 0) == 0.0
 
     @pytest.mark.parametrize("mine_count", ALL_MINE_COUNTS)
+    def test_a_cleared_board_has_no_next_tile(self, mine_count):
+        # The dashboard reads next_multiplier on a cleared board before it settles.
+        assert mines.multiplier_for(mine_count, mines.safe_tiles(mine_count) + 1) == 0.0
+
+    @pytest.mark.parametrize("mine_count", ALL_MINE_COUNTS)
     def test_the_multiplier_rises_with_every_safe_press(self, mine_count):
         ladder = [
             mines.multiplier_for(mine_count, k) for k in range(1, mines.safe_tiles(mine_count) + 1)

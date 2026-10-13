@@ -15,6 +15,7 @@ from flyconomy import economy, embeds
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.database import DailyPayout, ResetOutcome
+from flyconomy.errors import InsufficientFundsError
 
 log = logging.getLogger(__name__)
 
@@ -281,7 +282,13 @@ class Economy(BaseCog, name="Economy"):
             return
 
         amount = self.rng.randint(1, victim.wallet)
-        await self.db.steal(ctx.author.id, member.id, amount)
+        try:
+            await self.db.steal(ctx.author.id, member.id, amount)
+        except InsufficientFundsError:
+            # Their wallet shrank since it was read. The shortfall is theirs,
+            # not the thief's, so it must not reach the shared translation.
+            await ctx.send("They moved their money before you got to it. Try again in an hour.")
+            return
         await ctx.send(f"You robbed {embeds.money(amount)} from {member.mention}")
 
     @commands.hybrid_command(name="secure", aliases=["security"])  # type: ignore[arg-type]

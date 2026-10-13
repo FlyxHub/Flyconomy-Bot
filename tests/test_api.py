@@ -281,3 +281,12 @@ class TestApi:
 
         assert response.status == 400
         assert (await db.get_market()).regime == "calm"
+
+    async def test_a_cross_site_form_post_is_refused(self, client, db):
+        # text/plain is a "simple" request another site can send without a preflight.
+        response = await client.post(
+            "/api/market", data='{"direction": "bull"}', headers={"Content-Type": "text/plain"}
+        )
+
+        assert response.status == 415
+        assert (await db.get_market()).regime == "calm"

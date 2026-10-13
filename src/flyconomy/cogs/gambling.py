@@ -175,7 +175,9 @@ class Gambling(BaseCog, name="Casino"):
 
         if choice == flip:
             await self._settle(ctx, bet, economy.COINFLIP_RETURN)
-            await ctx.send(f"It's **{flip}**. You win **{embeds.money(bet * 2)}**")
+            await ctx.send(
+                f"It's **{flip}**. You win **{embeds.money(bet * economy.COINFLIP_RETURN)}**"
+            )
         else:
             await self._settle(ctx, bet, 0)
             await ctx.send(f"It's **{flip}**, you lose **{embeds.money(bet)}**")
@@ -233,7 +235,9 @@ class Gambling(BaseCog, name="Casino"):
 
         if guess == roll:
             await self._settle(ctx, bet, economy.DICE_RETURN)
-            await ctx.send(f"You rolled a **{roll}**. You win **{embeds.money(bet * 6)}**")
+            await ctx.send(
+                f"You rolled a **{roll}**. You win **{embeds.money(bet * economy.DICE_RETURN)}**"
+            )
         else:
             await self._settle(ctx, bet, 0)
             await ctx.send(f"You rolled a **{roll}**. You lose **{embeds.money(bet)}**")
@@ -438,7 +442,12 @@ class Gambling(BaseCog, name="Casino"):
             creator_tax_user_id=self.settings.creator_tax_user_id,
             limiter=self.limiter,
         )
-        view.message = await ctx.send(embed=view.embed(), view=view)
+        try:
+            view.message = await ctx.send(embed=view.embed(), view=view)
+        except discord.HTTPException:
+            # No round went up to settle the ante, so hand it straight back.
+            await self.db.refund_jackpot()
+            raise
         view.start_ticking()
         self._live_jackpot = view
 

@@ -25,6 +25,39 @@ from flyconomy.ratelimit import SlidingWindowLimiter
 log = logging.getLogger(__name__)
 
 
+async def split_house_take(
+    db: Database,
+    house_take: int,
+    *,
+    rake: float,
+    creator_tax_rate: float,
+    creator_tax_user_id: int | None,
+) -> None:
+    """Split the house's take between the lottery pot and the creator tax.
+
+    The one copy of this split, shared by every view that settles a wager and
+    by ``BaseCog.rake``. The remainder after both shares is destroyed; the
+    creator tax is carved out of that destroyed portion rather than added on
+    top, so the total taken from a loss does not change.
+
+    Args:
+        db: Open database.
+        house_take: What the house won, negative when the player won. A player
+            win contributes to neither share, and neither is ever clawed back.
+        rake: Share of the take sent to the lottery pot.
+        creator_tax_rate: Share of the take credited to the creator's bank.
+        creator_tax_user_id: The creator, or ``None`` to disable the tax.
+    """
+    share = int(house_take * rake)
+    if share > 0:
+        await db.add_to_pot(share)
+
+    if creator_tax_user_id is not None:
+        cut = int(house_take * creator_tax_rate)
+        if cut > 0:
+            await db.add_bank(creator_tax_user_id, cut)
+
+
 class _PlayerView(discord.ui.View):
     """A view only its own player may press, which every one-player game is."""
 
@@ -138,25 +171,28 @@ class BlackjackView(_PlayerView):
         if amount:
             await self.db.add_wallet(self.player.id, amount)
 
-        house_take = self.game.stake - amount
-        share = int(house_take * self.rake)
-        if share > 0:
-            await self.db.add_to_pot(share)
-
-        if self.creator_tax_user_id is not None:
-            cut = int(house_take * self.creator_tax_rate)
-            if cut > 0:
-                await self.db.add_bank(self.creator_tax_user_id, cut)
+        await split_house_take(
+            self.db,
+            self.game.stake - amount,
+            rake=self.rake,
+            creator_tax_rate=self.creator_tax_rate,
+            creator_tax_user_id=self.creator_tax_user_id,
+        )
         self.stop()
 
     async def apply_hit(self) -> None:
         """Draw one card, settling if that ends the hand."""
+        # A second press already in flight when the first one ended the hand.
+        if self.game.finished:
+            return
         self.game.hit()
         await self.settle()
         self._refresh_buttons()
 
     async def apply_stand(self) -> None:
         """Stand, play the dealer out, and settle."""
+        if self.game.finished:
+            return
         self.game.stand()
         await self.settle()
         self._refresh_buttons()
@@ -346,15 +382,13 @@ class CrashView(_PlayerView):
         if amount:
             await self.db.add_wallet(self.player.id, amount)
 
-        house_take = self.game.stake - amount
-        share = int(house_take * self.rake)
-        if share > 0:
-            await self.db.add_to_pot(share)
-
-        if self.creator_tax_user_id is not None:
-            cut = int(house_take * self.creator_tax_rate)
-            if cut > 0:
-                await self.db.add_bank(self.creator_tax_user_id, cut)
+        await split_house_take(
+            self.db,
+            self.game.stake - amount,
+            rake=self.rake,
+            creator_tax_rate=self.creator_tax_rate,
+            creator_tax_user_id=self.creator_tax_user_id,
+        )
         self.stop()
 
     async def apply_cashout(self) -> str | None:
@@ -558,15 +592,13 @@ class MinesView(_PlayerView):
         if amount:
             await self.db.add_wallet(self.player.id, amount)
 
-        house_take = self.game.stake - amount
-        share = int(house_take * self.rake)
-        if share > 0:
-            await self.db.add_to_pot(share)
-
-        if self.creator_tax_user_id is not None:
-            cut = int(house_take * self.creator_tax_rate)
-            if cut > 0:
-                await self.db.add_bank(self.creator_tax_user_id, cut)
+        await split_house_take(
+            self.db,
+            self.game.stake - amount,
+            rake=self.rake,
+            creator_tax_rate=self.creator_tax_rate,
+            creator_tax_user_id=self.creator_tax_user_id,
+        )
         self.stop()
 
     async def apply_reveal(self, tile: int) -> str | None:
@@ -853,13 +885,13 @@ class JackpotView(discord.ui.View):
                 self.winner_id = jackpot.draw_winner(self.state.entries, self.rng)
                 self.paid = await self.db.award_jackpot(self.winner_id, cut=cut)
 
-                share = int(cut * self.rake)
-                if share > 0:
-                    await self.db.add_to_pot(share)
-                if self.creator_tax_user_id is not None:
-                    tax = int(cut * self.creator_tax_rate)
-                    if tax > 0:
-                        await self.db.add_bank(self.creator_tax_user_id, tax)
+                await split_house_take(
+                    self.db,
+                    cut,
+                    rake=self.rake,
+                    creator_tax_rate=self.creator_tax_rate,
+                    creator_tax_user_id=self.creator_tax_user_id,
+                )
 
         self._refresh_buttons()
         self.stop()
@@ -1137,13 +1169,13 @@ class MatchView(discord.ui.View):
                 self.winner = None
                 self.forfeited = False
             else:
-                share = int(cut * self.rake)
-                if share > 0:
-                    await self.db.add_to_pot(share)
-                if self.creator_tax_user_id is not None:
-                    tax = int(cut * self.creator_tax_rate)
-                    if tax > 0:
-                        await self.db.add_bank(self.creator_tax_user_id, tax)
+                await split_house_take(
+                    self.db,
+                    cut,
+                    rake=self.rake,
+                    creator_tax_rate=self.creator_tax_rate,
+                    creator_tax_user_id=self.creator_tax_user_id,
+                )
 
         self._refresh_buttons()
         self.stop()

@@ -42,9 +42,9 @@ class Market(BaseCog, name="Market"):
     async def tick_loop(self) -> None:
         """Advance the market by one tick and update the bot's status."""
         try:
-            previous = await self.db.get_market()
-            state = economy.next_flx_market(previous, self.rng)
-            await self.db.set_market(state)
+            previous, state = await self.db.update_market(
+                lambda market: economy.next_flx_market(market, self.rng)
+            )
             log.info(
                 "Flyxcoin price moved from %d to %d (%s)",
                 previous.price,

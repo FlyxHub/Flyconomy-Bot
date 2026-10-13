@@ -13,7 +13,9 @@ import random
 import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 
+import discord
 import pytest
 
 from flyconomy import jackpot
@@ -536,6 +538,21 @@ class TestCommand:
             assert (await db.jackpot_state()).pot == ANTE
         finally:
             cog._live_jackpot.cancel()
+
+    async def test_a_round_that_never_posts_hands_the_ante_back(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 5_000)
+
+        async def fail(*_args, **_kwargs):
+            raise discord.HTTPException(SimpleNamespace(status=500, reason="down"), "down")
+
+        ctx.send = fail
+        with pytest.raises(discord.HTTPException):
+            await cog.jackpot_command.callback(cog, ctx, ANTE)
+
+        assert (await db.get_account(ALICE)).wallet == 5_000
+        assert (await db.jackpot_state()).entries == ()
+        assert cog._live_jackpot is None
 
     async def test_a_second_command_joins_the_open_round(self, db, settings, ctx):
         cog = Gambling(FakeBot(db, settings))

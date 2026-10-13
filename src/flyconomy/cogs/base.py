@@ -11,6 +11,7 @@ import discord
 from discord.ext import commands
 
 from flyconomy.errors import RateLimitedError
+from flyconomy.views import split_house_take
 
 log = logging.getLogger(__name__)
 
@@ -121,15 +122,13 @@ class BaseCog(commands.Cog):
                 and the tax below both ignore non-positive amounts, and neither
                 is ever clawed back out.
         """
-        share = int(house_take * self.settings.lottery_rake)
-        if share > 0:
-            await self.db.add_to_pot(share)
-
-        creator_id = self.settings.creator_tax_user_id
-        if creator_id is not None:
-            cut = int(house_take * self.settings.creator_tax_rate)
-            if cut > 0:
-                await self.db.add_bank(creator_id, cut)
+        await split_house_take(
+            self.db,
+            house_take,
+            rake=self.settings.lottery_rake,
+            creator_tax_rate=self.settings.creator_tax_rate,
+            creator_tax_user_id=self.settings.creator_tax_user_id,
+        )
 
     async def cog_check(self, ctx: commands.Context[FlyconomyBot]) -> bool:  # type: ignore[override]
         """Spend one action from the member's budget.

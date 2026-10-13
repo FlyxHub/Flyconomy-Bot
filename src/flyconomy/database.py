@@ -18,7 +18,7 @@ import asyncio
 import contextlib
 import logging
 import sqlite3
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -498,7 +498,12 @@ class Database:
         what keeps a price from being advanced under a regime it did not come
         from.
         """
-        async with self._reader.execute(
+        return await self._read_market(self._reader)
+
+    @staticmethod
+    async def _read_market(db: aiosqlite.Connection) -> economy.MarketState:
+        """Read the whole market state on the given connection."""
+        async with db.execute(
             "SELECT price, regime, regime_ticks FROM market WHERE id = 1"
         ) as cursor:
             row = await cursor.fetchone()
@@ -509,6 +514,37 @@ class Database:
             regime=row["regime"],
             ticks_left=int(row["regime_ticks"]),
         )
+
+    async def update_market(
+        self, step: Callable[[economy.MarketState], economy.MarketState]
+    ) -> tuple[economy.MarketState, economy.MarketState]:
+        """Replace the market with ``step`` of it, reading and writing in one transaction.
+
+        The scheduled tick and the owner's steering both go through here.
+        Each used to read, await, then write, so one landing between the
+        other's read and write was overwritten: a run armed mid-tick vanished,
+        or a tick's move was put back.
+
+        Args:
+            step: Takes the market as stored and returns what to store instead.
+
+        Returns:
+            The market before and after.
+
+        Raises:
+            ValueError: If ``step`` returns a price that is not positive.
+        """
+        async with self._transaction() as db:
+            before = await self._read_market(db)
+            after = step(before)
+            if after.price <= 0:
+                msg = "price must be positive"
+                raise ValueError(msg)
+            await db.execute(
+                "UPDATE market SET price = ?, regime = ?, regime_ticks = ? WHERE id = 1",
+                (after.price, after.regime, after.ticks_left),
+            )
+        return before, after
 
     async def set_market(self, state: economy.MarketState) -> None:
         """Store the whole market state. Used by the scheduled market tick.

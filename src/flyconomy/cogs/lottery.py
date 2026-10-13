@@ -4,10 +4,11 @@ Two rules keep it from becoming an exploit, and both are load bearing:
 
 - **Every entrant has exactly one entry.** Odds cannot be bought, so no amount
   of play buys a larger claim on the pot.
-- **The pot is fed by the house's net take, not by gross losses.** Gross losses
-  on a fair game are unbounded and nearly free, so anything paid out in
-  proportion to them can be farmed by churning coinflip. The house's net take
-  from a fair game is zero, so churning it contributes nothing.
+- **The pot only ever grows.** Every wager hands its signed take to the rake,
+  but a player win contributes nothing and is never clawed back, so the pot is
+  fed by gross losses. That is a known, accepted farming risk -- churning a
+  fair game rakes in its losses and ignores its wins -- kept because a win
+  should never shrink the jackpot. See the Anti-abuse section of ``CLAUDE.md``.
 
 The pot never creates money. Entry fees are members' own money held in escrow,
 and the rake is a share of what the house already won.
