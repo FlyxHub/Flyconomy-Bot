@@ -8,23 +8,31 @@ from __future__ import annotations
 
 import itertools
 import random
+import time
 from collections.abc import AsyncIterator
 from fractions import Fraction
 from pathlib import Path
 
 import pytest
 
-from flyconomy import crash, economy, jackpot, mines, tictactoe
+from flyconomy import crash, economy, embeds, jackpot, mines, tictactoe
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
 from flyconomy.cogs.mining import Mining
 from flyconomy.config import Settings
 from flyconomy.database import Database
-from flyconomy.errors import BetTooLargeError, DailyBuyLimitError, RateLimitedError
+from flyconomy.errors import (
+    BetTooLargeError,
+    DailyBuyLimitError,
+    FlyconomyError,
+    RateLimitedError,
+)
 from flyconomy.ratelimit import SlidingWindowLimiter
+from flyconomy.views import BlackjackView
 from tests.conftest import ALICE, BOB, CAROL
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
+from tests.test_views import live_game
 
 #: Every wagering command, as (name, arguments before the stake).
 WAGER_COMMANDS = [
@@ -262,6 +270,79 @@ class TestResettingIsNotAnIncome:
         last = 5_000.0
         assert economy.chained_resets(3, last, last + economy.RESET_CYCLE_SECONDS - 1) == 3
         assert economy.chained_resets(3, last, last + economy.RESET_CYCLE_SECONDS) == 0
+
+
+class TestAResetForfeitsWhatIsStillInPlay:
+    """A reset replaces the account while one of its games can still be live.
+
+    Staking a wallet into a board, resetting for the seed, and then cashing
+    out used to land the winnings in the fresh account, so the reset cost
+    nothing. A payout now only reaches the account that staked it.
+    """
+
+    async def test_a_payout_after_a_reset_is_forfeited(self, db):
+        await db.add_wallet(ALICE, 500)
+        marker = await db.stake(ALICE, 500)
+        await db.reset_account(ALICE, now=1_000.0)
+
+        assert not await db.pay_winnings(ALICE, 1_000, marker)
+        assert (await db.get_account(ALICE)).wallet == economy.STARTING_WALLET
+
+    async def test_a_stake_placed_after_a_reset_still_pays(self, db):
+        await db.reset_account(ALICE, now=1_000.0)
+        await db.add_wallet(ALICE, 500)
+        marker = await db.stake(ALICE, 500)
+
+        assert await db.pay_winnings(ALICE, 1_000, marker)
+        assert (await db.get_account(ALICE)).wallet == 1_000
+
+    async def test_a_board_cashed_out_after_a_reset_pays_nothing(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 1_000)
+        await cog.mines_command.callback(cog, ctx, 1_000, 1)
+        [view] = ctx.views
+
+        await db.reset_account(ALICE, now=time.time())
+        await view.apply_reveal(next(t for t in range(mines.TILES) if not view.game.is_mine(t)))
+        await view.apply_cashout()
+
+        account = await db.get_account(ALICE)
+        assert (account.wallet, account.bank) == (economy.STARTING_WALLET, economy.reset_seed(0))
+        assert view.voided
+        [result] = [field for field in view.embed().fields if field.name == "Result"]
+        assert result.value == embeds.VOIDED_LINE
+
+    async def test_the_fresh_account_cannot_double_into_the_old_hand(self, db):
+        await db.add_wallet(ALICE, 100)
+        marker = await db.stake(ALICE, 100)
+        view = BlackjackView(
+            db=db,
+            game=live_game(),
+            player=FakeUser(id=ALICE),
+            base_bet=100,
+            timezone="UTC",
+            reset_marker=marker,
+        )
+        await db.reset_account(ALICE, now=time.time())
+        await db.add_wallet(ALICE, 100)
+
+        problem = await view.apply_double()
+
+        assert problem is not None and "reset" in problem
+        assert not view.game.doubled
+        assert (await db.get_account(ALICE)).wallet == 100
+
+    async def test_an_instant_win_after_a_reset_says_it_was_forfeited(self, db, settings, ctx):
+        cog = Gambling(FakeBot(db, settings))
+        await db.add_wallet(ALICE, 100)
+        marker = await cog._stake(ctx, 100)
+        await db.reset_account(ALICE, now=time.time())
+
+        with pytest.raises(FlyconomyError) as raised:
+            await cog._settle(ctx, 100, economy.COINFLIP_RETURN, marker)
+
+        assert describe_command_error(raised.value) == embeds.VOIDED_LINE
+        assert (await db.get_account(ALICE)).wallet == economy.STARTING_WALLET
 
 
 class TestTableLimit:

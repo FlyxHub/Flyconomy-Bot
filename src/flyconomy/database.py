@@ -758,6 +758,70 @@ class Database:
         """
         await self._adjust(user_id, column="wallet", amount=amount, currency="funds")
 
+    async def stake(self, user_id: int, amount: int) -> float | None:
+        """Debit a wager from the wallet, and mark which account paid it.
+
+        A self-reset replaces the account while a game can still be in play,
+        so a payout has to know whether it is going back to the account that
+        staked. The marker is that account's ``last_reset``, read in the same
+        transaction as the debit, and :meth:`pay_winnings` credits only an
+        account that still carries it.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Dollars to stake. Must be positive.
+
+        Returns:
+            When the member last reset themselves, or ``None`` if never.
+
+        Raises:
+            InsufficientFundsError: If the wallet cannot cover the stake.
+            ValueError: If ``amount`` is not positive.
+        """
+        if amount <= 0:
+            msg = "a stake must be positive"
+            raise ValueError(msg)
+
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            cursor = await db.execute(
+                "UPDATE bank SET wallet = wallet - ? WHERE user = ? AND wallet >= ?",
+                (amount, user_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(await self._read_column(db, user_id, "wallet"), amount)
+            async with db.execute(
+                "SELECT last_reset FROM resets WHERE user = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            return float(row["last_reset"]) if row is not None else None
+
+    async def pay_winnings(self, user_id: int, amount: int, reset_marker: float | None) -> bool:
+        """Credit a wager's payout, unless the account that staked it is gone.
+
+        The guard is in the ``WHERE`` clause: the credit lands only while the
+        member's ``last_reset`` still matches what :meth:`stake` read. A reset
+        in between forfeits the payout rather than handing it to the fresh
+        account -- otherwise staking a wallet into a board, resetting for the
+        seed, and then cashing out made a reset cost nothing.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Dollars to credit.
+            reset_marker: What :meth:`stake` returned for this wager.
+
+        Returns:
+            Whether the payout was credited.
+        """
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            cursor = await db.execute(
+                "UPDATE bank SET wallet = wallet + ? WHERE user = ? "
+                "AND (SELECT last_reset FROM resets WHERE user = ?) IS ?",
+                (amount, user_id, user_id, reset_marker),
+            )
+            return cursor.rowcount > 0
+
     async def add_bank(self, user_id: int, amount: int) -> None:
         """Add ``amount`` dollars to a bank balance. A negative amount debits it.
 

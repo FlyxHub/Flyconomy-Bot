@@ -62,8 +62,42 @@ class _PlayerView(discord.ui.View):
     """A view only its own player may press, which every one-player game is."""
 
     player: discord.abc.User
+    db: Database
+    rake: float
+    creator_tax_rate: float
+    creator_tax_user_id: int | None
+    #: What :meth:`Database.stake` returned when the round was staked.
+    reset_marker: float | None
+    #: Whether the account was reset mid-round, so the payout was forfeited.
+    voided = False
     #: What to call the game when someone else presses, as in "not your hand".
     _owned: str = "round"
+
+    async def _pay_out(self, stake: int, amount: int) -> None:
+        """Credit ``amount`` back on a decided round and rake the house's take.
+
+        The credit goes through :meth:`Database.pay_winnings`, so a round whose
+        account was reset after it was staked pays nothing and the house keeps
+        the stake: the fresh account did not stake it.
+
+        Args:
+            stake: Everything staked on the round.
+            amount: Dollars the round returns, zero for a loss.
+        """
+        if amount and not await self.db.pay_winnings(self.player.id, amount, self.reset_marker):
+            self.voided = True
+            amount = 0
+        await split_house_take(
+            self.db,
+            stake - amount,
+            rake=self.rake,
+            creator_tax_rate=self.creator_tax_rate,
+            creator_tax_user_id=self.creator_tax_user_id,
+        )
+
+    def _mark(self, embed: discord.Embed) -> discord.Embed:
+        """Say so on the embed when the round was voided by a reset."""
+        return embeds.mark_voided(embed) if self.voided else embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Let only the player press, and tell anyone else why nothing happened.
@@ -107,6 +141,7 @@ class BlackjackView(_PlayerView):
         rake: float = 0.0,
         creator_tax_rate: float = 0.0,
         creator_tax_user_id: int | None = None,
+        reset_marker: float | None = None,
     ) -> None:
         """Build a view for a freshly dealt hand.
 
@@ -124,6 +159,8 @@ class BlackjackView(_PlayerView):
                 destruction. Ignored when that user ID is unset.
             creator_tax_user_id: Bank account credited with the creator tax, or
                 ``None`` to disable it outright.
+            reset_marker: What :meth:`Database.stake` returned for this
+                hand, so a payout never lands in an account reset since.
         """
         super().__init__(timeout=blackjack.DECISION_TIMEOUT_SECONDS)
         self.db = db
@@ -134,6 +171,7 @@ class BlackjackView(_PlayerView):
         self.rake = rake
         self.creator_tax_rate = creator_tax_rate
         self.creator_tax_user_id = creator_tax_user_id
+        self.reset_marker = reset_marker
         self.message: discord.Message | None = None
         self._settled = False
         self._refresh_buttons()
@@ -142,7 +180,7 @@ class BlackjackView(_PlayerView):
 
     def embed(self) -> discord.Embed:
         """Return the embed for the hand as it currently stands."""
-        return embeds.blackjack_embed(self.game, self.player, self.timezone)
+        return self._mark(embeds.blackjack_embed(self.game, self.player, self.timezone))
 
     def _refresh_buttons(self) -> None:
         """Enable or disable each button to match the state of the hand."""
@@ -168,16 +206,7 @@ class BlackjackView(_PlayerView):
 
         assert self.game.outcome is not None  # noqa: S101 - guarded by `finished`
         amount = blackjack.payout(self.game.stake, self.game.outcome)
-        if amount:
-            await self.db.add_wallet(self.player.id, amount)
-
-        await split_house_take(
-            self.db,
-            self.game.stake - amount,
-            rake=self.rake,
-            creator_tax_rate=self.creator_tax_rate,
-            creator_tax_user_id=self.creator_tax_user_id,
-        )
+        await self._pay_out(self.game.stake, amount)
         self.stop()
 
     async def apply_hit(self) -> None:
@@ -211,12 +240,17 @@ class BlackjackView(_PlayerView):
             return "You can only double down on your first two cards."
 
         try:
-            await self.db.add_wallet(self.player.id, -self.base_bet)
+            marker = await self.db.stake(self.player.id, self.base_bet)
         except InsufficientFundsError as exc:
             return (
                 f"Doubling down costs another {embeds.money(self.base_bet)}, "
                 f"but your wallet only holds {embeds.money(exc.available)}."
             )
+        if marker != self.reset_marker:
+            # The hand belongs to the account that was reset, and can no
+            # longer pay anything, so the new one must not stake into it.
+            await self.db.add_wallet(self.player.id, self.base_bet)
+            return "You reset your account after this hand was dealt, so it cannot be doubled."
 
         # A second press, a Hit, or the timeout can finish the hand while the
         # debit is awaited, which double_down refuses; hand the stake back.
@@ -307,6 +341,7 @@ class CrashView(_PlayerView):
         rake: float = 0.0,
         creator_tax_rate: float = 0.0,
         creator_tax_user_id: int | None = None,
+        reset_marker: float | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         """Build a view for a freshly dealt round.
@@ -323,6 +358,8 @@ class CrashView(_PlayerView):
                 to ``creator_tax_user_id``. Ignored when that user ID is unset.
             creator_tax_user_id: Bank account credited with the creator tax,
                 or ``None`` to disable it outright.
+            reset_marker: What :meth:`Database.stake` returned for this
+                round, so a payout never lands in an account reset since.
             now: Clock used to measure elapsed time, injectable so tests can
                 drive a round without real delays.
         """
@@ -334,6 +371,7 @@ class CrashView(_PlayerView):
         self.rake = rake
         self.creator_tax_rate = creator_tax_rate
         self.creator_tax_user_id = creator_tax_user_id
+        self.reset_marker = reset_marker
         self.now = now
         self.started_at = self.now()
         self.message: discord.Message | None = None
@@ -349,12 +387,14 @@ class CrashView(_PlayerView):
 
     def embed(self) -> discord.Embed:
         """Return the embed for the round as it currently stands."""
-        return embeds.crash_embed(
-            self.game,
-            self.player,
-            self.timezone,
-            elapsed=self.elapsed(),
-            cashed_out_multiplier=self._cashed_out_multiplier,
+        return self._mark(
+            embeds.crash_embed(
+                self.game,
+                self.player,
+                self.timezone,
+                elapsed=self.elapsed(),
+                cashed_out_multiplier=self._cashed_out_multiplier,
+            )
         )
 
     def _refresh_buttons(self) -> None:
@@ -379,16 +419,7 @@ class CrashView(_PlayerView):
         self._settled = True
 
         amount = crash.payout(self.game.stake, multiplier)
-        if amount:
-            await self.db.add_wallet(self.player.id, amount)
-
-        await split_house_take(
-            self.db,
-            self.game.stake - amount,
-            rake=self.rake,
-            creator_tax_rate=self.creator_tax_rate,
-            creator_tax_user_id=self.creator_tax_user_id,
-        )
+        await self._pay_out(self.game.stake, amount)
         self.stop()
 
     async def apply_cashout(self) -> str | None:
@@ -515,6 +546,7 @@ class MinesView(_PlayerView):
         rake: float = 0.0,
         creator_tax_rate: float = 0.0,
         creator_tax_user_id: int | None = None,
+        reset_marker: float | None = None,
     ) -> None:
         """Build a view for a freshly dealt board.
 
@@ -530,6 +562,8 @@ class MinesView(_PlayerView):
                 to ``creator_tax_user_id``. Ignored when that user ID is unset.
             creator_tax_user_id: Bank account credited with the creator tax,
                 or ``None`` to disable it outright.
+            reset_marker: What :meth:`Database.stake` returned for this
+                round, so a payout never lands in an account reset since.
         """
         super().__init__(timeout=mines.DECISION_TIMEOUT_SECONDS)
         self.db = db
@@ -539,6 +573,7 @@ class MinesView(_PlayerView):
         self.rake = rake
         self.creator_tax_rate = creator_tax_rate
         self.creator_tax_user_id = creator_tax_user_id
+        self.reset_marker = reset_marker
         self.message: discord.Message | None = None
         self._settled = False
         self._cashed_out_multiplier: float | None = None
@@ -550,11 +585,13 @@ class MinesView(_PlayerView):
 
     def embed(self) -> discord.Embed:
         """Return the embed for the round as it currently stands."""
-        return embeds.mines_embed(
-            self.game,
-            self.player,
-            self.timezone,
-            cashed_out_multiplier=self._cashed_out_multiplier,
+        return self._mark(
+            embeds.mines_embed(
+                self.game,
+                self.player,
+                self.timezone,
+                cashed_out_multiplier=self._cashed_out_multiplier,
+            )
         )
 
     def _refresh_buttons(self) -> None:
@@ -589,16 +626,7 @@ class MinesView(_PlayerView):
         self._settled = True
 
         amount = mines.payout(self.game.stake, multiplier)
-        if amount:
-            await self.db.add_wallet(self.player.id, amount)
-
-        await split_house_take(
-            self.db,
-            self.game.stake - amount,
-            rake=self.rake,
-            creator_tax_rate=self.creator_tax_rate,
-            creator_tax_user_id=self.creator_tax_user_id,
-        )
+        await self._pay_out(self.game.stake, amount)
         self.stop()
 
     async def apply_reveal(self, tile: int) -> str | None:

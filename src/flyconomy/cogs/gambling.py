@@ -95,7 +95,7 @@ class Gambling(BaseCog, name="Casino"):
         if bet > self.settings.max_bet:
             raise BetTooLargeError(bet, self.settings.max_bet)
 
-    async def _stake(self, ctx: commands.Context[FlyconomyBot], bet: int) -> None:
+    async def _stake(self, ctx: commands.Context[FlyconomyBot], bet: int) -> float | None:
         """Check the table limit, then debit the stake.
 
         Every game places its bet through here, so a new game cannot forget the
@@ -105,14 +105,24 @@ class Gambling(BaseCog, name="Casino"):
             ctx: Invocation context, used to identify the player.
             bet: Dollars to stake.
 
+        Returns:
+            The reset marker the payout must be credited under -- see
+            :meth:`Database.stake`.
+
         Raises:
             BetTooLargeError: If the stake exceeds the table limit.
             InsufficientFundsError: If the wallet cannot cover the stake.
         """
         self._check_limit(bet)
-        await self.db.add_wallet(ctx.author.id, -bet)
+        return await self.db.stake(ctx.author.id, bet)
 
-    async def _settle(self, ctx: commands.Context[FlyconomyBot], bet: int, multiplier: int) -> None:
+    async def _settle(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        bet: int,
+        multiplier: int,
+        reset_marker: float | None,
+    ) -> None:
         """Credit a win if there is one, and rake the house's take into the pot.
 
         Every game calls this exactly once per wager, including on a loss with a
@@ -123,10 +133,18 @@ class Gambling(BaseCog, name="Casino"):
             ctx: Invocation context, used to identify the player.
             bet: The stake, already debited.
             multiplier: Stake multiplier to return. Zero for a loss.
+            reset_marker: What :meth:`_stake` returned for this wager.
+
+        Raises:
+            FlyconomyError: If the member reset their account while the bet
+                was in play, so the win was forfeited rather than paid into
+                the fresh account. Raised after the rake, which keeps it all.
         """
-        if multiplier:
-            await self.db.add_wallet(ctx.author.id, bet * multiplier)
-        await self.rake(bet - bet * multiplier)
+        paid = bet * multiplier
+        if paid and not await self.db.pay_winnings(ctx.author.id, paid, reset_marker):
+            await self.rake(bet)
+            raise FlyconomyError(embeds.VOIDED_LINE)
+        await self.rake(bet - paid)
 
     async def _post(
         self,
@@ -150,7 +168,7 @@ class Gambling(BaseCog, name="Casino"):
         try:
             return await ctx.send(embed=view.embed(), view=view)
         except discord.HTTPException:
-            await self.db.add_wallet(ctx.author.id, bet)
+            await self.db.pay_winnings(ctx.author.id, bet, view.reset_marker)
             raise
 
     @commands.hybrid_command(name="coinflip", aliases=["cf"])  # type: ignore[arg-type]
@@ -170,16 +188,16 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send("Invalid guess. Try `heads` or `tails`.")
             return
 
-        await self._stake(ctx, bet)
+        marker = await self._stake(ctx, bet)
         flip = self.rng.choice(economy.COIN_SIDES)
 
         if choice == flip:
-            await self._settle(ctx, bet, economy.COINFLIP_RETURN)
+            await self._settle(ctx, bet, economy.COINFLIP_RETURN, marker)
             await ctx.send(
                 f"It's **{flip}**. You win **{embeds.money(bet * economy.COINFLIP_RETURN)}**"
             )
         else:
-            await self._settle(ctx, bet, 0)
+            await self._settle(ctx, bet, 0, marker)
             await ctx.send(f"It's **{flip}**, you lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="rps")  # type: ignore[arg-type]
@@ -200,25 +218,25 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send("Invalid guess. You must play `rock`, `paper`, or `scissors`.")
             return
 
-        await self._stake(ctx, bet)
+        marker = await self._stake(ctx, bet)
         bot_move = self.rng.choice(economy.RPS_MOVES)
         result = economy.rps_outcome(move, bot_move)
 
         match result:
             case "tie":
-                await self._settle(ctx, bet, economy.RPS_TIE_RETURN)
+                await self._settle(ctx, bet, economy.RPS_TIE_RETURN, marker)
                 await ctx.send(
                     f"The bot chose **{bot_move}**. It's a tie, and the house takes ties. "
                     f"You lose **{embeds.money(bet)}**"
                 )
             case "win":
-                await self._settle(ctx, bet, economy.RPS_RETURN)
+                await self._settle(ctx, bet, economy.RPS_RETURN, marker)
                 await ctx.send(
                     f"The bot chose **{bot_move}**. "
                     f"You win **{embeds.money(bet * economy.RPS_RETURN)}!**"
                 )
             case _:
-                await self._settle(ctx, bet, 0)
+                await self._settle(ctx, bet, 0, marker)
                 await ctx.send(f"The bot chose **{bot_move}**. You lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="dice")  # type: ignore[arg-type]
@@ -230,16 +248,16 @@ class Gambling(BaseCog, name="Casino"):
         bet: commands.Range[int, 1],
     ) -> None:
         """Bet on a six-sided dice roll. A correct call returns 6x your stake."""
-        await self._stake(ctx, bet)
+        marker = await self._stake(ctx, bet)
         roll = self.rng.randint(1, economy.DICE_SIDES)
 
         if guess == roll:
-            await self._settle(ctx, bet, economy.DICE_RETURN)
+            await self._settle(ctx, bet, economy.DICE_RETURN, marker)
             await ctx.send(
                 f"You rolled a **{roll}**. You win **{embeds.money(bet * economy.DICE_RETURN)}**"
             )
         else:
-            await self._settle(ctx, bet, 0)
+            await self._settle(ctx, bet, 0, marker)
             await ctx.send(f"You rolled a **{roll}**. You lose **{embeds.money(bet)}**")
 
     # Cooldowns after parsing, so a bet that fails to parse costs nothing.
@@ -249,7 +267,7 @@ class Gambling(BaseCog, name="Casino"):
     async def slots(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
         """Spin the slot machine. Three of a kind returns up to 55x your stake."""
         try:
-            await self._stake(ctx, bet)
+            marker = await self._stake(ctx, bet)
         except FlyconomyError:
             # A refused bet costs nothing, and that includes the cooldown.
             ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
@@ -259,7 +277,7 @@ class Gambling(BaseCog, name="Casino"):
 
         window = " ".join(symbol.emoji for symbol in reels)
         if not multiplier:
-            await self._settle(ctx, bet, 0)
+            await self._settle(ctx, bet, 0, marker)
             await ctx.send(f"[ {window} ]\nNo match. You lose **{embeds.money(bet)}**")
             return
 
@@ -270,7 +288,7 @@ class Gambling(BaseCog, name="Casino"):
             paired = next(s for s in reels if s.pays_on_pair and reels.count(s) == 2)
             headline = f"A pair of {paired.name}!"
 
-        await self._settle(ctx, bet, multiplier)
+        await self._settle(ctx, bet, multiplier, marker)
         await ctx.send(f"[ {window} ]\n{headline} You win **{embeds.money(bet * multiplier)}**")
 
     @commands.hybrid_command(name="blackjack", aliases=["bj"])  # type: ignore[arg-type]
@@ -279,7 +297,7 @@ class Gambling(BaseCog, name="Casino"):
         self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
     ) -> None:
         """Play a hand of blackjack against the dealer. A natural pays 3:2."""
-        await self._stake(ctx, bet)
+        marker = await self._stake(ctx, bet)
         game = blackjack.Game.deal(bet, self.rng)
 
         view = BlackjackView(
@@ -291,6 +309,7 @@ class Gambling(BaseCog, name="Casino"):
             rake=self.settings.lottery_rake,
             creator_tax_rate=self.settings.creator_tax_rate,
             creator_tax_user_id=self.settings.creator_tax_user_id,
+            reset_marker=marker,
         )
 
         # A natural for either side decides the hand on the deal, so there is
@@ -308,7 +327,7 @@ class Gambling(BaseCog, name="Casino"):
         self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
     ) -> None:
         """Cash out before the multiplier crashes. The longer you wait, the more it pays."""
-        await self._stake(ctx, bet)
+        marker = await self._stake(ctx, bet)
         game = crash.Game.deal(bet, self.rng)
 
         view = CrashView(
@@ -319,6 +338,7 @@ class Gambling(BaseCog, name="Casino"):
             rake=self.settings.lottery_rake,
             creator_tax_rate=self.settings.creator_tax_rate,
             creator_tax_user_id=self.settings.creator_tax_user_id,
+            reset_marker=marker,
         )
 
         # An instant bust decides the round on the deal, so there is nothing
@@ -346,7 +366,7 @@ class Gambling(BaseCog, name="Casino"):
         ),
     ) -> None:
         """Turn over tiles for a rising multiplier. Cash out before you hit a mine."""
-        await self._stake(ctx, bet)
+        marker = await self._stake(ctx, bet)
         game = mines_rules.Game.deal(bet, mines, self.rng)
         # Logged at deal time, before a tile is pressed, so the board can be
         # read while the round is still live. That is the point of it and also
@@ -370,6 +390,7 @@ class Gambling(BaseCog, name="Casino"):
             rake=self.settings.lottery_rake,
             creator_tax_rate=self.settings.creator_tax_rate,
             creator_tax_user_id=self.settings.creator_tax_user_id,
+            reset_marker=marker,
         )
         view.message = await self._post(ctx, view, bet)
         self.live_mines.add(view)
@@ -568,20 +589,20 @@ class Gambling(BaseCog, name="Casino"):
     @app_commands.describe(bet="Dollars to stake.")
     async def war(self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]) -> None:
         """Draw a card against the dealer. The higher card wins, and a tie is returned."""
-        await self._stake(ctx, bet)
+        marker = await self._stake(ctx, bet)
         player, dealer = economy.draw_cards(2, self.rng)
         multiplier = economy.war_payout_multiplier(player, dealer)
 
         draw = f"You drew **{player}**, the dealer drew **{dealer}**."
         match multiplier:
             case economy.WAR_WIN_RETURN:
-                await self._settle(ctx, bet, multiplier)
+                await self._settle(ctx, bet, multiplier, marker)
                 await ctx.send(f"{draw} You win **{embeds.money(bet * multiplier)}**")
             case economy.WAR_TIE_RETURN:
-                await self._settle(ctx, bet, multiplier)
+                await self._settle(ctx, bet, multiplier, marker)
                 await ctx.send(f"{draw} It's a tie, so your {embeds.money(bet)} is returned.")
             case _:
-                await self._settle(ctx, bet, 0)
+                await self._settle(ctx, bet, 0, marker)
                 await ctx.send(f"{draw} You lose **{embeds.money(bet)}**")
 
     @commands.hybrid_command(name="roulette")  # type: ignore[arg-type]
@@ -598,12 +619,12 @@ class Gambling(BaseCog, name="Casino"):
             await ctx.send(f"That is not a valid bet. {_ROULETTE_HELP}")
             return
 
-        await self._stake(ctx, amount)
+        marker = await self._stake(ctx, amount)
         pocket = self.rng.choice(economy.ROULETTE_WHEEL)
         multiplier = economy.roulette_payout_multiplier(wager, pocket)
 
         # Settled before anything is sent, so a failed send cannot strand a win.
-        await self._settle(ctx, amount, multiplier)
+        await self._settle(ctx, amount, multiplier, marker)
         await ctx.send(f"And the roll is..... **{pocket}**")
         if multiplier:
             await ctx.send(

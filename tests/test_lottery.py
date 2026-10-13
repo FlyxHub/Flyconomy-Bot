@@ -252,7 +252,7 @@ class TestRake:
         cog = Gambling(FakeBot(db, settings))
         await db.add_wallet(ALICE, 100_000)
 
-        await cog._settle(ctx, 1_000, 0)
+        await cog._settle(ctx, 1_000, 0, None)
 
         assert (await db.lottery_state()).pot == int(1_000 * settings.lottery_rake)
 
@@ -261,7 +261,7 @@ class TestRake:
         await db.add_to_pot(100_000)
         before = (await db.lottery_state()).pot
 
-        await cog._settle(ctx, 1_000, 2)
+        await cog._settle(ctx, 1_000, 2, None)
 
         assert (await db.lottery_state()).pot == before
 
@@ -277,8 +277,8 @@ class TestRake:
         before = (await db.lottery_state()).pot
 
         for _ in range(500):
-            await cog._settle(ctx, 1_000, 0)
-            await cog._settle(ctx, 1_000, 2)
+            await cog._settle(ctx, 1_000, 0, None)
+            await cog._settle(ctx, 1_000, 2, None)
 
         expected_gain = 500 * int(1_000 * settings.lottery_rake)
         assert (await db.lottery_state()).pot == before + expected_gain
@@ -289,9 +289,9 @@ class TestRake:
         await db.add_wallet(ALICE, 100_000_000)
 
         for _ in range(180):
-            await cog._settle(ctx, 1_000, 0)
+            await cog._settle(ctx, 1_000, 0, None)
         for _ in range(36):
-            await cog._settle(ctx, 1_000, 2)
+            await cog._settle(ctx, 1_000, 2, None)
 
         assert (await db.lottery_state()).pot > 0
 
@@ -301,7 +301,7 @@ class TestRake:
         await db.add_wallet(ALICE, 100_000)
 
         for _ in range(50):
-            await cog._settle(ctx, 1_000, 0)
+            await cog._settle(ctx, 1_000, 0, None)
 
         assert (await db.lottery_state()).pot == 0
 
@@ -310,7 +310,7 @@ class TestRake:
         await db.add_wallet(ALICE, 10_000_000)
 
         for _ in range(100):
-            await cog._settle(ctx, 1_000, 0)
+            await cog._settle(ctx, 1_000, 0, None)
 
         house_take = 100 * 1_000
         potted = (await db.lottery_state()).pot
@@ -328,7 +328,7 @@ class TestCreatorTax:
         cog = Gambling(FakeBot(db, settings))
         await db.add_wallet(ALICE, 100_000)
 
-        await cog._settle(ctx, 1_000, 0)
+        await cog._settle(ctx, 1_000, 0, None)
 
         # With no wallet configured, the loss behaves exactly like the plain
         # lottery rake: only the pot is fed.
@@ -340,7 +340,7 @@ class TestCreatorTax:
         cog = Gambling(FakeBot(db, taxed))
         await db.add_wallet(ALICE, 100_000)
 
-        await cog._settle(ctx, 1_000, 0)
+        await cog._settle(ctx, 1_000, 0, None)
 
         assert (await db.lottery_state()).pot == int(1_000 * taxed.lottery_rake)
         expected_bank = economy.STARTING_BANK + int(1_000 * taxed.creator_tax_rate)
@@ -352,7 +352,7 @@ class TestCreatorTax:
         cog = Gambling(FakeBot(db, taxed))
         await db.add_wallet(ALICE, 100_000)
 
-        await cog._settle(ctx, 1_000, 2)
+        await cog._settle(ctx, 1_000, 2, None)
 
         assert await db.find_account(creator) is None
 
@@ -364,7 +364,7 @@ class TestCreatorTax:
         cog = Gambling(FakeBot(db, untaxed))
         await db.add_wallet(ALICE, 100_000)
 
-        await cog._settle(ctx, 1_000, 0)
+        await cog._settle(ctx, 1_000, 0, None)
 
         assert await db.find_account(creator) is None
 
@@ -591,7 +591,7 @@ class TestRunDraw:
         gambling = Gambling(FakeBot(db, settings))
         await db.add_wallet(ALICE, 10_000_000)
         for _ in range(500):
-            await gambling._settle(ctx, 1_000, 0)
+            await gambling._settle(ctx, 1_000, 0, None)
 
         for user in (ALICE, BOB):
             await db.add_bank(user, 100_000)

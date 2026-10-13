@@ -275,7 +275,7 @@ Three further layers, all in place because they cover different failure modes:
   each seeds half the last (`economy.reset_seed`), so the chain is a convergent series — $1,750
   total, under a day of begging and under one capped `daily`, however many resets are in it. That
   sum, not any per-call limit, is what `tests/test_antiabuse.py` pins; a new schedule has to keep
-  the series convergent. Three things are load-bearing. The chain is measured from the *last* reset,
+  the series convergent. Four things are load-bearing. The chain is measured from the *last* reset,
   so it cannot be kept alive cheaply and then cashed out on the original clock.
   `Database.reset_account` writes the seeded `bank` row itself instead of leaving it to
   `ensure_account`, which would hand back the full starting bank on the member's next command. And
@@ -283,7 +283,13 @@ Three further layers, all in place because they cover different failure modes:
   always reads zero — it stores the *current chain length*, not a lifetime total, and
   `economy.chained_resets` applies the expiry on read because the stored row is stale until the next
   reset rewrites it. `purge_user` does clear it — that is the staff path, and a moderator undoing
-  something is not a member working the schedule.
+  something is not a member working the schedule. And a reset forfeits whatever is still in play:
+  `Database.stake` returns the account's `last_reset` as a marker, and `Database.pay_winnings`
+  credits only while the row still carries it, guard in the `WHERE` clause. Without that, staking a
+  wallet into a mines board, resetting for the seed, and cashing out into the fresh account made a
+  reset cost nothing. A wager that debits through anything else pays out into whichever account
+  exists when it settles, so a new game stakes through `Gambling._stake` and its view pays through
+  `_PlayerView._pay_out`.
 - **A shared rate limit,** in `BaseCog.cog_check` over `ratelimit.SlidingWindowLimiter`. Deliberately
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
   commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on

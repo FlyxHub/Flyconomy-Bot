@@ -364,6 +364,30 @@ def hand(cards: Sequence[Card]) -> str:
     return " ".join(str(card) for card in cards)
 
 
+#: What a game's Result field says when its account was reset mid-round.
+VOIDED_LINE: Final = "Your account was reset during this round, so it paid nothing."
+
+
+def mark_voided(embed: discord.Embed) -> discord.Embed:
+    """Replace a finished game's Result field with :data:`VOIDED_LINE`.
+
+    Shared by every one-player game, because each one decides its result line
+    from the game alone and would otherwise announce a payout that never landed.
+
+    Args:
+        embed: A finished game's embed.
+
+    Returns:
+        The same embed, edited.
+    """
+    embed.color = ERROR_COLOR
+    for index, field in enumerate(embed.fields):
+        if field.name == "Result":
+            embed.set_field_at(index, name="Result", value=VOIDED_LINE, inline=False)
+            return embed
+    return embed.add_field(name="Result", value=VOIDED_LINE, inline=False)
+
+
 def blackjack_result_line(game: blackjack.Game) -> str:
     """Describe how a finished hand ended, and what it paid.
 
