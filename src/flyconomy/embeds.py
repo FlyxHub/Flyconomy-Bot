@@ -126,6 +126,21 @@ def flx_ticker(price: int, previous: int) -> str:
     return f"{money(price)} {arrow}{change:+.1f}%"
 
 
+def ticks_left(ticks: int) -> str:
+    """Render a run's remaining length, such as ``7 ticks left`` or ``final tick``.
+
+    Counted in ticks rather than minutes because a tick is when the price
+    actually moves; a minute figure was only ever ticks times five, rounded.
+
+    Args:
+        ticks: :attr:`economy.MarketState.ticks_left`.
+
+    Returns:
+        The formatted phrase, lower case.
+    """
+    return "final tick" if ticks == 1 else f"{ticks} ticks left"
+
+
 def market_run_embed(state: economy.MarketState, timezone: str) -> discord.Embed:
     """Build the DM sent to the creator when a run starts.
 
@@ -141,8 +156,7 @@ def market_run_embed(state: economy.MarketState, timezone: str) -> discord.Embed
     embed = discord.Embed(
         title=f"{label} has started",
         description=(
-            f"Flyxcoin is {'climbing' if bull else 'falling'} for roughly the next "
-            f"{state.ticks_left * economy.FLX_TICK_MINUTES} minutes."
+            f"Flyxcoin is {'climbing' if bull else 'falling'}, {ticks_left(state.ticks_left)}."
         ),
         color=BRAND_COLOR,
         timestamp=now(timezone),

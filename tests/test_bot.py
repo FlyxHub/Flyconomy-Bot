@@ -225,7 +225,11 @@ class TestEmbeds:
         embed = embeds.market_run_embed(state, "UTC")
         assert "Bear run" in (embed.title or "")
         assert "falling" in (embed.description or "")
-        assert str(10 * economy.FLX_TICK_MINUTES) in (embed.description or "")
+        assert "10 ticks left" in (embed.description or "")
+
+    def test_a_run_on_its_last_tick_says_so(self):
+        assert embeds.ticks_left(1) == "final tick"
+        assert embeds.ticks_left(2) == "2 ticks left"
 
     def test_the_ticker_reads_flat_with_no_prior_price(self):
         assert embeds.flx_ticker(10_000, 0) == "$10,000"

@@ -148,7 +148,7 @@ class TestApi:
         assert body["market"] == {
             "price": economy.FLX_PRICE,
             "regime": "calm",
-            "minutes_left": 0,
+            "ticks_left": 0,
             "floor": economy.FLX_PRICE_FLOOR,
             "anchor": economy.FLX_PRICE,
             "ceiling": economy.FLX_PRICE_CEILING,

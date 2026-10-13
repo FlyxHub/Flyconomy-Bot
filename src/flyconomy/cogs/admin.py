@@ -277,14 +277,12 @@ async def steer_market(db: Database, wanted: economy.MarketRegime, rng: random.R
         # Refused rather than replaced: overwriting a run in flight would
         # cut it short for everyone watching, and the caller almost
         # certainly did not know one was running.
-        minutes = state.ticks_left * economy.FLX_TICK_MINUTES
-        return f"A {state.regime} run is already going, with about {minutes} minutes left."
+        return f"A {state.regime} run is already going, {embeds.ticks_left(state.ticks_left)}."
 
     started = economy.start_run(state, wanted, rng)
     await db.set_market(started)
-    minutes = started.ticks_left * economy.FLX_TICK_MINUTES
     return (
-        f"Armed a {wanted} run of about {minutes} minutes at "
+        f"Armed a {wanted} run of up to {started.ticks_left} ticks at "
         f"{embeds.money(started.price)}. It starts on the next tick."
     )
 

@@ -763,7 +763,7 @@ function renderGauge() {
   document.querySelector(".gauge").dataset.regime = presenting ? "calm" : market.regime;
   const state = $("state");
   state.className = "state " + market.regime;
-  state.textContent = market.regime === "calm" ? "Market calm" : `${market.regime === "bull" ? "Bull" : "Bear"} run, ${market.minutes_left} min left`;
+  state.textContent = market.regime === "calm" ? "Market calm" : `${market.regime === "bull" ? "Bull" : "Bear"} run, ${ticksLeft(market.ticks_left)}`;
 
   rollNumber($("pot"), overview.lottery_pot, money);
   rollNumber($("circulating"), overview.circulating, whole);
@@ -780,8 +780,11 @@ function renderMoves() {
   range.append(signed(((last - prices[0][1]) / prices[0][1]) * 100, v => v.toFixed(1) + "%"), ` over ${RANGE_NAMES[hours]}`);
 }
 
+// Mirrors embeds.ticks_left, so Discord and the page count a run the same way.
+const ticksLeft = n => n === 1 ? "final tick" : `${n} ticks left`;
+
 function renderOverride() {
-  const { regime, minutes_left } = overview.market;
+  const { regime, ticks_left } = overview.market;
   const panel = document.querySelector(".override");
   panel.toggleAttribute("data-armed", armed !== null);
   document.querySelectorAll(".switch button").forEach(b => {
@@ -797,7 +800,7 @@ function renderOverride() {
         : `Hold to arm a ${armed} run. It starts on the next tick, within five minutes.`)
     : regime === "calm"
       ? "The market is calm. Pick a direction to start a run."
-      : `A ${regime} run is on, with about ${minutes_left} minutes left. Pick Calm to call it off.`;
+      : `A ${regime} run is on, ${ticksLeft(ticks_left)}. Pick Calm to call it off.`;
   document.querySelector(".arm").hidden = armed === null;
   if (armed !== null) $("hold").textContent = armed === "calm" ? `Hold to call off ${regime} run` : `Hold to arm ${armed} run`;
 }

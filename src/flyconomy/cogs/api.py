@@ -185,7 +185,7 @@ class Api(BaseCog, name="Api"):
                 "market": {
                     "price": market.price,
                     "regime": market.regime,
-                    "minutes_left": market.ticks_left * economy.FLX_TICK_MINUTES,
+                    "ticks_left": market.ticks_left,
                     # The band the walk lives in, so the dashboard draws the
                     # bot's own bounds rather than a copy of them.
                     "floor": economy.FLX_PRICE_FLOOR,
