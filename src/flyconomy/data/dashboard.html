@@ -933,19 +933,27 @@ function timeLabel(seconds) {
     : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+// The fill under a line, spanning the plot as laid out at draw time. A
+// gradient sized before Chart.js has fitted the canvas uses the canvas's
+// default 150px, and fades out above the line whenever the line sits low.
+const fade = alpha => ({ chart: { ctx, chartArea } }) => {
+  if (!chartArea) return;
+  const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+  gradient.addColorStop(0, `rgba(95, 212, 255, ${alpha})`);
+  gradient.addColorStop(1, "rgba(95, 212, 255, 0)");
+  return gradient;
+};
+
 function renderChart() {
   if (!history) return;
   const data = history.prices.map(([x, y]) => ({ x, y }));
   const canvas = $("price-chart");
-  const gradient = canvas.getContext("2d").createLinearGradient(0, 0, 0, canvas.clientHeight || 300);
-  gradient.addColorStop(0, "rgba(95, 212, 255, .22)");
-  gradient.addColorStop(1, "rgba(95, 212, 255, 0)");
   chart?.destroy();
   chart = new Chart(canvas, {
     type: "line",
     data: { datasets: [{
       label: "Price", data,
-      borderColor: css("--holo"), borderWidth: 1.75, backgroundColor: gradient, fill: "start",
+      borderColor: css("--holo"), borderWidth: 1.75, backgroundColor: fade(.22), fill: "start",
       pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: css("--amber"), pointHoverBorderWidth: 0,
       tension: 0,
     }] },
@@ -1126,14 +1134,10 @@ function renderConcentration() {
   const now = overview?.economy;
   const rows = [...(history?.concentration ?? []), ...(now ? [[now.at, now.top_share, now.top_count, now.accounts]] : [])];
   if (!rows.length) return;
-  const canvas = $("conc-chart");
-  const gradient = canvas.getContext("2d").createLinearGradient(0, 0, 0, canvas.clientHeight || 200);
-  gradient.addColorStop(0, "rgba(95, 212, 255, .18)");
-  gradient.addColorStop(1, "rgba(95, 212, 255, 0)");
   upsert("conc-chart", [{
     label: "Richest 10%",
     data: rows.map(([x, y]) => ({ x, y })),
-    borderColor: css("--holo"), borderWidth: 1.75, backgroundColor: gradient, fill: "start",
+    borderColor: css("--holo"), borderWidth: 1.75, backgroundColor: fade(.18), fill: "start",
     pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: css("--amber"), tension: 0,
   }], {
     plugins: {
