@@ -68,6 +68,9 @@ class _PlayerView(discord.ui.View):
     creator_tax_user_id: int | None
     #: What :meth:`Database.stake` returned when the round was staked.
     reset_marker: float | None
+    #: What :meth:`Database.hold_wager` returned, so a restart can refund the
+    #: stake. Set by the command once the round is staked.
+    wager_id: int | None = None
     #: Whether the account was reset mid-round, so the payout was forfeited.
     voided = False
     #: What to call the game when someone else presses, as in "not your hand".
@@ -84,9 +87,14 @@ class _PlayerView(discord.ui.View):
             stake: Everything staked on the round.
             amount: Dollars the round returns, zero for a loss.
         """
-        if amount and not await self.db.pay_winnings(self.player.id, amount, self.reset_marker):
-            self.voided = True
-            amount = 0
+        if amount:
+            if not await self.db.pay_winnings(
+                self.player.id, amount, self.reset_marker, self.wager_id
+            ):
+                self.voided = True
+                amount = 0
+        elif self.wager_id is not None:
+            await self.db.release_wager(self.wager_id)
         await split_house_take(
             self.db,
             stake - amount,

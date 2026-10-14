@@ -75,6 +75,10 @@ class Gambling(BaseCog, name="Casino"):
         if holds:
             log.info("Refunded %d match stake(s) left held by a restart", len(holds))
 
+        wagers = await self.db.refund_all_wagers()
+        if wagers:
+            log.info("Refunded %d board stake(s) left in play by a restart", wagers)
+
     async def cog_unload(self) -> None:
         """Drop a live jackpot round, leaving its antes for the startup refund."""
         if self._live_jackpot is not None:
@@ -115,6 +119,20 @@ class Gambling(BaseCog, name="Casino"):
         """
         self._check_limit(bet)
         return await self.db.stake(ctx.author.id, bet)
+
+    async def _hold(
+        self, ctx: commands.Context[FlyconomyBot], bet: int
+    ) -> tuple[int, float | None]:
+        """:meth:`_stake` for a game played across button presses.
+
+        The stake is recorded as a held wager, so a restart before the board
+        settles refunds it at startup instead of destroying it.
+
+        Returns:
+            The wager's id for the view, and the reset marker.
+        """
+        self._check_limit(bet)
+        return await self.db.hold_wager(ctx.author.id, bet)
 
     async def _settle(
         self,
@@ -168,7 +186,7 @@ class Gambling(BaseCog, name="Casino"):
         try:
             return await ctx.send(embed=view.embed(), view=view)
         except discord.HTTPException:
-            await self.db.pay_winnings(ctx.author.id, bet, view.reset_marker)
+            await self.db.pay_winnings(ctx.author.id, bet, view.reset_marker, view.wager_id)
             raise
 
     @commands.hybrid_command(name="coinflip", aliases=["cf"])  # type: ignore[arg-type]
@@ -297,7 +315,7 @@ class Gambling(BaseCog, name="Casino"):
         self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
     ) -> None:
         """Play a hand of blackjack against the dealer. A natural pays 3:2."""
-        marker = await self._stake(ctx, bet)
+        wager, marker = await self._hold(ctx, bet)
         game = blackjack.Game.deal(bet, self.rng)
 
         view = BlackjackView(
@@ -311,6 +329,7 @@ class Gambling(BaseCog, name="Casino"):
             creator_tax_user_id=self.settings.creator_tax_user_id,
             reset_marker=marker,
         )
+        view.wager_id = wager
 
         # A natural for either side decides the hand on the deal, so there is
         # nothing to press and the buttons never appear.
@@ -327,7 +346,7 @@ class Gambling(BaseCog, name="Casino"):
         self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
     ) -> None:
         """Cash out before the multiplier crashes. The longer you wait, the more it pays."""
-        marker = await self._stake(ctx, bet)
+        wager, marker = await self._hold(ctx, bet)
         game = crash.Game.deal(bet, self.rng)
 
         view = CrashView(
@@ -340,6 +359,7 @@ class Gambling(BaseCog, name="Casino"):
             creator_tax_user_id=self.settings.creator_tax_user_id,
             reset_marker=marker,
         )
+        view.wager_id = wager
 
         # An instant bust decides the round on the deal, so there is nothing
         # to press and the button never appears.
@@ -366,7 +386,7 @@ class Gambling(BaseCog, name="Casino"):
         ),
     ) -> None:
         """Turn over tiles for a rising multiplier. Cash out before you hit a mine."""
-        marker = await self._stake(ctx, bet)
+        wager, marker = await self._hold(ctx, bet)
         game = mines_rules.Game.deal(bet, mines, self.rng)
         # Logged at deal time, before a tile is pressed, so the board can be
         # read while the round is still live. That is the point of it and also
@@ -392,6 +412,7 @@ class Gambling(BaseCog, name="Casino"):
             creator_tax_user_id=self.settings.creator_tax_user_id,
             reset_marker=marker,
         )
+        view.wager_id = wager
         view.message = await self._post(ctx, view, bet)
         self.live_mines.add(view)
 

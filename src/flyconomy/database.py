@@ -32,7 +32,7 @@ from flyconomy.errors import DailyBuyLimitError, InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 12
+SCHEMA_VERSION: Final = 13
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -778,25 +778,62 @@ class Database:
             InsufficientFundsError: If the wallet cannot cover the stake.
             ValueError: If ``amount`` is not positive.
         """
+        async with self._transaction() as db:
+            return await self._debit_stake(db, user_id, amount)
+
+    async def hold_wager(self, user_id: int, amount: int) -> tuple[int, float | None]:
+        """Stake a wager that stays in play across button presses, and record it.
+
+        A board's stake otherwise exists only in a view in memory, so a restart
+        mid-round would destroy it. The ``wagers`` row is the record
+        :meth:`refund_all_wagers` hands back at startup, written in the same
+        transaction as the debit so neither can happen without the other.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            amount: Dollars to stake. Must be positive.
+
+        Returns:
+            The wager's id, and the reset marker :meth:`stake` would return.
+
+        Raises:
+            InsufficientFundsError: If the wallet cannot cover the stake.
+            ValueError: If ``amount`` is not positive.
+        """
+        async with self._transaction() as db:
+            marker = await self._debit_stake(db, user_id, amount)
+            cursor = await db.execute(
+                "INSERT INTO wagers (user, amount) VALUES (?, ?)", (user_id, amount)
+            )
+            assert cursor.lastrowid is not None  # noqa: S101 - an INSERT always sets it
+            return cursor.lastrowid, marker
+
+    async def _debit_stake(
+        self, db: aiosqlite.Connection, user_id: int, amount: int
+    ) -> float | None:
+        """Debit a stake on an open transaction and return the reset marker."""
         if amount <= 0:
             msg = "a stake must be positive"
             raise ValueError(msg)
 
-        async with self._transaction() as db:
-            await self.ensure_account(user_id)
-            cursor = await db.execute(
-                "UPDATE bank SET wallet = wallet - ? WHERE user = ? AND wallet >= ?",
-                (amount, user_id, amount),
-            )
-            if cursor.rowcount == 0:
-                raise InsufficientFundsError(await self._read_column(db, user_id, "wallet"), amount)
-            async with db.execute(
-                "SELECT last_reset FROM resets WHERE user = ?", (user_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-            return float(row["last_reset"]) if row is not None else None
+        await self.ensure_account(user_id)
+        cursor = await db.execute(
+            "UPDATE bank SET wallet = wallet - ? WHERE user = ? AND wallet >= ?",
+            (amount, user_id, amount),
+        )
+        if cursor.rowcount == 0:
+            raise InsufficientFundsError(await self._read_column(db, user_id, "wallet"), amount)
+        async with db.execute("SELECT last_reset FROM resets WHERE user = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+        return float(row["last_reset"]) if row is not None else None
 
-    async def pay_winnings(self, user_id: int, amount: int, reset_marker: float | None) -> bool:
+    async def pay_winnings(
+        self,
+        user_id: int,
+        amount: int,
+        reset_marker: float | None,
+        wager_id: int | None = None,
+    ) -> bool:
         """Credit a wager's payout, unless the account that staked it is gone.
 
         The guard is in the ``WHERE`` clause: the credit lands only while the
@@ -809,11 +846,19 @@ class Database:
             user_id: The member's Discord snowflake.
             amount: Dollars to credit.
             reset_marker: What :meth:`stake` returned for this wager.
+            wager_id: What :meth:`hold_wager` returned, if the stake was held.
+                Its row is released here, and a row a reset or purge already
+                released forfeits the payout -- which is what stops a purged
+                member's board founding a fresh account to pay into.
 
         Returns:
             Whether the payout was credited.
         """
         async with self._transaction() as db:
+            if wager_id is not None:
+                held = await db.execute("DELETE FROM wagers WHERE id = ?", (wager_id,))
+                if held.rowcount == 0:
+                    return False
             await self.ensure_account(user_id)
             cursor = await db.execute(
                 "UPDATE bank SET wallet = wallet + ? WHERE user = ? "
@@ -821,6 +866,32 @@ class Database:
                 (amount, user_id, user_id, reset_marker),
             )
             return cursor.rowcount > 0
+
+    async def release_wager(self, wager_id: int) -> None:
+        """Forget a held wager that settled as a loss, so nothing is refunded."""
+        async with self._transaction() as db:
+            await db.execute("DELETE FROM wagers WHERE id = ?", (wager_id,))
+
+    async def refund_all_wagers(self) -> int:
+        """Hand back every held wager, and release them all.
+
+        Used at startup, where a held wager can only belong to a board a
+        restart interrupted. A member purged or reset since has no row left
+        here, so nothing lands in an account that did not stake it.
+
+        Returns:
+            How many wagers were refunded.
+        """
+        async with self._transaction() as db:
+            async with db.execute("SELECT user, amount FROM wagers") as cursor:
+                rows = list(await cursor.fetchall())
+            for row in rows:
+                await db.execute(
+                    "UPDATE bank SET wallet = wallet + ? WHERE user = ?",
+                    (row["amount"], row["user"]),
+                )
+            await db.execute("DELETE FROM wagers")
+            return len(rows)
 
     async def add_bank(self, user_id: int, amount: int) -> None:
         """Add ``amount`` dollars to a bank balance. A negative amount debits it.
@@ -1911,6 +1982,7 @@ class Database:
         await db.execute("DELETE FROM security WHERE user = ?", (user_id,))
         entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
         antes = await db.execute("DELETE FROM jackpot_entries WHERE user = ?", (user_id,))
+        await db.execute("DELETE FROM wagers WHERE user = ?", (user_id,))
 
         async with db.execute(
             "SELECT id, game, first_user, second_user, stake FROM escrow "
@@ -2238,6 +2310,22 @@ async def _migration_12_history(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_13_wagers(db: aiosqlite.Connection) -> None:
+    """Add the record of one-player stakes still in play on a board.
+
+    The ``bank`` table is untouched. ``AUTOINCREMENT`` for the same reason as
+    ``escrow``: a view holding a settled wager's id must never release a later
+    one that reused it.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS wagers ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  user INTEGER NOT NULL,"
+        "  amount INTEGER NOT NULL CHECK (amount > 0)"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -2251,4 +2339,5 @@ _MIGRATIONS: Final = {
     10: _migration_10_daily_payouts,
     11: _migration_11_market_regime,
     12: _migration_12_history,
+    13: _migration_13_wagers,
 }

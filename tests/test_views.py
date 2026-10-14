@@ -22,7 +22,7 @@ from flyconomy.cogs.gambling import Gambling
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from flyconomy.errors import InsufficientFundsError
-from flyconomy.views import BlackjackView, CrashView
+from flyconomy.views import BlackjackView, CrashView, MinesView
 from tests.conftest import ALICE, BOB
 from tests.test_blackjack import ACE, KING, hand
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser, _FakeResponse
@@ -496,6 +496,56 @@ class TestABoardThatNeverPosts:
             await getattr(cog, game).callback(cog, _CannotPost(author=FakeUser(id=ALICE)), 100)
 
         assert (await db.get_account(ALICE)).wallet == 1_000
+
+
+class TestARestartMidRound:
+    async def _live_board(self, db: Database, settings: Settings) -> MinesView:
+        cog = Gambling(FakeBot(db, settings))
+        cog.rng.seed(1)
+        await db.add_wallet(ALICE, 1_000)
+        ctx = FakeContext(author=FakeUser(id=ALICE))
+        await cog.mines_command.callback(cog, ctx, 100)
+        [view] = ctx.views
+        assert isinstance(view, MinesView)
+        return view
+
+    async def test_startup_refunds_a_board_the_restart_interrupted(self, db, settings):
+        await self._live_board(db, settings)
+        assert (await db.get_account(ALICE)).wallet == 900
+
+        # The view is gone with the old process; a fresh cog loads.
+        await Gambling(FakeBot(db, settings)).cog_load()
+
+        assert (await db.get_account(ALICE)).wallet == 1_000
+
+    async def test_a_settled_board_is_not_refunded_again(self, db, settings):
+        view = await self._live_board(db, settings)
+        await view.settle(multiplier=0.0)
+
+        await Gambling(FakeBot(db, settings)).cog_load()
+
+        assert (await db.get_account(ALICE)).wallet == 900
+
+    async def test_a_reset_forfeits_the_held_stake(self, db, settings):
+        view = await self._live_board(db, settings)
+        await db.reset_account(ALICE, now=1_000.0)
+        seeded = (await db.get_account(ALICE)).wallet
+
+        await Gambling(FakeBot(db, settings)).cog_load()
+        await view.settle(multiplier=2.0)
+
+        assert (await db.get_account(ALICE)).wallet == seeded
+        assert view.voided
+
+    async def test_a_payout_to_a_purged_member_founds_no_account(self, db, settings):
+        view = await self._live_board(db, settings)
+        await db.purge_user(ALICE)
+
+        await view.settle(multiplier=2.0)
+
+        assert view.voided
+        # A second purge finds no account, so the payout founded none.
+        assert not (await db.purge_user(ALICE)).account
 
 
 @dataclass

@@ -46,7 +46,8 @@ tables in migration 3, the jackpot two more in migration 5, head-to-head matches
 migration 6, wallet security one in migration 7, the published guide one in migration 8,
 self-reset history one in migration 9, the daily interest ledger one in migration 10, and the
 market's regime plus the daily Flyxcoin buying ledger one in migration 11, and the
-dashboard's price and balance history two in migration 12; the
+dashboard's price and balance history two in migration 12, and held one-player board stakes
+one in migration 13; the
 `bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
@@ -292,7 +293,11 @@ Three further layers, all in place because they cover different failure modes:
   wallet into a mines board, resetting for the seed, and cashing out into the fresh account made a
   reset cost nothing. A wager that debits through anything else pays out into whichever account
   exists when it settles, so a new game stakes through `Gambling._stake` and its view pays through
-  `_PlayerView._pay_out`.
+  `_PlayerView._pay_out`. A game played across button presses stakes through `Gambling._hold`
+  instead, which also writes a `wagers` row: the board lives in memory, so without that row a
+  restart mid-round destroyed the stake. `Gambling.cog_load` refunds every row, settling deletes
+  it in the payout's own transaction, and a reset or purge deletes it too -- which is what keeps
+  a purged member's board from founding a fresh account to pay into.
 - **A shared rate limit,** in `BaseCog.cog_check` over `ratelimit.SlidingWindowLimiter`. Deliberately
   *not* per-command: a per-command cooldown is dodged by rotating between games, and cannot cover
   commands that refund their own cooldown when they decline to act (`mine` without a miner, `rob` on
