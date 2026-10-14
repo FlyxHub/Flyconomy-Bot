@@ -34,7 +34,9 @@ class BaseCog(commands.Cog):
     def __init__(self, bot: FlyconomyBot) -> None:
         """Bind the cog to a running bot."""
         self.bot = bot
-        self.rng = random.Random()  # noqa: S311 - game outcomes, not cryptography
+        # The OS source, because outcomes are public: a Mersenne Twister can be
+        # rebuilt from enough of them, and then every later game is known.
+        self.rng: random.Random = random.SystemRandom()
 
     @property
     def db(self) -> Database:

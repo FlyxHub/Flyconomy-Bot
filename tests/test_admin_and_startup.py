@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -379,7 +380,7 @@ class TestTriggeredRuns:
 
     async def test_a_bull_run_is_armed(self, db, settings, ctx):
         cog = Admin(FakeAdminBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
 
         await cog.market.callback(cog, ctx, "bull")
 
@@ -389,7 +390,7 @@ class TestTriggeredRuns:
 
     async def test_a_bear_run_is_armed(self, db, settings, ctx):
         cog = Admin(FakeAdminBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
 
         await cog.market.callback(cog, ctx, "bear")
 

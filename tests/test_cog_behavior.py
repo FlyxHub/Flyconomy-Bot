@@ -1265,7 +1265,7 @@ class TestMarketTick:
 
     async def test_a_tick_moves_and_stores_the_price(self, db, settings):
         cog = make_market(FakeBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
 
         await cog.tick_loop.coro(cog)
 
@@ -1273,7 +1273,7 @@ class TestMarketTick:
 
     async def test_a_tick_records_the_price_for_the_dashboard(self, db, settings):
         cog = make_market(FakeBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
 
         await cog.tick_loop.coro(cog)
 
@@ -1283,7 +1283,7 @@ class TestMarketTick:
         # The whole reason the regime is persisted: a run has to survive the
         # tick that started it, and a restart in the middle of one.
         cog = make_market(FakeBot(db, settings))
-        cog.rng.seed(3)
+        cog.rng = random.Random(3)
 
         assert await self._tick_until_run_starts(cog), "no run started"
         started = await db.get_market()
@@ -1297,7 +1297,7 @@ class TestMarketTick:
     async def test_the_creator_is_dmed_when_a_run_starts(self, db, settings):
         creator = FakeRecipient()
         cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
-        cog.rng.seed(3)
+        cog.rng = random.Random(3)
 
         assert await self._tick_until_run_starts(cog), "no run started"
 
@@ -1306,7 +1306,7 @@ class TestMarketTick:
     async def test_quiet_ticks_do_not_dm_the_creator(self, db, settings):
         creator = FakeRecipient()
         cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
-        cog.rng.seed(7)
+        cog.rng = random.Random(7)
 
         # Seeded so the first handful of ticks are calm; a DM here would mean
         # the creator is pinged every five minutes forever.
@@ -1320,7 +1320,7 @@ class TestMarketTick:
     async def test_a_continuing_run_does_not_dm_again(self, db, settings):
         creator = FakeRecipient()
         cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
-        cog.rng.seed(3)
+        cog.rng = random.Random(3)
 
         assert await self._tick_until_run_starts(cog), "no run started"
         while (await db.get_market()).regime != "calm":
@@ -1330,7 +1330,7 @@ class TestMarketTick:
 
     async def test_no_creator_configured_means_no_dm_and_no_error(self, db, settings):
         cog = make_market(FakeBot(db, settings))
-        cog.rng.seed(3)
+        cog.rng = random.Random(3)
 
         assert await self._tick_until_run_starts(cog), "no run started"
 
@@ -1341,7 +1341,7 @@ class TestMarketTick:
         # already happened, so an unreachable recipient is logged, not raised.
         creator = FakeRecipient(fails=True)
         cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
-        cog.rng.seed(3)
+        cog.rng = random.Random(3)
 
         assert await self._tick_until_run_starts(cog), "no run started"
 
@@ -1354,7 +1354,7 @@ class TestMarketTick:
         # Not in the user cache and not fetchable, which is what an id for
         # somebody who left every shared server looks like.
         cog = make_market(FakeBot(db, _with_creator(settings)))
-        cog.rng.seed(3)
+        cog.rng = random.Random(3)
 
         assert await self._tick_until_run_starts(cog), "no run started"
 
@@ -1366,7 +1366,7 @@ class TestMarketTick:
         # is what actually moves the price, so a triggered run and a
         # spontaneous one take the same path.
         cog = make_market(FakeBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
         await db.set_market(
             economy.MarketState(price=economy.FLX_PRICE, regime="bull", ticks_left=20)
         )
@@ -1385,7 +1385,7 @@ class TestMarketTick:
         # tick runs, the market is already in the regime the notice watches for.
         creator = FakeRecipient()
         cog = make_market(FakeBot(db, _with_creator(settings), users={CREATOR_ID: creator}))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
         await db.set_market(
             economy.MarketState(price=economy.FLX_PRICE, regime="bear", ticks_left=5)
         )
@@ -1397,7 +1397,7 @@ class TestMarketTick:
 
     async def test_a_tick_updates_the_status(self, db, settings):
         cog = make_market(FakeBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
 
         await cog.tick_loop.coro(cog)
 

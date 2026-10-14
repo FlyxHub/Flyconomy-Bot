@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import random
 import time
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
@@ -51,7 +52,7 @@ async def client(
     bot: FakeApiBot,
 ) -> AsyncIterator[test_utils.TestClient[web.Request, web.Application]]:
     cog = Api(bot)  # type: ignore[arg-type]
-    cog.rng.seed(1)
+    cog.rng = random.Random(1)
     async with test_utils.TestClient(test_utils.TestServer(cog.make_app())) as client:
         yield client
 

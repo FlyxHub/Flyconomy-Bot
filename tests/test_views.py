@@ -8,6 +8,7 @@ check are covered with a stand-in interaction.
 from __future__ import annotations
 
 import asyncio
+import random
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -489,7 +490,7 @@ class TestABoardThatNeverPosts:
         # Neither game is ever decided on the deal by these seeds, so each one
         # reaches the send that fails.
         cog = Gambling(FakeBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
         await db.add_wallet(ALICE, 1_000)
 
         with pytest.raises(discord.Forbidden):
@@ -501,7 +502,7 @@ class TestABoardThatNeverPosts:
 class TestARestartMidRound:
     async def _live_board(self, db: Database, settings: Settings) -> MinesView:
         cog = Gambling(FakeBot(db, settings))
-        cog.rng.seed(1)
+        cog.rng = random.Random(1)
         await db.add_wallet(ALICE, 1_000)
         ctx = FakeContext(author=FakeUser(id=ALICE))
         await cog.mines_command.callback(cog, ctx, 100)

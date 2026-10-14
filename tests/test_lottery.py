@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -572,7 +573,7 @@ class TestRunDraw:
     async def test_every_entrant_is_equally_likely(self, db, settings):
         # The fairness property the design exists for.
         cog = make_cog(db, settings)
-        cog.rng.seed(4)
+        cog.rng = random.Random(4)
         wins = dict.fromkeys((ALICE, BOB, CAROL), 0)
 
         for _ in range(600):

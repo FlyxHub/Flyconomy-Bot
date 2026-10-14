@@ -611,7 +611,7 @@ class TestGrindingIsNotProfitable:
     @pytest.mark.parametrize("game", ["coinflip", "rps", "dice", "slots", "war"])
     async def test_a_long_session_does_not_print_money(self, db, settings, ctx, game):
         cog = Gambling(FakeBot(db, settings))
-        cog.rng.seed(2024)
+        cog.rng = random.Random(2024)
         stake = 100
         bankroll = 5_000_000
         await db.add_wallet(ALICE, bankroll)
