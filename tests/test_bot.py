@@ -38,6 +38,9 @@ class TestErrorMessages:
             "That command is restricted to the bot owner."
         )
 
+    def test_an_amount_past_sqlite_integers_is_called_too_large(self):
+        assert describe_command_error(OverflowError()) == "That amount is too large."
+
     def test_insufficient_funds_reports_the_shortfall(self):
         message = describe_command_error(InsufficientFundsError(40, 100))
         assert message is not None

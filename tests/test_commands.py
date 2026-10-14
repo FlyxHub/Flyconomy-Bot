@@ -254,6 +254,17 @@ class TestOwnerCommands:
 
         assert errors == [help_command.command_not_found("market")]
 
+    def test_asking_for_a_subcommand_of_it_reads_as_unknown_too(self, bot: FlyconomyBot):
+        # `$help market x` takes a different path that never reaches the above.
+        help_command = bot.help_command
+        assert help_command is not None
+        market = bot.get_command("market")
+        assert market is not None
+
+        reply = help_command.subcommand_not_found(market, "x")
+
+        assert reply == help_command.command_not_found("market")
+
     async def test_a_member_running_the_market_trigger_gets_no_reply(self, bot: FlyconomyBot):
         ctx = SimpleNamespace(command=bot.get_command("market"), send=AsyncMock())
 

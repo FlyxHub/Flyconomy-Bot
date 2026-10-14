@@ -86,6 +86,12 @@ class _HelpCommand(commands.DefaultHelpCommand):
             return
         await super().send_command_help(command)
 
+    def subcommand_not_found(self, command: commands.Command[Any, ..., Any], string: str, /) -> str:
+        """Keep ``$help market x`` from confirming the hidden command exists."""
+        if command.hidden:
+            return self.command_not_found(command.qualified_name)
+        return super().subcommand_not_found(command, string)
+
 
 class FlyconomyBot(commands.Bot):
     """The Flyconomy Discord client.
@@ -297,6 +303,9 @@ def describe_command_error(error: BaseException) -> str | None:
             )
         case FlyconomyError():
             return str(error)
+        case OverflowError():
+            # An amount past SQLite's 64-bit integers, which no balance can be.
+            return "That amount is too large."
         case _:
             return None
 
