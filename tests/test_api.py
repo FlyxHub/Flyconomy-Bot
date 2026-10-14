@@ -11,7 +11,7 @@ import pytest
 from aiohttp import test_utils, web
 
 from flyconomy import economy, mines
-from flyconomy.cogs.api import Api, top_share
+from flyconomy.cogs.api import Api, is_local_host, top_share
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB
@@ -281,6 +281,35 @@ class TestApi:
 
         assert response.status == 400
         assert (await db.get_market()).regime == "calm"
+
+    async def test_a_rebound_hostname_is_refused(self, client, db):
+        # DNS rebinding: an attacker's domain resolved to this address.
+        response = await client.post(
+            "/api/market", json={"direction": "bull"}, headers={"Host": "evil.example:8765"}
+        )
+
+        assert response.status == 421
+        assert (await db.get_market()).regime == "calm"
+
+    @pytest.mark.parametrize(
+        ("host", "allowed"),
+        [
+            ("127.0.0.1:8765", True),
+            ("10.0.0.64:8765", True),
+            ("[::1]:8765", True),
+            ("localhost:8765", True),
+            ("my-pc:8765", True),
+            ("my-pc.local:8765", True),
+            ("evil.example", False),
+            ("127.0.0.1.nip.io:8765", False),
+        ],
+    )
+    def test_only_names_no_site_can_borrow_are_local(self, host, allowed):
+        assert is_local_host(host) is allowed
+
+    async def test_the_page_cannot_be_framed(self, client):
+        page = await client.get("/")
+        assert page.headers["X-Frame-Options"] == "DENY"
 
     async def test_a_cross_site_form_post_is_refused(self, client, db):
         # text/plain is a "simple" request another site can send without a preflight.

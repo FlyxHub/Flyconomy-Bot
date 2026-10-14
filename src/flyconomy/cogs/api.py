@@ -11,6 +11,7 @@ market's regime, which nothing member-facing may, and it can arm a run.
 
 from __future__ import annotations
 
+import ipaddress
 import itertools
 import logging
 import math
@@ -20,6 +21,7 @@ from importlib import resources
 from typing import Final
 
 from aiohttp import web
+from aiohttp.typedefs import Handler
 
 from flyconomy import economy, mines
 from flyconomy.bot import FlyconomyBot
@@ -117,7 +119,7 @@ class Api(BaseCog, name="Api"):
         # network. Anything that can reach the port can steer the market, so
         # add HTTP Basic auth here before the network is shared or the port is
         # forwarded.
-        app = web.Application()
+        app = web.Application(middlewares=[_local_only])
         app.router.add_get("/", index)
         app.router.add_get("/api/overview", self.overview)
         app.router.add_get("/api/history", self.history)
@@ -282,6 +284,36 @@ class Api(BaseCog, name="Api"):
         message = await steer_market(self.db, wanted, self.rng)
         log.info("Dashboard steered the market: %s", message)
         return web.json_response({"message": message})
+
+
+def is_local_host(host: str) -> bool:
+    """Whether a ``Host`` header names this machine in a way no site can borrow.
+
+    The no-login decision trusts the network, but the owner's browser is on
+    that network too: a page that rebinds its own domain to this address is
+    same-origin with the dashboard, reads the live mines boards, and arms runs.
+    It can only ever do that under a name its owner registered, so an IP
+    literal, ``localhost``, a bare machine name, or an mDNS ``.local`` name is
+    always the owner, and anything else is refused.
+    """
+    name = host[1:].partition("]")[0] if host.startswith("[") else host.partition(":")[0]
+    name = name.rstrip(".").lower()
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return name == "localhost" or "." not in name or name.endswith((".local", ".localhost"))
+    return True
+
+
+@web.middleware
+async def _local_only(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """Refuse a rebound hostname, and forbid framing the page that arms runs."""
+    if not is_local_host(request.host):
+        raise web.HTTPMisdirectedRequest(text="open the dashboard by IP address or localhost")
+    response = await handler(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    return response
 
 
 async def setup(bot: FlyconomyBot) -> None:

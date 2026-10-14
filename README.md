@@ -296,6 +296,12 @@ so publish it only on a network where you trust every device, and never on an
 internet-facing address. To use it away from home, put the host on a private
 network such as Tailscale rather than forwarding the port.
 
+Open it by IP address, `localhost`, a bare machine name, or a `.local` name.
+Any other hostname is refused, Tailscale's MagicDNS names included (use the
+host's `100.x` address), because a website you visit can point a domain it
+owns at your network and then read the page and press its buttons through
+your browser.
+
 Graphs begin when the bot first runs with this version. Before that, the bot
 kept no history. Each market tick records the price, every five minutes.
 Every balance is recorded once an hour. A `$purge` deletes the member's

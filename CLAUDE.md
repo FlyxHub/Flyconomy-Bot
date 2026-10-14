@@ -97,7 +97,10 @@ is lost. Keep that passing.
 port and one origin, switched on by `dashboard_enabled`. It is in the bot's process because the
 database is: SQLite must not be shared over a network or opened by a second writer. It has **no
 login, by the owner's decision**, resting on a network only they use — a `ponytail:` comment in
-`make_app` marks where Basic auth goes if that stops being true. Two things are load-bearing.
+`make_app` marks where Basic auth goes if that stops being true. The owner's browser is on that
+network too, so `is_local_host` refuses any `Host` a website could own (DNS rebinding) and the
+page refuses to be framed; without those, any site the owner visits is inside the trusted
+network. Two things are load-bearing.
 The dashboard is **owner-only, never member-facing** — it names the regime, which the rule under
 Anti-abuse forbids anywhere a member can see. And its market buttons go through `admin.steer_market`, the same
 function `$market` calls, so a run armed from the web is the same run as one armed from
