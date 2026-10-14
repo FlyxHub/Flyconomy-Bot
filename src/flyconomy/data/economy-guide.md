@@ -172,7 +172,7 @@ Coinflip           1 in 2          2x          0%
 Dice               1 in 6          6x          0%
 Rock paper scis.   1 in 3          3x          0%
 War                47%, 6% tie     2x          0%
-Blackjack          how you play    2x / 2.5x   1.4% – 15.8%
+Blackjack          how you play    2x / 2.5x   0.3% – 15.8%
 Crash              when you stop   your target 3%
 Mines              when you stop   up to 100x  3%
 Slots              1 in 6          2x – 55x    4.17%
@@ -186,8 +186,8 @@ every build. The fair games are genuinely fair, and everything else quietly
 favours the house.
 
 Blackjack is the exception worth studying: played well it's the best bet in the
-casino at 1.4%, and played badly it's the worst thing on the list at 15.8%.
-Same game, same table, ten times the cost.
+casino at about 0.3%, and played badly it's the worst thing on the list at 15.8%.
+Same game, same table, fifty times the cost.
 
 ## Mines, and why the mine count doesn't matter
 

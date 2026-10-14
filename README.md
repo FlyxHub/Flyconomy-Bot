@@ -628,7 +628,7 @@ this table if you win. The profit column is what you gain overall.
 | Roulette, color | 18 in 38 | 2x stake | 1x stake | 5.26% |
 | Roulette, single pocket | 1 in 38 | 35x stake | 34x stake | 7.89% |
 | Rock paper scissors | 1 in 3 | 3x stake | 2x stake | 0% |
-| Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 1.8% to 15.6% |
+| Blackjack | Depends on how you play | 2x stake, or 2.5x for a natural | 1x to 1.5x stake | 0.3% to 15.6% |
 | Crash | Depends on when you cash out | Whatever multiplier you cash out at | Multiplier minus 1, times stake | 3%, flat at every cash-out target |
 | Mines | Depends on when you cash out | The multiplier the board reached, up to 100x | Multiplier minus 1, times stake | 3%, flat at every depth and mine count |
 | Jackpot | Your share of the pot | 95% of the pot | Pot less your ante and the cut | 5%, flat at every ante size |
@@ -1027,6 +1027,7 @@ runs of 100,000 hands each:
 | Copy the dealer, hitting below 17 | 5.8% |
 | Stand on 17 or more, and on 12 to 16 when the dealer shows a bust card | 2.9% |
 | The same, doubling down on 9 to 11 | 1.8% |
+| Full basic strategy, doubling soft hands too | about 0.3% |
 
 Played well, blackjack is the best bet in the casino. Played badly, it is the
 worst. That is the point of it.
