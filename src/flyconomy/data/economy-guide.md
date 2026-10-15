@@ -240,9 +240,9 @@ three boards draw is called off with both stakes returned.
 
 ## `/tournament`
 
-A week-long contest, Monday to Sunday. `/tournament join` costs $10,000 from
+A week-long contest, Monday to Sunday. `/tournament join` costs $100,000 from
 your bank; from then on every house game you play counts, and the best **net
-result** by Sunday midnight takes the pot less 5%. Stake at least $10,000 over
+result** by Sunday midnight takes the pot less 5%. Stake at least $100,000 over
 the week to qualify. Head-to-head games don't count, and a `/resetme` forfeits
 your entry. `/tournament info` shows the standings.
 

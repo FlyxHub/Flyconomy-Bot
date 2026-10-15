@@ -883,6 +883,52 @@ function cell(className, content) {
   return td;
 }
 
+function meterCell(width, extra = "") {
+  const meter = document.createElement("div");
+  meter.className = "meter" + extra;
+  const bar = document.createElement("i");
+  bar.style.width = width;
+  meter.append(bar);
+  return cell("share", meter);
+}
+const share = fraction => Math.max(2, Math.min(1, fraction) * 100).toFixed(1) + "%";
+
+// Ranked tables are rebuilt every poll, but each row starts from where its
+// id was last drawn -- position, bar, and amount -- and moves from there.
+// build(row, i) returns the row's <tr>, its bar's target width, the node
+// whose number rolls, and the value it rolls to.
+function rankedRows(body, rows, format, build) {
+  const before = new Map();
+  for (const tr of body.querySelectorAll("tr[data-id]")) {
+    before.set(tr.dataset.id, { top: tr.getBoundingClientRect().top, ...tr._drawn });
+  }
+  const bars = [];
+  body.replaceChildren(...rows.map((row, i) => {
+    const { tr, width, amount, value } = build(row, i);
+    const was = before.get(row.id);
+    const bar = tr.querySelector(".meter i");
+    bar.style.width = was?.width ?? width;
+    bars.push([bar, width]);
+    amount.textContent = format(was?.value ?? value);
+    rollNumber(amount, value, format, was?.value ?? value);
+    tr.dataset.id = row.id;
+    tr._drawn = { width, value };
+    return tr;
+  }));
+  requestAnimationFrame(() => bars.forEach(([bar, width]) => { bar.style.width = width; }));
+
+  // A row that changed rank slides from its old place to its new one.
+  if (reducedMotion) return;
+  for (const tr of body.querySelectorAll("tr[data-id]")) {
+    const was = before.get(tr.dataset.id);
+    if (was === undefined) continue;
+    const shift = was.top - tr.getBoundingClientRect().top;
+    if (Math.abs(shift) < 1) continue;
+    tr.animate([{ transform: `translateY(${shift}px)` }, { transform: "none" }],
+      { duration: 700, easing: "cubic-bezier(.2, .8, .2, 1)" });
+  }
+}
+
 function renderLedger() {
   document.querySelector(".ledger").dataset.board = board;
   const rows = overview.leaderboards[board];
@@ -893,62 +939,31 @@ function renderLedger() {
     body.innerHTML = '<tr class="empty"><td colspan="6">No members yet. They appear after their first command.</td></tr>';
     return;
   }
-  // Rows are rebuilt every poll, but each one starts from where its member
-  // was last drawn -- position, bar, and amount -- and moves from there.
-  const sameBoard = ledgerBoard === board;
-  const before = new Map();
-  if (sameBoard) for (const tr of body.querySelectorAll("tr[data-id]")) before.set(tr.dataset.id, tr.getBoundingClientRect().top);
+  // Another board's rows are not where this board's members were.
+  if (ledgerBoard !== board) body.replaceChildren();
+  ledgerBoard = board;
   const top = rows[0].amount || 1;
-  const share = amount => Math.max(2, (amount / top) * 100).toFixed(1) + "%";
-  const bars = [];
-  body.replaceChildren(...rows.map((row, i) => {
+  rankedRows(body, rows, format, (row, i) => {
     const tr = document.createElement("tr");
-    tr.dataset.id = row.id;
-    const meter = document.createElement("div");
-    meter.className = "meter";
-    const bar = document.createElement("i");
-    const last = sameBoard ? lastAmounts.get(row.id) : undefined;
-    bar.style.width = last === undefined ? share(row.amount) : (lastShares.get(row.id) ?? share(row.amount));
-    bars.push([bar, share(row.amount)]);
-    meter.append(bar);
     // The hourly trend, finished on the live amount so the trend, the
     // change, and the amount in this row all describe the same moment.
     const snapshots = series.get(row.id) ?? [];
     const points = board === "net_worth" && overview.economy
       ? [...snapshots, [overview.economy.at, row.amount]]
       : snapshots;
-    const amount = cell("amount num", format(last ?? row.amount));
+    const amount = cell("amount num", "");
     tr.append(
       cell("rank", String(i + 1).padStart(2, "0")),
       cell("name", row.name),
-      cell("share", meter),
+      meterCell(share(row.amount / top)),
       cell("spark worth-only", sparkline(points)),
       cell("change worth-only", points && points.length >= 2 ? signed(points[points.length - 1][1] - points[0][1], money) : "–"),
       amount,
     );
-    rollNumber(amount, row.amount, format, last ?? row.amount);
-    return tr;
-  }));
-
-  lastShares = new Map(rows.map(row => [row.id, share(row.amount)]));
-  lastAmounts = new Map(rows.map(row => [row.id, row.amount]));
-  ledgerBoard = board;
-  requestAnimationFrame(() => bars.forEach(([bar, width]) => { bar.style.width = width; }));
-
-  // A member who changed rank slides from their old row to their new one.
-  if (reducedMotion) return;
-  for (const tr of body.querySelectorAll("tr[data-id]")) {
-    const was = before.get(tr.dataset.id);
-    if (was === undefined) continue;
-    const shift = was - tr.getBoundingClientRect().top;
-    if (Math.abs(shift) < 1) continue;
-    tr.animate([{ transform: `translateY(${shift}px)` }, { transform: "none" }],
-      { duration: 700, easing: "cubic-bezier(.2, .8, .2, 1)" });
-  }
+    return { tr, width: share(row.amount / top), amount, value: row.amount };
+  });
 }
 let ledgerBoard = null;
-let lastAmounts = new Map();
-let lastShares = new Map();
 
 // ------------------------------------------------------------------- chart
 const hudChart = {
@@ -1223,15 +1238,6 @@ function renderConcentration() {
 function renderEconomy() { renderSupply(); renderConcentration(); }
 
 // ------------------------------------------------- bounties and tournament
-function meterCell(fraction, extra = "") {
-  const meter = document.createElement("div");
-  meter.className = "meter" + extra;
-  const bar = document.createElement("i");
-  bar.style.width = Math.max(2, Math.min(1, fraction) * 100).toFixed(1) + "%";
-  meter.append(bar);
-  return cell("share", meter);
-}
-
 function emptyRow(body, columns, text) {
   const td = cell("", text);
   td.colSpan = columns;
@@ -1247,16 +1253,17 @@ function renderBounties() {
   const body = $("bounty-rows");
   if (!open.length) return emptyRow(body, 4, "Nobody has a bounty on them.");
   const top = open[0].amount || 1;
-  body.replaceChildren(...open.map((row, i) => {
+  rankedRows(body, open, money, (row, i) => {
     const tr = document.createElement("tr");
+    const amount = cell("amount num", "");
     tr.append(
       cell("rank", String(i + 1).padStart(2, "0")),
       cell("name", row.name),
-      meterCell(row.amount / top),
-      cell("amount num", money(row.amount)),
+      meterCell(share(row.amount / top)),
+      amount,
     );
-    return tr;
-  }));
+    return { tr, width: share(row.amount / top), amount, value: row.amount };
+  });
 }
 
 // The standings are ranked the way the week will be settled, so an entrant
@@ -1269,21 +1276,23 @@ function renderTournament() {
   rollNumber($("tourney-takes"), t.winner_takes, money);
   rollNumber($("tourney-entrants"), t.entrants, whole);
   const body = $("tourney-rows");
+  const arrowed = n => (n > 0 ? "▲ " : n < 0 ? "▼ " : "") + money(Math.abs(n));
   if (!t.standings.length) emptyRow(body, 4, "Nobody has joined this week yet.");
-  else body.replaceChildren(...t.standings.map((row, i) => {
+  else rankedRows(body, t.standings, arrowed, (row, i) => {
     const tr = document.createElement("tr");
     if (!row.qualified) tr.className = "unqualified";
     tr.title = row.qualified
       ? `Qualified, ${money(row.wagered)} staked`
       : `${money(row.wagered)} of the ${money(t.min_wagered)} needed to qualify`;
+    const amount = signed(row.net, money);
     tr.append(
       cell("rank", String(i + 1).padStart(2, "0")),
       cell("name", row.name),
-      meterCell(row.wagered / t.min_wagered, row.qualified ? " qualify met" : " qualify"),
-      cell("amount num", signed(row.net, money)),
+      meterCell(share(row.wagered / t.min_wagered), row.qualified ? " qualify met" : " qualify"),
+      cell("amount num", amount),
     );
-    return tr;
-  }));
+    return { tr, width: share(row.wagered / t.min_wagered), amount, value: row.net };
+  });
   const last = t.last;
   $("tourney-last").textContent = !last ? "No week has been settled yet."
     : last.winner ? `Last week (${last.week}): ${last.winner} took ${money(last.paid)} from ${whole(last.entrants)} entrants.`

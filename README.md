@@ -508,13 +508,13 @@ As a slash command, the bare `lottery` form is `/lottery info`.
 | Command | Description |
 | --- | --- |
 | `tournament` | Shows this week's pot, the standings, where you stand, and last week's winner. |
-| `tournament join` | Buys you into this week's tournament for $10,000 from your bank. |
+| `tournament join` | Buys you into this week's tournament for $100,000 from your bank. |
 
 A tournament runs for one ISO week, Monday to Sunday in the bot's timezone.
 From the moment you join, every house game you settle (coinflip, dice, rps,
 roulette, slots, war, blackjack, crash, mines) adds what it paid back less what
 you staked to your score. At midnight starting Monday, the best score among
-entrants who staked at least $10,000 over the week takes the pot, less a 5%
+entrants who staked at least $100,000 over the week takes the pot, less a 5%
 cut raked like any other house take.
 
 - **Fewer than two qualifiers refunds every fee.** No cut is taken for a

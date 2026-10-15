@@ -31,7 +31,7 @@ import datetime
 from typing import Final
 
 #: What one entry costs, paid from the bank into the pot.
-ENTRY_FEE: Final = 10_000
+ENTRY_FEE: Final = 100_000
 
 #: Share of the pot the house keeps when it is won, matching the other
 #: player-funded pots. The winner is always paid less than the fees came to.
