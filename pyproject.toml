@@ -132,6 +132,7 @@ module = [
     "tests.test_jackpot",
     "tests.test_matches",
     "tests.test_tictactoe",
+    "tests.test_tournament",
 ]
 disable_error_code = [
     "arg-type",

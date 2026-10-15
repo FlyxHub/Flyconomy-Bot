@@ -13,13 +13,15 @@ from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import blackjack, crash, economy, jackpot, mines, tictactoe
+from flyconomy import blackjack, crash, economy, jackpot, mines, tictactoe, tournament
 from flyconomy.database import (
     Account,
     DailyPayout,
     JackpotState,
     LeaderboardEntry,
     LotteryState,
+    TournamentEntry,
+    TournamentResult,
 )
 from flyconomy.economy import Card
 
@@ -38,6 +40,11 @@ def now(timezone: str) -> datetime:
 def money(amount: int) -> str:
     """Format a dollar amount with a thousands separator, such as ``$1,000``."""
     return f"${amount:,}"
+
+
+def signed_money(amount: int) -> str:
+    """Format a gain or loss with its sign, such as ``+$1,000`` or ``-$250``."""
+    return f"{'-' if amount < 0 else '+'}{money(abs(amount))}"
 
 
 def coins(amount: int) -> str:
@@ -939,3 +946,77 @@ def tictactoe_embed(
             footer = "That board was drawn. New board, and the first move swaps."
         embed.set_footer(text=footer)
     return embed
+
+
+def _tournament_line(rank: int, entry: TournamentEntry) -> str:
+    """One row of the standings, marking an entrant who cannot win yet."""
+    unqualified = "" if entry.qualified else " *(not qualified)*"
+    return f"{rank}. {signed_money(entry.net)} - <@{entry.user_id}>{unqualified}"
+
+
+def tournament_embed(
+    *,
+    pot: int,
+    entrants: int,
+    leaders: Sequence[TournamentEntry],
+    ends_at: datetime,
+    you: TournamentEntry | None,
+    last: TournamentResult | None,
+    timezone: str,
+) -> discord.Embed:
+    """Build the embed showing this week's tournament.
+
+    Args:
+        pot: Every fee paid into this week.
+        entrants: How many members have joined.
+        leaders: The top of the standings, best first.
+        ends_at: When the week settles.
+        you: The asking member's own standing, or ``None`` if they are not in.
+        last: How the previous week was settled, if one has been.
+        timezone: IANA timezone for the embed timestamp.
+
+    Returns:
+        A populated embed.
+    """
+    standings = "\n".join(
+        _tournament_line(rank, entry) for rank, entry in enumerate(leaders, start=1)
+    )
+    embed = discord.Embed(
+        title="Weekly tournament",
+        description=(
+            f"Best net result at the house's games this week takes "
+            f"**{money(tournament.payout(pot))}**. Settles <t:{int(ends_at.timestamp())}:R>.\n\n"
+            f"{standings or 'Nobody has joined this week yet.'}"
+        ),
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+    embed.add_field(name="Pot", value=f"{money(pot)} from {entrants:,} entrants")
+    if you is None:
+        embed.add_field(
+            name="You", value=f"Not in. `/tournament join` costs {money(tournament.ENTRY_FEE)}."
+        )
+    else:
+        still = max(tournament.MIN_WAGERED - you.wagered, 0)
+        status = "qualified" if you.qualified else f"stake {money(still)} more to qualify"
+        embed.add_field(name="You", value=f"{signed_money(you.net)}, {status}")
+    if last is not None:
+        embed.add_field(name=f"Last week ({last.week})", value=tournament_result_line(last))
+    return embed
+
+
+def tournament_result_line(result: TournamentResult) -> str:
+    """Describe how a week was settled, in one line."""
+    if result.winner_id is None:
+        return f"Refunded: fewer than {tournament.MIN_ENTRANTS} entrants qualified."
+    return f"<@{result.winner_id}> took {money(result.paid)} from {result.entrants:,} entrants."
+
+
+def tournament_result_embed(result: TournamentResult, timezone: str) -> discord.Embed:
+    """Build the embed announcing a settled week."""
+    return discord.Embed(
+        title=f"Weekly tournament {result.week}",
+        description=tournament_result_line(result),
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )

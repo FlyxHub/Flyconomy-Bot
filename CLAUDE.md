@@ -47,7 +47,8 @@ migration 6, wallet security one in migration 7, the published guide one in migr
 self-reset history one in migration 9, the daily interest ledger one in migration 10, and the
 market's regime plus the daily Flyxcoin buying ledger one in migration 11, and the
 dashboard's price and balance history two in migration 12, and held one-player board stakes
-one in migration 13, and bounties one in migration 14; the
+one in migration 13, bounties one in migration 14, and the weekly tournament two in
+migration 15; the
 `bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
@@ -485,6 +486,17 @@ Three further layers, all in place because they cover different failure modes:
   own transaction, so a refused robbery never collects. It survives the target's `reset_account`
   (a bounty a member could clear by resetting would be none) and `purge_user` refunds the
   posters, since a purged account can no longer be robbed.
+- **The weekly tournament scores only games against the house.** `tournament.py` holds the
+  rules; the score is reported by the casino itself, from the two places every house wager
+  settles (`Gambling._settle` and `_PlayerView._pay_out`), through
+  `Database.record_tournament_play`. A new house game inherits that by settling through either.
+  Matches and the jackpot deliberately do not report: they are decided by other members, so a
+  pair of alts could hand one of them a score by losing on purpose. `MIN_WAGERED` is what stops
+  an entrant who never plays winning on zero while the field drifts below it, since every house
+  game loses on average. The pot is only its own fees and pays out less, so `settle_due`
+  catching up every missed week is safe in a way the interest's backfill is not. The winner is
+  chosen inside `settle_tournament`'s transaction, which is also why a reset or purge a moment
+  earlier cannot be paid from a stale read; the result row's primary key stops a second settle.
 - **A defense may never become an immunity.** Wallet security lowers `rob`'s success rate and
   nothing else — the top level still lets one robbery in ten through, and `rob_success_percent`
   clamps a level off the end of the table back onto it. A wallet that cannot be robbed removes

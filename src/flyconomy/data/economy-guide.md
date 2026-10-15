@@ -216,7 +216,7 @@ out — past that point the tiles can only lose.
 
 # 🏆 Playing against each other
 
-Three games where the money comes from other members, not from the bot.
+Four games where the money comes from other members, not from the bot.
 
 ## `/jackpot <ante>`
 
@@ -237,6 +237,14 @@ Nothing is staked while the offer sits there, so an ignored or declined
 challenge costs nobody anything. Once it's accepted, both stakes are held until
 the match ends. First move alternates each board, and only a match where all
 three boards draw is called off with both stakes returned.
+
+## `/tournament`
+
+A week-long contest, Monday to Sunday. `/tournament join` costs $10,000 from
+your bank; from then on every house game you play counts, and the best **net
+result** by Sunday midnight takes the pot less 5%. Stake at least $10,000 over
+the week to qualify. Head-to-head games don't count, and a `/resetme` forfeits
+your entry. `/tournament info` shows the standings.
 
 ## `/lottery`
 
@@ -271,7 +279,7 @@ ROBBERY     /rob @member  /bounty  /bounties
 FLYXCOIN    /flx info  /flx buy  /flx sell  /flx send
 CASINO      /coinflip  /dice  /rps  /roulette  /slots  /war
             /blackjack  /crash  /mines
-TOGETHER    /jackpot  /tictactoe  /lottery info  /lottery enter
+TOGETHER    /jackpot  /tictactoe  /tournament  /lottery info  /lottery enter
 ```
 
 One habit separates the people at the top of `/leaderboard` from everyone

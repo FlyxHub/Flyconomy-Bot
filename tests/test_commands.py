@@ -59,6 +59,7 @@ ADDED_COMMANDS = {
     "jackpot": ("jp",),
     "tictactoe": ("ttt",),
     "lottery": (),
+    "tournament": (),
 }
 
 #: Non-game commands added after version 1.

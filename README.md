@@ -73,6 +73,10 @@ classic prefix command, such as `$balance`.
   a person rather than the house.
 - **Lottery.** A pot fed by entry fees and a share of the casino's winnings,
   drawn on a schedule. One entry each, so everyone has the same chance.
+- **Weekly tournament.** Members buy in, and the best net result at the house's
+  games over the week takes the pot. Player-funded, so it only redistributes.
+- **Bounties.** Pay to have someone robbed: the next successful `rob` against
+  them collects the bounty on top of the cash.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
 
 ## Before you begin
@@ -495,6 +499,34 @@ every ante back rather than losing it.
 | `lottery enter` | Enters the current draw. One entry per member, paid from your bank. |
 
 As a slash command, the bare `lottery` form is `/lottery info`.
+
+### Weekly tournament
+
+| Command | Description |
+| --- | --- |
+| `tournament` | Shows this week's pot, the standings, where you stand, and last week's winner. |
+| `tournament join` | Buys you into this week's tournament for $10,000 from your bank. |
+
+A tournament runs for one ISO week, Monday to Sunday in the bot's timezone.
+From the moment you join, every house game you settle (coinflip, dice, rps,
+roulette, slots, war, blackjack, crash, mines) adds what it paid back less what
+you staked to your score. At midnight starting Monday, the best score among
+entrants who staked at least $10,000 over the week takes the pot, less a 5%
+cut raked like any other house take.
+
+- **Fewer than two qualifiers refunds every fee.** No cut is taken for a
+  contest nobody else entered.
+- **Head-to-head games and the jackpot don't count.** They are decided by
+  other members, so a pair of accounts could hand one of them a score by
+  losing on purpose. The house cannot be made to lose.
+- **Sitting out cannot win.** Every house game loses on average, so the
+  qualifier stops an entrant who never plays from winning on a score of zero.
+- **A `resetme` forfeits your entry**, like anything else you have in play.
+
+A week the bot was down for is settled the next night it runs. That catch-up
+is safe here, unlike for the interest, because the pot is only its own fees.
+
+As a slash command, the bare `tournament` form is `/tournament info`.
 
 ### Owner commands
 
@@ -1207,6 +1239,7 @@ src/flyconomy/
 ├── mines.py          The mines ruleset, also free of any discord import
 ├── jackpot.py        The jackpot ruleset, also free of any discord import
 ├── tictactoe.py      The tic-tac-toe ruleset, also free of any discord import
+├── tournament.py     The weekly tournament's rules, also free of any discord import
 ├── economy.py        Every tunable number and the pure rules that use them
 ├── guide.py          Splits the member guide into messages, free of any discord import
 ├── embeds.py         Message and embed builders

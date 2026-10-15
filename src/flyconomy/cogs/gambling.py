@@ -144,8 +144,8 @@ class Gambling(BaseCog, name="Casino"):
         """Credit a win if there is one, and rake the house's take into the pot.
 
         Every game calls this exactly once per wager, including on a loss with a
-        multiplier of zero, so the rake sees the full picture rather than only
-        the losses.
+        multiplier of zero, so the rake and the weekly tournament's score see
+        the full picture rather than only the losses.
 
         Args:
             ctx: Invocation context, used to identify the player.
@@ -159,6 +159,7 @@ class Gambling(BaseCog, name="Casino"):
                 the fresh account. Raised after the rake, which keeps it all.
         """
         paid = bet * multiplier
+        await self.db.record_tournament_play(ctx.author.id, bet, paid)
         if paid and not await self.db.pay_winnings(ctx.author.id, paid, reset_marker):
             await self.rake(bet)
             raise FlyconomyError(embeds.VOIDED_LINE)

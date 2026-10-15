@@ -26,13 +26,13 @@ from typing import Final, Self
 
 import aiosqlite
 
-from flyconomy import economy, jackpot
+from flyconomy import economy, jackpot, tournament
 from flyconomy.errors import DailyBuyLimitError, InsufficientFundsError
 
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 14
+SCHEMA_VERSION: Final = 15
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -172,6 +172,47 @@ class LeaderboardEntry:
 
     user_id: int
     amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class TournamentEntry:
+    """One entrant's standing in a weekly tournament.
+
+    Attributes:
+        user_id: The member's Discord snowflake.
+        net: Dollars won less dollars staked at the house's games since joining.
+        wagered: Dollars staked at the house's games since joining.
+    """
+
+    user_id: int
+    net: int
+    wagered: int
+
+    @property
+    def qualified(self) -> bool:
+        """Whether they have staked enough to be able to win."""
+        return tournament.qualifies(self.wagered)
+
+
+@dataclass(frozen=True, slots=True)
+class TournamentResult:
+    """How a week's tournament was settled.
+
+    Attributes:
+        week: The ISO week, such as ``2026-W42``.
+        winner_id: Who took the pot, or ``None`` when it was refunded.
+        pot: Every entry fee paid in.
+        paid: What the winner was credited, zero on a refund.
+        cut: What the house kept, zero on a refund.
+        entrants: How many members had entered.
+    """
+
+    week: str
+    winner_id: int | None
+    pot: int
+    paid: int
+    cut: int
+    entrants: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -866,6 +907,181 @@ class Database:
                 (amount, user_id, user_id, reset_marker),
             )
             return cursor.rowcount > 0
+
+    # ------------------------------------------------------------ tournament --
+
+    async def join_tournament(self, user_id: int, week: str, now: float) -> bool:
+        """Buy a member into a week's tournament, paying the fee from their bank.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            week: The week being entered, from :func:`tournament.week_of`.
+            now: Unix time, which breaks a tie in favour of the earlier entrant.
+
+        Returns:
+            ``False`` if they were already in, in which case nothing is charged.
+
+        Raises:
+            InsufficientFundsError: If their bank cannot cover the fee.
+        """
+        fee = tournament.ENTRY_FEE
+        async with self._transaction() as db:
+            async with db.execute(
+                "SELECT 1 FROM tournament_entries WHERE week = ? AND user = ?", (week, user_id)
+            ) as cursor:
+                if await cursor.fetchone() is not None:
+                    return False
+            await self.ensure_account(user_id)
+            debit = await db.execute(
+                "UPDATE bank SET bank = bank - ? WHERE user = ? AND bank >= ?",
+                (fee, user_id, fee),
+            )
+            if debit.rowcount == 0:
+                raise InsufficientFundsError(
+                    await self._read_column(db, user_id, "bank"), fee, "bank funds"
+                )
+            await db.execute(
+                "INSERT INTO tournament_entries (week, user, fee, joined) VALUES (?, ?, ?, ?)",
+                (week, user_id, fee, now),
+            )
+            return True
+
+    async def record_tournament_play(self, user_id: int, staked: int, returned: int) -> None:
+        """Count one settled house wager towards the member's tournament score.
+
+        It lands on the newest week they entered, which is the only one still
+        open: a week's entries are deleted when it settles. A member who has
+        not entered has no row, so this does nothing for them.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            staked: Everything staked on the wager.
+            returned: Everything the wager paid back, zero on a loss.
+        """
+        async with self._transaction() as db:
+            await db.execute(
+                "UPDATE tournament_entries SET net = net + ?, wagered = wagered + ? "
+                "WHERE user = ? AND week = "
+                "(SELECT MAX(week) FROM tournament_entries WHERE user = ?)",
+                (returned - staked, staked, user_id, user_id),
+            )
+
+    async def tournament_standings(
+        self, week: str, limit: int = tournament.STANDINGS_SHOWN
+    ) -> tuple[int, int, list[TournamentEntry]]:
+        """Return a week's pot, its entrant count, and its leaders.
+
+        Leaders are ranked the way the week will be settled: best net result
+        first, the earlier entrant ahead on a tie. Entrants who have not yet
+        qualified are listed in that order too, so a member can see where they
+        would stand.
+
+        Args:
+            week: The ISO week.
+            limit: How many entrants to return.
+
+        Returns:
+            ``(pot, entrants, leaders)``.
+        """
+        async with self._reader.execute(
+            "SELECT COALESCE(SUM(fee), 0) AS pot, COUNT(*) AS entrants "
+            "FROM tournament_entries WHERE week = ?",
+            (week,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        async with self._reader.execute(
+            "SELECT user, net, wagered FROM tournament_entries WHERE week = ? "
+            "ORDER BY net DESC, joined ASC LIMIT ?",
+            (week, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        leaders = [TournamentEntry(r["user"], r["net"], r["wagered"]) for r in rows]
+        pot, entrants = (int(row["pot"]), int(row["entrants"])) if row else (0, 0)
+        return pot, entrants, leaders
+
+    async def tournament_entry(self, week: str, user_id: int) -> TournamentEntry | None:
+        """Return a member's standing in a week, or ``None`` if they are not in it."""
+        async with self._reader.execute(
+            "SELECT user, net, wagered FROM tournament_entries WHERE week = ? AND user = ?",
+            (week, user_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return TournamentEntry(row["user"], row["net"], row["wagered"]) if row else None
+
+    async def open_tournament_weeks(self) -> list[str]:
+        """Return every week that still has entries, oldest first."""
+        async with self._reader.execute(
+            "SELECT DISTINCT week FROM tournament_entries ORDER BY week"
+        ) as cursor:
+            return [row["week"] for row in await cursor.fetchall()]
+
+    async def settle_tournament(self, week: str, now: float) -> TournamentResult | None:
+        """Pay out a finished week, or refund it, exactly once.
+
+        The winner is chosen inside the same transaction that pays them, so a
+        member reset or purged a moment earlier cannot be read from a stale
+        list and paid anyway. The week's row in ``tournament_results`` is
+        claimed by its primary key, so settling twice is impossible.
+
+        Args:
+            week: The ISO week to settle. Must already be over.
+            now: Unix time, recorded with the result.
+
+        Returns:
+            How it was settled, or ``None`` if it already had been.
+        """
+        async with self._transaction() as db:
+            claimed = await db.execute(
+                "INSERT INTO tournament_results (week, pot, paid, entrants, settled) "
+                "VALUES (?, 0, 0, 0, ?) ON CONFLICT (week) DO NOTHING",
+                (week, now),
+            )
+            if claimed.rowcount == 0:
+                return None
+            async with db.execute(
+                "SELECT user, fee, net, wagered FROM tournament_entries WHERE week = ? "
+                "ORDER BY net DESC, joined ASC",
+                (week,),
+            ) as cursor:
+                rows = list(await cursor.fetchall())
+            pot = sum(int(row["fee"]) for row in rows)
+            qualified = [row for row in rows if tournament.qualifies(row["wagered"])]
+
+            winner: int | None = None
+            paid = cut = 0
+            if len(qualified) >= tournament.MIN_ENTRANTS:
+                winner = int(qualified[0]["user"])
+                cut = tournament.house_cut(pot)
+                paid = pot - cut
+                await self.ensure_account(winner)
+                await db.execute("UPDATE bank SET bank = bank + ? WHERE user = ?", (paid, winner))
+            else:
+                for row in rows:
+                    await db.execute(
+                        "UPDATE bank SET bank = bank + ? WHERE user = ?", (row["fee"], row["user"])
+                    )
+
+            await db.execute(
+                "UPDATE tournament_results SET winner = ?, pot = ?, paid = ?, entrants = ? "
+                "WHERE week = ?",
+                (winner, pot, paid, len(rows), week),
+            )
+            await db.execute("DELETE FROM tournament_entries WHERE week = ?", (week,))
+            return TournamentResult(week, winner, pot, paid, cut, len(rows))
+
+    async def last_tournament_result(self) -> TournamentResult | None:
+        """Return the most recently settled week, or ``None`` before the first."""
+        async with self._reader.execute(
+            "SELECT week, winner, pot, paid, entrants FROM tournament_results "
+            "ORDER BY week DESC LIMIT 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        cut = row["pot"] - row["paid"] if row["winner"] is not None else 0
+        return TournamentResult(
+            row["week"], row["winner"], row["pot"], row["paid"], cut, row["entrants"]
+        )
 
     async def release_wager(self, wager_id: int) -> None:
         """Forget a held wager that settled as a loss, so nothing is refunded."""
@@ -2063,6 +2279,7 @@ class Database:
         entries = await db.execute("DELETE FROM lottery_entries WHERE user = ?", (user_id,))
         antes = await db.execute("DELETE FROM jackpot_entries WHERE user = ?", (user_id,))
         await db.execute("DELETE FROM wagers WHERE user = ?", (user_id,))
+        await db.execute("DELETE FROM tournament_entries WHERE user = ?", (user_id,))
 
         async with db.execute(
             "SELECT id, game, first_user, second_user, stake FROM escrow "
@@ -2422,6 +2639,37 @@ async def _migration_14_bounties(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_15_tournament(db: aiosqlite.Connection) -> None:
+    """Add the weekly tournament's entries and its settled results.
+
+    The ``bank`` table is untouched. Entries live only while their week is
+    open and are deleted when it settles; the result row's primary key is what
+    makes settling a week twice impossible, the same way ``daily_payouts``
+    guards the interest.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS tournament_entries ("
+        "  week TEXT NOT NULL,"
+        "  user INTEGER NOT NULL,"
+        "  fee INTEGER NOT NULL CHECK (fee > 0),"
+        "  net INTEGER NOT NULL DEFAULT 0,"
+        "  wagered INTEGER NOT NULL DEFAULT 0 CHECK (wagered >= 0),"
+        "  joined REAL NOT NULL,"
+        "  PRIMARY KEY (week, user)"
+        ") WITHOUT ROWID"
+    )
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS tournament_results ("
+        "  week TEXT PRIMARY KEY,"
+        "  winner INTEGER,"
+        "  pot INTEGER NOT NULL,"
+        "  paid INTEGER NOT NULL,"
+        "  entrants INTEGER NOT NULL,"
+        "  settled REAL NOT NULL"
+        ")"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -2437,4 +2685,5 @@ _MIGRATIONS: Final = {
     12: _migration_12_history,
     13: _migration_13_wagers,
     14: _migration_14_bounties,
+    15: _migration_15_tournament,
 }

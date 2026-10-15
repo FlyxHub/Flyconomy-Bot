@@ -95,6 +95,7 @@ class _PlayerView(discord.ui.View):
                 amount = 0
         elif self.wager_id is not None:
             await self.db.release_wager(self.wager_id)
+        await self.db.record_tournament_play(self.player.id, stake, amount)
         await split_house_take(
             self.db,
             stake - amount,

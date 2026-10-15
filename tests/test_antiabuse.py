@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from flyconomy import crash, economy, embeds, jackpot, mines, tictactoe
+from flyconomy import crash, economy, embeds, jackpot, mines, tictactoe, tournament
 from flyconomy.bot import describe_command_error
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.gambling import Gambling
@@ -32,6 +32,7 @@ from flyconomy.ratelimit import SlidingWindowLimiter
 from flyconomy.views import BlackjackView
 from tests.conftest import ALICE, BOB, CAROL
 from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser
+from tests.test_matches import alice, bob, build_match
 from tests.test_views import live_game
 
 #: Every wagering command, as (name, arguments before the stake).
@@ -637,6 +638,46 @@ class TestBountiesOnlyMoveMoney:
         await db.steal(CAROL, BOB, 1)
 
         assert await held() == before - economy.bounty_fee(100_000)
+
+
+class TestTheTournamentOnlyMovesMoney:
+    """The weekly pot is its own fees, so settling it can only shrink the supply.
+
+    And only games against the house set the score: a match is decided by
+    another member, so a pair of alts could hand one of them a score by losing
+    on purpose, which the house cannot be made to do.
+    """
+
+    WEEK = "2026-W41"
+
+    async def test_settling_never_pays_out_more_than_was_paid_in(self, db):
+        users = (ALICE, BOB, CAROL)
+        for user in users:
+            await db.add_bank(user, tournament.ENTRY_FEE)
+        before = sum([(await db.get_account(user)).bank for user in users])
+        for net, user in enumerate(users):
+            await db.join_tournament(user, self.WEEK, now=0.0)
+            await db.record_tournament_play(user, tournament.MIN_WAGERED, net)
+
+        result = await db.settle_tournament(self.WEEK, now=0.0)
+
+        after = sum([(await db.get_account(user)).bank for user in users])
+        assert result is not None
+        assert after == before - result.cut < before
+
+    async def test_a_won_match_sets_no_score(self, db):
+        for user in (ALICE, BOB):
+            await db.add_wallet(user, 1_000)
+            await db.add_bank(user, tournament.ENTRY_FEE)
+            await db.join_tournament(user, self.WEEK, now=0.0)
+        hold = await db.open_escrow("tictactoe", ALICE, BOB, 1_000)
+        match = build_match(db)(hold.hold_id, (alice(), bob()))
+
+        await match.settle(winner=alice())
+
+        entry = await db.tournament_entry(self.WEEK, ALICE)
+        assert entry is not None
+        assert (entry.net, entry.wagered) == (0, 0)
 
 
 class TestGrindingIsNotProfitable:
