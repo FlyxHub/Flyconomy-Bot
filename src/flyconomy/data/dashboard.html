@@ -79,6 +79,7 @@
       "conc supply"
       "pulse swarm"
       "left ledger"
+      "bounties tourney"
       "games games";
     gap: 22px 28px;
   }
@@ -324,6 +325,20 @@
   .ledger:not([data-board="net_worth"]) .worth-only { display: none; }
   .empty td { color: var(--text-2); padding: 22px 0; }
 
+  /* ------------------------------------------- bounties and tournament */
+  .bounties { grid-area: bounties; }
+  .tourney { grid-area: tourney; }
+  .figures { display: flex; flex-wrap: wrap; gap: 8px 32px; margin-bottom: 6px; }
+  .figures .label { display: block; font-size: 13px; color: var(--text-2); }
+  .figures b { font: 600 24px/1.2 var(--display); }
+  .bounties .figures b, .bounties td.amount { color: var(--amber); }
+  .week { font: 500 13px var(--display); letter-spacing: .06em; color: var(--text-2); }
+  /* Staked toward the qualifier: amber until it is met, then it can win. */
+  .meter.qualify i { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .meter.qualify.met i { background: var(--bull); box-shadow: 0 0 8px var(--bull); }
+  tr.unqualified td.name { color: var(--text-2); }
+  .tourney-last { margin: 12px 0 0; font-size: 14px; color: var(--text-2); }
+
   /* ------------------------------------------------------------ games */
   /* Every live mines board, mines face up. It folds away with the override
      when presenting, since anyone who sees it plays a solved board. */
@@ -376,7 +391,7 @@
   .pulse-box { position: relative; flex: 1; min-height: 220px; margin-top: 10px; }
 
   /* ----------------------------------------------------------- timers */
-  .timers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .timers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .timer { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
   .timer svg { width: 100%; max-width: 96px; transform: rotate(-90deg); overflow: visible; }
   .timer circle { fill: none; stroke-width: 5; }
@@ -430,7 +445,7 @@
   }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "swarm" "pulse" "left" "ledger" "games"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "swarm" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -544,6 +559,7 @@
         <div class="timer" data-key="tick"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="44"/><circle class="ring-fill" cx="50" cy="50" r="44" pathLength="1"/></svg><b>–</b><span>Market tick</span></div>
         <div class="timer" data-key="interest"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="44"/><circle class="ring-fill" cx="50" cy="50" r="44" pathLength="1"/></svg><b>–</b><span>Daily interest</span></div>
         <div class="timer" data-key="lottery"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="44"/><circle class="ring-fill" cx="50" cy="50" r="44" pathLength="1"/></svg><b>–</b><span>Lottery draw</span></div>
+        <div class="timer" data-key="tournament"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="44"/><circle class="ring-fill" cx="50" cy="50" r="44" pathLength="1"/></svg><b>–</b><span>Tournament</span></div>
       </div>
     </section>
 
@@ -575,6 +591,48 @@
       </thead>
       <tbody id="ledger-rows"></tbody>
     </table>
+  </section>
+
+  <section class="bounties frame" aria-labelledby="bounties-title">
+    <h2 class="frame-title" id="bounties-title">Bounties</h2>
+    <div class="figures">
+      <div><span class="label">Waiting to be collected</span><b id="bounty-total">–</b></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col"><span class="visually-hidden">Rank</span></th>
+          <th scope="col">Target</th>
+          <th scope="col" class="share">Share</th>
+          <th scope="col" class="num">Bounty</th>
+        </tr>
+      </thead>
+      <tbody id="bounty-rows"></tbody>
+    </table>
+  </section>
+
+  <section class="tourney frame" aria-labelledby="tourney-title">
+    <div class="ledger-head">
+      <h2 class="frame-title" id="tourney-title">Weekly tournament</h2>
+      <span class="week" id="tourney-week"></span>
+    </div>
+    <div class="figures">
+      <div><span class="label">Pot</span><b id="tourney-pot">–</b></div>
+      <div><span class="label">Winner takes</span><b id="tourney-takes">–</b></div>
+      <div><span class="label">Entrants</span><b id="tourney-entrants">–</b></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col"><span class="visually-hidden">Rank</span></th>
+          <th scope="col">Member</th>
+          <th scope="col" class="share">Staked toward qualifying</th>
+          <th scope="col" class="num">Net at the house</th>
+        </tr>
+      </thead>
+      <tbody id="tourney-rows"></tbody>
+    </table>
+    <p class="tourney-last" id="tourney-last"></p>
   </section>
 
   <div class="collapsible games-wrap"><div>
@@ -1164,6 +1222,74 @@ function renderConcentration() {
 
 function renderEconomy() { renderSupply(); renderConcentration(); }
 
+// ------------------------------------------------- bounties and tournament
+function meterCell(fraction, extra = "") {
+  const meter = document.createElement("div");
+  meter.className = "meter" + extra;
+  const bar = document.createElement("i");
+  bar.style.width = Math.max(2, Math.min(1, fraction) * 100).toFixed(1) + "%";
+  meter.append(bar);
+  return cell("share", meter);
+}
+
+function emptyRow(body, columns, text) {
+  const td = cell("", text);
+  td.colSpan = columns;
+  const tr = document.createElement("tr");
+  tr.className = "empty";
+  tr.append(td);
+  body.replaceChildren(tr);
+}
+
+function renderBounties() {
+  const { total, open } = overview.bounties;
+  rollNumber($("bounty-total"), total, money);
+  const body = $("bounty-rows");
+  if (!open.length) return emptyRow(body, 4, "Nobody has a bounty on them.");
+  const top = open[0].amount || 1;
+  body.replaceChildren(...open.map((row, i) => {
+    const tr = document.createElement("tr");
+    tr.append(
+      cell("rank", String(i + 1).padStart(2, "0")),
+      cell("name", row.name),
+      meterCell(row.amount / top),
+      cell("amount num", money(row.amount)),
+    );
+    return tr;
+  }));
+}
+
+// The standings are ranked the way the week will be settled, so an entrant
+// who has not staked enough yet keeps their place but is dimmed: they are in
+// the pot and cannot take it.
+function renderTournament() {
+  const t = overview.tournament;
+  $("tourney-week").textContent = t.week.replace("-W", " · week ");
+  rollNumber($("tourney-pot"), t.pot, money);
+  rollNumber($("tourney-takes"), t.winner_takes, money);
+  rollNumber($("tourney-entrants"), t.entrants, whole);
+  const body = $("tourney-rows");
+  if (!t.standings.length) emptyRow(body, 4, "Nobody has joined this week yet.");
+  else body.replaceChildren(...t.standings.map((row, i) => {
+    const tr = document.createElement("tr");
+    if (!row.qualified) tr.className = "unqualified";
+    tr.title = row.qualified
+      ? `Qualified, ${money(row.wagered)} staked`
+      : `${money(row.wagered)} of the ${money(t.min_wagered)} needed to qualify`;
+    tr.append(
+      cell("rank", String(i + 1).padStart(2, "0")),
+      cell("name", row.name),
+      meterCell(row.wagered / t.min_wagered, row.qualified ? " qualify met" : " qualify"),
+      cell("amount num", signed(row.net, money)),
+    );
+    return tr;
+  }));
+  const last = t.last;
+  $("tourney-last").textContent = !last ? "No week has been settled yet."
+    : last.winner ? `Last week (${last.week}): ${last.winner} took ${money(last.paid)} from ${whole(last.entrants)} entrants.`
+    : `Last week (${last.week}): refunded, too few entrants qualified.`;
+}
+
 // -------------------------------------------------------------- live mines
 // Mines are marked by glyph as well as colour; a pressed tile shows the
 // order it was turned over in, so the path the player took reads at a glance.
@@ -1240,7 +1366,8 @@ async function poll() {
     if (stale) await loadHistory();
     // Everything that ends on a live value redraws every poll; only the
     // price trace waits for a tick, because only a tick can move it.
-    renderGauge(); renderOverride(); renderLedger(); renderEconomy(); renderGames(); observe();
+    renderGauge(); renderOverride(); renderLedger(); renderEconomy(); renderGames();
+    renderBounties(); renderTournament(); observe();
     if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
   } catch (error) {
@@ -1410,6 +1537,7 @@ function fitCanvas(canvas) {
 const signedMoney = d => (d > 0 ? "+" : "−") + money(Math.abs(d));
 const seen = new Map(); // id -> { cash, coins }, as of the last poll
 let observed = false, lastPrice = null, lastPot = null;
+let lastBounties = new Map(), lastBountyTotal = 0, lastTourneyPot = null;
 
 function observe() {
   const price = overview.market.price;
@@ -1432,6 +1560,9 @@ function observe() {
   observed = true;
   lastPrice = price;
   lastPot = overview.lottery_pot;
+  lastBounties = new Map(overview.bounties.open.map(b => [b.id, b]));
+  lastBountyTotal = overview.bounties.total;
+  lastTourneyPot = overview.tournament.pot;
   if (reducedMotion) { drawSwarm(performance.now()); drawPulse(performance.now()); }
 }
 
@@ -1707,6 +1838,20 @@ function tickerChanges(changes, price) {
     const rest = sorted.slice(shown.length), total = rest.reduce((sum, c) => sum + c.dCash, 0);
     items.push(tickerItem(`${rest.length} more members`, signedMoney(total), total));
   }
+  // A bounty that grew was posted; one that left the board while the total
+  // fell was collected by a robbery.
+  for (const b of overview.bounties.open) {
+    const was = lastBounties.get(b.id)?.amount ?? 0;
+    if (b.amount > was) items.push(tickerItem(`Bounty on ${b.name}`, signedMoney(b.amount - was), 1));
+  }
+  if (overview.bounties.total < lastBountyTotal) {
+    const open = new Set(overview.bounties.open.map(b => b.id));
+    for (const [id, b] of lastBounties) {
+      if (!open.has(id)) items.push(tickerItem(`Bounty on ${b.name}`, `collected, ${money(b.amount)}`, 0));
+    }
+  }
+  const tourney = overview.tournament.pot - (lastTourneyPot ?? overview.tournament.pot);
+  if (tourney > 0) items.push(tickerItem("Tournament pot", signedMoney(tourney), tourney));
   if (!items.length) return;
 
   const track = $("ticker-track");
@@ -1744,6 +1889,7 @@ const timers = [...document.querySelectorAll(".timer")].map(node => ({
 
 function untilText(ms) {
   const s = Math.ceil(ms / 1000);
+  if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
   if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }

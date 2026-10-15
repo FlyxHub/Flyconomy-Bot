@@ -270,7 +270,10 @@ when its balance changes, a
 heartbeat-style trace that spikes with how much money moved in each
 five-second window, a ticker along the bottom of the screen naming who gained
 or lost what, and countdowns to the next market tick, daily interest payout,
-and lottery draw, read from the bot's own schedule. All of them follow the
+lottery draw, and the end of the tournament week, read from the bot's own
+schedule. Below the leaderboards sit the open bounties and this week's
+tournament: the pot, the standings ranked the way the week will settle, how
+far each entrant is from qualifying, and how last week ended. All of them follow the
 operating system's reduced-motion setting.
 
 To show it to someone, press **P** or the eye button in the top corner. That

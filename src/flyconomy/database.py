@@ -1332,6 +1332,14 @@ class Database:
                 row = await total.fetchone()
             return int(row["total"]) if row else posted
 
+    async def bounty_total(self) -> int:
+        """Return every dollar waiting on a bounty, across all targets."""
+        async with self._reader.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM bounties"
+        ) as cursor:
+            row = await cursor.fetchone()
+        return int(row["total"]) if row else 0
+
     async def top_bounties(self, limit: int = economy.LEADERBOARD_SIZE) -> list[LeaderboardEntry]:
         """Return the members with the largest bounties on them, largest first."""
         async with self._reader.execute(

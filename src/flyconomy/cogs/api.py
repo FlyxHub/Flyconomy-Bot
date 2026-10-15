@@ -11,6 +11,7 @@ market's regime, which nothing member-facing may, and it can arm a run.
 
 from __future__ import annotations
 
+import datetime
 import ipaddress
 import itertools
 import logging
@@ -19,11 +20,12 @@ import time
 from collections.abc import Sequence
 from importlib import resources
 from typing import Final
+from zoneinfo import ZoneInfo
 
 from aiohttp import web
 from aiohttp.typedefs import Handler
 
-from flyconomy import economy, mines
+from flyconomy import economy, mines, tournament
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.base import BaseCog
@@ -166,6 +168,49 @@ class Api(BaseCog, name="Api"):
             for message_id, v in boards
         ]
 
+    async def _tournament(self) -> dict[str, object]:
+        """This week's tournament as it stands, and how last week ended."""
+        now = datetime.datetime.now(ZoneInfo(self.timezone))
+        week = tournament.week_of(now)
+        pot, entrants, leaders = await self.db.tournament_standings(week)
+        last = await self.db.last_tournament_result()
+        return {
+            "week": week,
+            "pot": pot,
+            "entrants": entrants,
+            "winner_takes": tournament.payout(pot),
+            "min_wagered": tournament.MIN_WAGERED,
+            "standings": [
+                {
+                    "id": str(e.user_id),
+                    "name": self._name(e.user_id),
+                    "net": e.net,
+                    "wagered": e.wagered,
+                    "qualified": e.qualified,
+                }
+                for e in leaders
+            ],
+            "last": None
+            if last is None
+            else {
+                "week": last.week,
+                "winner": None if last.winner_id is None else self._name(last.winner_id),
+                "paid": last.paid,
+                "entrants": last.entrants,
+            },
+        }
+
+    def _tournament_ends(self) -> float | None:
+        """When this week's tournament settles, or ``None`` if nothing will settle it.
+
+        The settling job wakes every midnight but only acts on a Monday, so
+        its own next run is not the moment that matters. The week's end is,
+        shown only while that job is actually running to act on it.
+        """
+        if self._next_run("Tournament", "settle_loop") is None:
+            return None
+        return tournament.week_ends(datetime.datetime.now(ZoneInfo(self.timezone))).timestamp()
+
     def _board(self, entries: list[LeaderboardEntry]) -> list[dict[str, object]]:
         # Ids as strings: snowflakes are past JavaScript's safe integers.
         return [
@@ -217,12 +262,18 @@ class Api(BaseCog, name="Api"):
                     },
                     "interest": {"at": self._next_run("Economy", "interest_loop"), "every": 86_400},
                     "lottery": {"at": self._next_run("Lottery", "draw_loop"), "every": 86_400},
+                    "tournament": {"at": self._tournament_ends(), "every": 7 * 86_400},
                 },
                 "mines": {
                     "columns": mines.COLUMNS,
                     "tiles": mines.TILES,
                     "games": self._live_mines(),
                 },
+                "bounties": {
+                    "total": await self.db.bounty_total(),
+                    "open": self._board(await self.db.top_bounties()),
+                },
+                "tournament": await self._tournament(),
                 "circulating": await self.db.total_crypto(),
                 "leaderboards": {
                     "net_worth": self._board(await self.db.top_net_worth()),

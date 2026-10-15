@@ -7,11 +7,12 @@ import random
 import time
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 from aiohttp import test_utils, web
 
-from flyconomy import economy, mines
+from flyconomy import economy, mines, tournament
 from flyconomy.cogs.api import Api, is_local_host, top_share
 from flyconomy.config import Settings
 from flyconomy.database import Database
@@ -202,6 +203,47 @@ class TestApi:
         # A job that is not running has no time to count down to.
         assert schedule["lottery"]["at"] is None
         assert schedule["tick"]["every"] == economy.FLX_TICK_MINUTES * 60
+
+    async def test_the_tournament_counts_down_to_the_weeks_end_only_while_it_settles(
+        self, client, bot
+    ):
+        schedule = (await (await client.get("/api/overview")).json())["schedule"]
+        assert schedule["tournament"]["at"] is None
+
+        soon = datetime.datetime(2026, 10, 15, tzinfo=datetime.UTC)
+        bot.cogs["Tournament"] = SimpleNamespace(settle_loop=SimpleNamespace(next_iteration=soon))
+        schedule = (await (await client.get("/api/overview")).json())["schedule"]
+
+        # The job wakes nightly, but the week only settles on a Monday.
+        at = datetime.datetime.fromtimestamp(
+            schedule["tournament"]["at"], ZoneInfo("America/Chicago")
+        )
+        assert (at.weekday(), at.hour, at.minute) == (0, 0, 0)
+        assert schedule["tournament"]["every"] == 7 * 86_400
+
+    async def test_the_overview_carries_open_bounties(self, client, db):
+        await db.add_bank(ALICE, 1_000)
+        await db.post_bounty(ALICE, BOB, 1_000)
+
+        body = (await (await client.get("/api/overview")).json())["bounties"]
+
+        assert body["total"] == 900
+        assert body["open"] == [{"id": str(BOB), "name": str(BOB), "amount": 900}]
+
+    async def test_the_overview_carries_this_weeks_tournament(self, client, db):
+        week = tournament.week_of(datetime.datetime.now(ZoneInfo("America/Chicago")))
+        await db.add_bank(ALICE, tournament.ENTRY_FEE)
+        await db.join_tournament(ALICE, week, now=0.0)
+        await db.record_tournament_play(ALICE, 500, 800)
+
+        body = (await (await client.get("/api/overview")).json())["tournament"]
+
+        assert (body["week"], body["pot"], body["entrants"]) == (week, tournament.ENTRY_FEE, 1)
+        assert body["winner_takes"] == tournament.payout(tournament.ENTRY_FEE)
+        assert body["standings"] == [
+            {"id": str(ALICE), "name": str(ALICE), "net": 300, "wagered": 500, "qualified": False}
+        ]
+        assert body["last"] is None
 
     async def test_live_mines_boards_are_served_face_up_until_settled(self, client, bot, db):
         game = mines.Game(stake=500, mine_tiles=frozenset({3, 9}))
