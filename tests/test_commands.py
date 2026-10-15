@@ -65,6 +65,8 @@ ADDED_COMMANDS = {
 ADDED_UTILITIES = {
     "secure": ("security",),
     "pay": ("transfer",),
+    "bounty": (),
+    "bounties": (),
 }
 
 ALL_MEMBER_COMMANDS = V1_MEMBER_COMMANDS | ADDED_COMMANDS | ADDED_UTILITIES

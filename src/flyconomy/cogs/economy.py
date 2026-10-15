@@ -283,13 +283,54 @@ class Economy(BaseCog, name="Economy"):
 
         amount = self.rng.randint(1, victim.wallet)
         try:
-            await self.db.steal(ctx.author.id, member.id, amount)
+            bounty = await self.db.steal(ctx.author.id, member.id, amount)
         except InsufficientFundsError:
             # Their wallet shrank since it was read. The shortfall is theirs,
             # not the thief's, so it must not reach the shared translation.
             await ctx.send("They moved their money before you got to it. Try again in an hour.")
             return
-        await ctx.send(f"You robbed {embeds.money(amount)} from {member.mention}")
+        collected = f" and collected the {embeds.money(bounty)} bounty on them" if bounty else ""
+        await ctx.send(f"You robbed {embeds.money(amount)} from {member.mention}{collected}")
+
+    @commands.hybrid_command(name="bounty")  # type: ignore[arg-type]
+    @app_commands.describe(
+        member="Who to put the bounty on.",
+        amount="Dollars to pay from your bank, fee included.",
+    )
+    async def bounty(
+        self,
+        ctx: commands.Context[FlyconomyBot],
+        member: discord.Member,
+        amount: commands.Range[int, economy.MIN_BOUNTY],
+    ) -> None:
+        """Put a bounty on someone. Whoever robs them next collects it."""
+        if member.id == ctx.author.id:
+            await ctx.send("You cannot put a bounty on yourself.")
+            return
+        if member.bot:
+            await ctx.send("Bots do not have wallets to rob.")
+            return
+
+        total = await self.db.post_bounty(ctx.author.id, member.id, amount)
+        fee = economy.bounty_fee(amount)
+        await ctx.send(
+            f"{ctx.author.mention} put {embeds.money(amount - fee)} on {member.mention}'s head "
+            f"({embeds.money(fee)} fee). The next successful `/rob` on them collects "
+            f"**{embeds.money(total)}**."
+        )
+
+    @commands.hybrid_command(name="bounties")  # type: ignore[arg-type]
+    async def bounties(self, ctx: commands.Context[FlyconomyBot]) -> None:
+        """Show the largest bounties waiting to be collected."""
+        await ctx.send(
+            embed=embeds.leaderboard_embed(
+                title="Open bounties",
+                description="Rob one of these members to collect the bounty on top.",
+                entries=await self.db.top_bounties(),
+                timezone=self.timezone,
+                empty="Nobody has a bounty on them.",
+            )
+        )
 
     @commands.hybrid_command(name="secure", aliases=["security"])  # type: ignore[arg-type]
     async def secure(self, ctx: commands.Context[FlyconomyBot]) -> None:

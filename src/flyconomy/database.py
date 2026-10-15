@@ -32,7 +32,7 @@ from flyconomy.errors import DailyBuyLimitError, InsufficientFundsError
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 13
+SCHEMA_VERSION: Final = 14
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -1031,13 +1031,19 @@ class Database:
                 "UPDATE bank SET crypto = crypto + ? WHERE user = ?", (amount, recipient_id)
             )
 
-    async def steal(self, thief_id: int, victim_id: int, amount: int) -> None:
-        """Move wallet cash from a victim to a thief in one transaction.
+    async def steal(self, thief_id: int, victim_id: int, amount: int) -> int:
+        """Move wallet cash from a victim to a thief, and pay out any bounty.
+
+        Every bounty on the victim goes to the thief in the same transaction as
+        the theft, so a robbery that is refused can never collect one.
 
         Args:
             thief_id: Member receiving the cash.
             victim_id: Member losing it.
             amount: Dollars to move. Must be positive.
+
+        Returns:
+            The bounty collected on top of the stolen cash, zero if none.
 
         Raises:
             InsufficientFundsError: If the victim's wallet is too small.
@@ -1058,9 +1064,67 @@ class Database:
                 raise InsufficientFundsError(
                     await self._read_column(db, victim_id, "wallet"), amount
                 )
+            async with db.execute(
+                "SELECT COALESCE(SUM(amount), 0) AS total FROM bounties WHERE target = ?",
+                (victim_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            bounty = int(row["total"]) if row else 0
             await db.execute(
-                "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (amount, thief_id)
+                "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (amount + bounty, thief_id)
             )
+            await db.execute("DELETE FROM bounties WHERE target = ?", (victim_id,))
+            return bounty
+
+    async def post_bounty(self, poster_id: int, target_id: int, amount: int) -> int:
+        """Pay for a bounty on a member out of the poster's bank.
+
+        The fee from :func:`flyconomy.economy.bounty_fee` is destroyed and the
+        rest waits on the target until a robbery against them lands. Bounties
+        from different posters stack.
+
+        Args:
+            poster_id: Member paying for the bounty.
+            target_id: Member the bounty is on.
+            amount: Dollars the poster pays, fee included.
+
+        Returns:
+            The whole bounty now on the target.
+
+        Raises:
+            InsufficientFundsError: If the poster's bank cannot cover it.
+        """
+        posted = amount - economy.bounty_fee(amount)
+        async with self._transaction() as db:
+            await self.ensure_account(poster_id)
+            cursor = await db.execute(
+                "UPDATE bank SET bank = bank - ? WHERE user = ? AND bank >= ?",
+                (amount, poster_id, amount),
+            )
+            if cursor.rowcount == 0:
+                raise InsufficientFundsError(
+                    await self._read_column(db, poster_id, "bank"), amount, "bank funds"
+                )
+            await db.execute(
+                "INSERT INTO bounties (target, poster, amount) VALUES (?, ?, ?) "
+                "ON CONFLICT (target, poster) DO UPDATE SET amount = amount + excluded.amount",
+                (target_id, poster_id, posted),
+            )
+            async with db.execute(
+                "SELECT SUM(amount) AS total FROM bounties WHERE target = ?", (target_id,)
+            ) as total:
+                row = await total.fetchone()
+            return int(row["total"]) if row else posted
+
+    async def top_bounties(self, limit: int = economy.LEADERBOARD_SIZE) -> list[LeaderboardEntry]:
+        """Return the members with the largest bounties on them, largest first."""
+        async with self._reader.execute(
+            "SELECT target, SUM(amount) AS total FROM bounties GROUP BY target "
+            "ORDER BY total DESC, target ASC LIMIT ?",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [LeaderboardEntry(user_id=row["target"], amount=row["total"]) for row in rows]
 
     async def pay(
         self,
@@ -1951,6 +2015,13 @@ class Database:
         ante out of the pot along with the account that paid it, which is what
         happens to every other balance a purge deletes.
 
+        Bounties on the purged member go back to the members who posted them,
+        less the fee they already paid, since nobody can rob an account that no
+        longer exists. A self-reset keeps them on the target instead: a bounty
+        a member could clear by resetting would be no bounty at all. Bounties
+        the purged member posted stay on their targets, because that money had
+        already left their account.
+
         Args:
             user_id: The member's Discord snowflake. Not validated as a real
                 Discord user — purging a bogus id is the point.
@@ -1959,6 +2030,15 @@ class Database:
             What was deleted.
         """
         async with self._transaction() as db:
+            async with db.execute(
+                "SELECT poster, amount FROM bounties WHERE target = ?", (user_id,)
+            ) as cursor:
+                posted = list(await cursor.fetchall())
+            for row in posted:
+                await db.execute(
+                    "UPDATE bank SET bank = bank + ? WHERE user = ?", (row["amount"], row["poster"])
+                )
+            await db.execute("DELETE FROM bounties WHERE target = ?", (user_id,))
             await db.execute("DELETE FROM resets WHERE user = ?", (user_id,))
             await db.execute("DELETE FROM flx_purchases WHERE user = ?", (user_id,))
             await db.execute("DELETE FROM balance_history WHERE user = ?", (user_id,))
@@ -2326,6 +2406,22 @@ async def _migration_13_wagers(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_14_bounties(db: aiosqlite.Connection) -> None:
+    """Add the bounties members post on each other.
+
+    The ``bank`` table is untouched. One row per poster and target, so a
+    staff purge of the target can hand each poster back what they paid in.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS bounties ("
+        "  target INTEGER NOT NULL,"
+        "  poster INTEGER NOT NULL,"
+        "  amount INTEGER NOT NULL CHECK (amount > 0),"
+        "  PRIMARY KEY (target, poster)"
+        ") WITHOUT ROWID"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -2340,4 +2436,5 @@ _MIGRATIONS: Final = {
     11: _migration_11_market_regime,
     12: _migration_12_history,
     13: _migration_13_wagers,
+    14: _migration_14_bounties,
 }

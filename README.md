@@ -386,6 +386,8 @@ mentioning the bot works as a prefix too.
 | `withdraw [amount]` | Moves money from your bank to your wallet. Defaults to your whole bank balance. |
 | `beg` | Pays $1 to $100 half the time. Cooldown: 60 seconds. |
 | `rob <member>` | Takes a random share of a member's wallet. Lands half the time against an undefended wallet, less against a secured one. Cooldown: 1 hour. |
+| `bounty <member> <amount>` | Puts a bounty on a member, paid from your bank. 10% is destroyed as a fee; the next successful `rob` on them collects the rest. Bounties stack, never expire, and survive the target's `resetme`. Minimum $100. |
+| `bounties` | Ranks the 10 largest open bounties. |
 | `pay <member> <amount>` | Sends bank money to another member, minus a 5% transfer tax. Minimum $100. Alias: `transfer`. |
 | `secure` | Raises your wallet security one level, paid from your bank balance. Alias: `security`. |
 | `leaderboard` | Ranks the top 10 members by net worth. Alias: `lb`. |
@@ -700,6 +702,12 @@ robbery outright, would be a worse problem than the one it was added to solve.
 paid back into the economy rather than destroyed, so a transfer is a pure
 redistribution: the supply never rises, and no pair of members can churn
 transfers into a profit. See [Transfers](#transfers).
+
+**A bounty is a transfer with a robbery in the middle.** Its 10% fee is
+destroyed, which makes posting one a sink, and it is never cheaper than `pay`,
+so a colluding pair gains nothing by routing money through bounties on each
+other. It only pays out on a robbery that lands, against a wallet with cash in
+it, so wallet security protects against bounty hunters too.
 
 **The market is capped, because it is the one thing here that multiplies.**
 Every game is bounded by having no positive expected value. The market cannot be

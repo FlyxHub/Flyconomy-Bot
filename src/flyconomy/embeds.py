@@ -76,6 +76,8 @@ def leaderboard_embed(
     description: str,
     entries: list[LeaderboardEntry],
     timezone: str,
+    *,
+    empty: str = "Nobody has any money yet.",
 ) -> discord.Embed:
     """Build a ranked listing embed.
 
@@ -84,12 +86,13 @@ def leaderboard_embed(
         description: One line of context shown above the rankings.
         entries: Ranked entries, highest first.
         timezone: IANA timezone for the embed timestamp.
+        empty: What to say when there are no entries.
 
     Returns:
         A populated embed, or one saying the board is empty.
     """
     if not entries:
-        body = "Nobody has any money yet."
+        body = empty
     else:
         body = "\n".join(
             f"{rank}. {money(entry.amount)} - <@{entry.user_id}>"

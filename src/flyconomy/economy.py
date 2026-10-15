@@ -352,6 +352,26 @@ TRANSFER_POT_SHARE: Final = 0.5
 #: than the tax takes, at any rate the settings allow.
 MIN_TRANSFER: Final = 100
 
+#: Share of a bounty destroyed when it is posted.
+#:
+#: A bounty is money handed to whoever next robs the target, which makes it a
+#: transfer with a robbery in the middle. It must therefore never be cheaper
+#: than ``pay``, or a colluding pair would post bounties on each other instead
+#: of paying; ``tests/test_antiabuse.py`` pins it at or above the transfer tax.
+#: Unlike that tax the fee is destroyed outright, so posting a bounty is a sink.
+BOUNTY_FEE_RATE: Final = 0.10
+
+#: Smallest bounty ``bounty`` accepts, so the fee is never rounded to nothing.
+MIN_BOUNTY: Final = 100
+
+
+def bounty_fee(amount: int) -> int:
+    """Return the dollars destroyed when a bounty of ``amount`` is posted.
+
+    Rounded up, so the fee never falls below its rate.
+    """
+    return math.ceil(amount * BOUNTY_FEE_RATE)
+
 
 @dataclass(frozen=True, slots=True)
 class TransferSplit:

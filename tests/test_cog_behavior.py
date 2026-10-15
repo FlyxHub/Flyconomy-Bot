@@ -708,6 +708,56 @@ class TestRob:
         assert alice.wallet + bob.wallet == 1_000
         assert alice.wallet > 0
 
+    async def test_a_successful_robbery_announces_the_bounty_it_collected(self, db, settings, ctx):
+        cog = _seeded(make_economy(FakeBot(db, settings)), 1)
+        await db.add_bank(CAROL, 1_000)
+        await db.post_bounty(CAROL, BOB, 1_000)
+        await db.add_wallet(BOB, 1_000)
+
+        while await db.top_bounties():
+            await cog.rob.callback(cog, ctx, FakeUser(id=BOB))
+
+        assert "collected the $900 bounty" in ctx.last
+
+
+class TestBounty:
+    async def test_a_bounty_is_posted_from_the_bank(self, db, settings, ctx):
+        cog = make_economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 1_000)
+        before = (await db.get_account(ALICE)).bank
+
+        await cog.bounty.callback(cog, ctx, FakeUser(id=BOB), 1_000)
+
+        assert (await db.get_account(ALICE)).bank == before - 1_000
+        assert "$900" in ctx.last
+
+    async def test_a_bounty_on_yourself_is_refused(self, db, settings, ctx):
+        cog = make_economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 1_000)
+
+        await cog.bounty.callback(cog, ctx, FakeUser(id=ALICE), 1_000)
+
+        assert "yourself" in ctx.last
+        assert await db.top_bounties() == []
+
+    async def test_a_bounty_on_a_bot_is_refused(self, db, settings, ctx):
+        cog = make_economy(FakeBot(db, settings))
+        await db.add_bank(ALICE, 1_000)
+
+        await cog.bounty.callback(cog, ctx, FakeUser(id=BOB, bot=True), 1_000)
+
+        assert await db.top_bounties() == []
+
+    async def test_the_board_lists_open_bounties(self, db, settings, ctx):
+        cog = make_economy(FakeBot(db, settings))
+        await cog.bounties.callback(cog, ctx)
+        assert "Nobody has a bounty" in ctx.embeds[-1].description
+
+        await db.add_bank(ALICE, 1_000)
+        await db.post_bounty(ALICE, BOB, 1_000)
+        await cog.bounties.callback(cog, ctx)
+        assert f"<@{BOB}>" in ctx.embeds[-1].description
+
 
 async def _buy_security(db, settings, user_id: int, levels: int) -> None:
     """Buy ``levels`` of wallet security for a member, funding the bank first."""

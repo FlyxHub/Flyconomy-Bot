@@ -144,6 +144,16 @@ in one go.
 
 -# The tax on `/pay` is not destroyed: half of it feeds the lottery pot, so every transfer makes somebody's draw a little richer.
 
+## 🎯 Bounties
+
+`/bounty @member <amount>` puts money on someone's head, paid from your bank.
+10% is taken as a fee and destroyed; the rest waits on them until somebody's
+`/rob` against them lands, and that robber collects all of it on top of the
+cash. Bounties stack, never expire, and survive a `/resetme`. $100 minimum.
+
+A bounty only pays out on a robbery that works, so a target who banks
+everything and buys `/secure` is a hard collect. `/bounties` lists the biggest.
+
 ════════════════════════════════════ 5 of 8 ════════════════════════════════════
 
 # 🎰 The casino
@@ -245,7 +255,7 @@ builds something worth showing up for.
 # 📋 House rules & cheat sheet
 
 - **Maximum bet:** $100,000 a wager. A bet over the limit is refused outright and costs you nothing.
-- **Rate limit:** six game commands per 10 seconds, shared across every game. Spamming is throttled, not punished.
+- **Rate limit:** six game commands per 10 seconds, shared across every game.
 - **Cooldowns:** `beg` 60 seconds · `slots` 5 minutes · `mine` and `rob` 1 hour.
 - **Daily interest:** paid automatically at 8:00 AM to every account, 10% of your bank up to $10,000. You don't claim it, and you can't miss it.
 - **`/resetme` is a last resort, not a comeback.** It deletes everything you own — cash, coins, miner, security — and seeds you a fresh account. Reset again straight away and you get less: $1,000, then $500, then $250, then nothing. Leave it 24 hours and you're back to the full $1,000. Starting over is allowed; doing it four times in a day just leaves you with nothing.
@@ -257,7 +267,7 @@ builds something worth showing up for.
 BANKING     /balance  /deposit  /withdraw  /pay  /leaderboard  /wallets
 INCOME      /beg  /mine  /upgrade  (bank interest is automatic)
 DEFENCE     /secure
-ROBBERY     /rob @member
+ROBBERY     /rob @member  /bounty  /bounties
 FLYXCOIN    /flx info  /flx buy  /flx sell  /flx send
 CASINO      /coinflip  /dice  /rps  /roulette  /slots  /war
             /blackjack  /crash  /mines

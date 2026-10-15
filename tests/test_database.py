@@ -411,6 +411,77 @@ class TestPeerTransfers:
             await db.transfer_crypto(ALICE, BOB, amount)
 
 
+class TestBounties:
+    async def test_posting_debits_the_bank_and_keeps_the_fee_back(self, db: Database):
+        await db.add_bank(ALICE, 1_000)
+        before = (await db.get_account(ALICE)).bank
+
+        total = await db.post_bounty(ALICE, BOB, 1_000)
+
+        assert total == 1_000 - economy.bounty_fee(1_000)
+        assert (await db.get_account(ALICE)).bank == before - 1_000
+
+    async def test_bounties_from_several_posters_stack(self, db: Database):
+        await db.add_bank(ALICE, 1_000)
+        await db.add_bank(CAROL, 1_000)
+        await db.post_bounty(ALICE, BOB, 1_000)
+        await db.post_bounty(CAROL, BOB, 500)
+        await db.post_bounty(ALICE, BOB, 500)
+
+        [entry] = await db.top_bounties()
+        assert entry.user_id == BOB
+        assert entry.amount == 2_000 - 2 * economy.bounty_fee(500) - economy.bounty_fee(1_000)
+
+    async def test_a_bounty_the_bank_cannot_cover_moves_nothing(self, db: Database):
+        await db.ensure_account(ALICE)
+        bank = (await db.get_account(ALICE)).bank
+        with pytest.raises(InsufficientFundsError):
+            await db.post_bounty(ALICE, BOB, bank + 1)
+        assert await db.top_bounties() == []
+
+    async def test_a_robbery_collects_every_bounty_on_the_victim(self, db: Database):
+        await db.add_bank(ALICE, 1_000)
+        await db.post_bounty(ALICE, BOB, 1_000)
+        await db.add_wallet(BOB, 400)
+        await db.ensure_account(CAROL)
+        carol_before = (await db.get_account(CAROL)).wallet
+
+        collected = await db.steal(CAROL, BOB, 100)
+
+        assert collected == 900
+        assert (await db.get_account(CAROL)).wallet == carol_before + 100 + 900
+        assert await db.top_bounties() == []
+
+    async def test_a_refused_robbery_collects_nothing(self, db: Database):
+        await db.add_bank(ALICE, 1_000)
+        await db.post_bounty(ALICE, BOB, 1_000)
+        await db.add_wallet(BOB, 10)
+
+        with pytest.raises(InsufficientFundsError):
+            await db.steal(CAROL, BOB, 11)
+
+        assert (await db.top_bounties())[0].amount == 900
+
+    async def test_a_self_reset_does_not_clear_a_bounty(self, db: Database):
+        await db.add_bank(ALICE, 1_000)
+        await db.post_bounty(ALICE, BOB, 1_000)
+        await db.ensure_account(BOB)
+
+        await db.reset_account(BOB, now=0.0)
+
+        assert (await db.top_bounties())[0].amount == 900
+
+    async def test_purging_the_target_refunds_the_posters(self, db: Database):
+        await db.add_bank(ALICE, 1_000)
+        before = (await db.get_account(ALICE)).bank
+        await db.post_bounty(ALICE, BOB, 1_000)
+
+        await db.purge_user(BOB)
+
+        assert (await db.get_account(ALICE)).bank == before - economy.bounty_fee(1_000)
+        assert await db.top_bounties() == []
+
+
 class TestTaxedTransfers:
     async def test_the_recipient_is_credited_net_of_the_tax(self, db: Database):
         await db.add_bank(ALICE, 10_000)

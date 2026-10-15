@@ -605,6 +605,40 @@ class TestTransfersOnlyMoveMoney:
         assert split.net > split.tax
 
 
+class TestBountiesOnlyMoveMoney:
+    """A bounty is a transfer with a robbery in the middle, so it may not mint.
+
+    The fee is destroyed rather than redistributed, which makes posting one a
+    sink, and it must cost at least what ``pay`` does: a cheaper rail would
+    send a colluding pair's transfers through bounties on each other instead.
+    """
+
+    def test_a_bounty_costs_at_least_what_pay_does(self):
+        settings = Settings(discord_token="placeholder")
+        assert settings.transfer_tax_rate <= economy.BOUNTY_FEE_RATE
+
+    @pytest.mark.parametrize("amount", [economy.MIN_BOUNTY, 1_000, 100_000, 5_000_000])
+    def test_the_fee_is_never_rounded_away(self, amount):
+        assert economy.bounty_fee(amount) >= amount * economy.BOUNTY_FEE_RATE > 0
+
+    async def test_posting_and_collecting_a_bounty_never_raises_the_supply(self, db):
+        # The colluding pair: Alice pays a bounty on Bob, and Carol (her alt)
+        # collects it. The trio ends with less than it started with.
+        await db.add_bank(ALICE, 100_000)
+        await db.add_wallet(BOB, 1)
+        await db.ensure_account(CAROL)
+
+        async def held() -> int:
+            accounts = [await db.get_account(user) for user in (ALICE, BOB, CAROL)]
+            return sum(a.wallet + a.bank for a in accounts)
+
+        before = await held()
+        await db.post_bounty(ALICE, BOB, 100_000)
+        await db.steal(CAROL, BOB, 1)
+
+        assert await held() == before - economy.bounty_fee(100_000)
+
+
 class TestGrindingIsNotProfitable:
     """The end-to-end property: playing a lot must not create money."""
 
