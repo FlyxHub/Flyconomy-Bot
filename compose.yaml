@@ -30,8 +30,7 @@ services:
       - 1.0.0.1
     # The owner's dashboard, which stays silent until FLYCONOMY_DASHBOARD_ENABLED
     # is true. Published on the host's loopback unless FLYCONOMY_API_BIND (read
-    # from .env) names an interface. It has no login and can steer the market:
-    # never bind it to one that faces the internet.
+    # from .env) names an interface. Visitors sign in with Discord.
     ports:
       - "${FLYCONOMY_API_BIND:-127.0.0.1}:8765:8765"
     stop_grace_period: 30s

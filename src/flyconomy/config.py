@@ -159,9 +159,24 @@ class Settings(BaseSettings):
     dashboard_enabled: bool = Field(
         default=False,
         description=(
-            "Serve the owner's dashboard on port 8765. It has no login and can "
-            "steer the market, so it is off unless asked for, and only as safe "
-            "as the network it is reachable from."
+            "Serve the dashboard on port 8765. Visitors sign in with Discord: "
+            "the bot's owner gets the market controls, server members a view "
+            "without them. Needs dashboard_client_secret."
+        ),
+    )
+    dashboard_client_secret: SecretStr | None = Field(
+        default=None,
+        description=(
+            "OAuth2 client secret of the bot's application, from the Developer "
+            "Portal's OAuth2 page. The dashboard will not start without it."
+        ),
+    )
+    dashboard_url: str = Field(
+        default="http://localhost:8765",
+        description=(
+            "Address the dashboard is opened at, with no trailing slash. Discord "
+            "sends visitors back to <dashboard_url>/callback after they sign in, "
+            "so that exact URL must be listed as a redirect in the Developer Portal."
         ),
     )
     api_host: str = Field(
@@ -186,6 +201,7 @@ class Settings(BaseSettings):
         "creator_tax_user_id",
         "lottery_announce_channel_id",
         "guide_channel_id",
+        "dashboard_client_secret",
         mode="before",
     )
     @classmethod
@@ -213,6 +229,14 @@ class Settings(BaseSettings):
                 f"lottery_rake ({self.lottery_rake}) + creator_tax_rate "
                 f"({self.creator_tax_rate}) must not exceed 1"
             )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _check_dashboard_can_sign_in(self) -> Settings:
+        """Refuse to serve a dashboard nobody could sign in to, rather than one without a login."""
+        if self.dashboard_enabled and self.dashboard_client_secret is None:
+            msg = "dashboard_enabled needs dashboard_client_secret for the Discord sign-in"
             raise ValueError(msg)
         return self
 

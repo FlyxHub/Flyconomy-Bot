@@ -7,13 +7,15 @@ import random
 import time
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import pytest
 from aiohttp import test_utils, web
 
 from flyconomy import economy, mines, tournament
-from flyconomy.cogs.api import Api, is_local_host, top_share
+from flyconomy.cogs.admin import steer_market
+from flyconomy.cogs.api import SESSION_COOKIE, Api, is_local_host, top_share
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB
@@ -22,17 +24,34 @@ from tests.test_mines import make_view
 
 HOUR = 3600
 
+OWNER = 9001
+MEMBER = 9002
+STRANGER = 9003
+
+type Client = test_utils.TestClient[web.Request, web.Application]
+
 
 class FakeApiBot:
     """The bot surface the API cog reads."""
+
+    application_id = 4242
 
     def __init__(self, db: Database, settings: Settings) -> None:
         self.db = db
         self.settings = settings
         self.cogs: dict[str, object] = {}
+        # Alice and Bob stay unseen, so their names read back as their ids.
+        self.users = {
+            OWNER: SimpleNamespace(id=OWNER, display_name="Owner", mutual_guilds=[object()]),
+            MEMBER: SimpleNamespace(id=MEMBER, display_name="Member", mutual_guilds=[object()]),
+            STRANGER: SimpleNamespace(id=STRANGER, display_name="Stranger", mutual_guilds=[]),
+        }
 
-    def get_user(self, _user_id: int) -> None:
-        return None
+    def get_user(self, user_id: int) -> object | None:
+        return self.users.get(user_id)
+
+    async def is_owner(self, user: SimpleNamespace) -> bool:
+        return bool(user.id == OWNER)
 
     def get_cog(self, name: str) -> object | None:
         return self.cogs.get(name)
@@ -40,7 +59,9 @@ class FakeApiBot:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(discord_token="placeholder", dashboard_enabled=True)
+    return Settings(
+        discord_token="placeholder", dashboard_enabled=True, dashboard_client_secret="hush"
+    )
 
 
 @pytest.fixture
@@ -49,13 +70,34 @@ def bot(db: Database, settings: Settings) -> FakeApiBot:
 
 
 @pytest.fixture
-async def client(
-    bot: FakeApiBot,
-) -> AsyncIterator[test_utils.TestClient[web.Request, web.Application]]:
+def cog(bot: FakeApiBot) -> Api:
     cog = Api(bot)  # type: ignore[arg-type]
     cog.rng = random.Random(1)
+    return cog
+
+
+@pytest.fixture
+async def anonymous(cog: Api) -> AsyncIterator[Client]:
     async with test_utils.TestClient(test_utils.TestServer(cog.make_app())) as client:
         yield client
+
+
+def sign_in(cog: Api, client: Client, user_id: int) -> None:
+    """Skip Discord: hand the client a session as if it had signed in."""
+    cog._sessions[f"token-{user_id}"] = (user_id, time.time() + HOUR)
+    client.session.cookie_jar.update_cookies({SESSION_COOKIE: f"token-{user_id}"})
+
+
+@pytest.fixture
+def client(cog: Api, anonymous: Client) -> Client:
+    sign_in(cog, anonymous, OWNER)
+    return anonymous
+
+
+@pytest.fixture
+def member(cog: Api, anonymous: Client) -> Client:
+    sign_in(cog, anonymous, MEMBER)
+    return anonymous
 
 
 class TestHistory:
@@ -147,6 +189,7 @@ class TestApi:
 
         body = await (await client.get("/api/overview")).json()
 
+        assert body["viewer"] == {"name": "Owner", "admin": True}
         assert body["market"] == {
             "price": economy.FLX_PRICE,
             "regime": "calm",
@@ -362,3 +405,130 @@ class TestApi:
 
         assert response.status == 415
         assert (await db.get_market()).regime == "calm"
+
+
+async def start_sign_in(client: Client) -> dict[str, str]:
+    """Open /login and return the query it sends the browser to Discord with."""
+    login = await client.get("/login", allow_redirects=False)
+    sent = urlsplit(login.headers["Location"])
+    assert sent.netloc == "discord.com"
+    return {k: v[0] for k, v in parse_qs(sent.query).items()}
+
+
+def discord_says(cog: Api, monkeypatch: pytest.MonkeyPatch, user_id: int) -> None:
+    async def identify(_code: str) -> int:
+        return user_id
+
+    monkeypatch.setattr(cog, "_identify", identify)
+
+
+class TestSignIn:
+    async def test_a_visitor_with_no_session_is_sent_to_sign_in(self, anonymous):
+        page = await anonymous.get("/", allow_redirects=False)
+        assert (page.status, page.headers["Location"]) == (302, "/login")
+
+        assert (await anonymous.get("/api/overview")).status == 401
+        response = await anonymous.post("/api/market", json={"direction": "bull"})
+        assert response.status == 401
+
+    async def test_signing_in_goes_through_discord_and_back(self, anonymous, cog, monkeypatch):
+        discord_says(cog, monkeypatch, OWNER)
+
+        query = await start_sign_in(anonymous)
+        assert query["client_id"] == "4242"
+        assert query["redirect_uri"] == "http://localhost:8765/callback"
+        assert query["scope"] == "identify"
+
+        back = await anonymous.get(
+            f"/callback?code=one-time&state={query['state']}", allow_redirects=False
+        )
+        assert (back.status, back.headers["Location"]) == (302, "/")
+
+        body = await (await anonymous.get("/api/overview")).json()
+        assert body["viewer"] == {"name": "Owner", "admin": True}
+
+    async def test_a_callback_this_browser_did_not_start_signs_nobody_in(
+        self, anonymous, cog, monkeypatch
+    ):
+        discord_says(cog, monkeypatch, OWNER)
+        await start_sign_in(anonymous)
+
+        back = await anonymous.get("/callback?code=stolen&state=forged", allow_redirects=False)
+
+        assert back.status == 400
+        assert cog._sessions == {}
+
+    async def test_someone_outside_the_bots_servers_is_refused_at_the_door(
+        self, anonymous, cog, monkeypatch
+    ):
+        discord_says(cog, monkeypatch, STRANGER)
+        state = (await start_sign_in(anonymous))["state"]
+
+        back = await anonymous.get(f"/callback?code=x&state={state}", allow_redirects=False)
+
+        # Refused here, not on the next page load, which would loop via Discord.
+        assert back.status == 403
+        assert cog._sessions == {}
+
+    async def test_signing_out_ends_the_session(self, client):
+        assert (await client.post("/logout")).status == 200
+        assert (await client.get("/api/overview")).status == 401
+
+    async def test_an_expired_session_is_no_session(self, cog, anonymous):
+        cog._sessions["old"] = (OWNER, time.time() - 1)
+        anonymous.session.cookie_jar.update_cookies({SESSION_COOKIE: "old"})
+
+        assert (await anonymous.get("/api/overview")).status == 401
+
+    async def test_the_dashboards_own_address_is_accepted(self, db):
+        settings = Settings(
+            discord_token="placeholder",
+            dashboard_enabled=True,
+            dashboard_client_secret="hush",
+            dashboard_url="https://dash.example.com",
+        )
+        cog = Api(FakeApiBot(db, settings))  # type: ignore[arg-type]
+        async with test_utils.TestClient(test_utils.TestServer(cog.make_app())) as client:
+            sign_in(cog, client, OWNER)
+            ok = await client.get("/api/overview", headers={"Host": "dash.example.com"})
+            elsewhere = await client.get("/api/overview", headers={"Host": "evil.example"})
+
+        assert (ok.status, elsewhere.status) == (200, 421)
+
+    def test_the_dashboard_will_not_start_without_a_way_to_sign_in(self):
+        with pytest.raises(ValueError, match="dashboard_client_secret"):
+            Settings(discord_token="placeholder", dashboard_enabled=True)
+
+
+class TestMemberView:
+    async def test_a_member_is_never_sent_the_regime(self, member, db, cog):
+        await steer_market(db, "bull", cog.rng)
+
+        response = await member.get("/api/overview")
+        body = await response.json()
+
+        assert body["viewer"] == {"name": "Member", "admin": False}
+        assert "regime" not in body["market"]
+        assert "ticks_left" not in body["market"]
+        assert "bull" not in (await response.text()).lower()
+
+    async def test_a_member_is_never_sent_a_live_mines_board(self, member, bot, db):
+        live = make_view(db, mines.Game(stake=500, mine_tiles=frozenset({3})), FakeUser(ALICE))
+        live.message = SimpleNamespace(id=1)  # type: ignore[assignment]
+        bot.cogs["Casino"] = SimpleNamespace(live_mines={live})
+
+        body = await (await member.get("/api/overview")).json()
+
+        assert "mines" not in body
+
+    async def test_a_member_cannot_steer_the_market(self, member, db):
+        response = await member.post("/api/market", json={"direction": "bull"})
+
+        assert response.status == 403
+        assert (await db.get_market()).regime == "calm"
+
+    async def test_a_member_still_sees_the_charts(self, member, db):
+        await db.ensure_account(ALICE)
+        await db.record_history(int(time.time()), 5_000)
+
+        assert (await member.get("/api/history?hours=1")).status == 200

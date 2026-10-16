@@ -110,6 +110,11 @@
   body.presenting .present { opacity: .35; }
   body.presenting .present:hover, body.presenting .present:focus-visible { opacity: 1; }
   body.presenting .present .slash { opacity: 1; }
+  /* A member never gets the controls, so there is nothing to hide. */
+  body.member .present { display: none; }
+  .who { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; color: var(--text-2); }
+  .who button { cursor: pointer; padding: 6px 10px; border: 1px solid var(--frame); background: none; color: var(--holo); font: inherit; }
+  .who button:hover { border-color: var(--holo); }
   .link { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
   .link::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bull); box-shadow: 0 0 10px var(--bull); }
   .link.lost { color: var(--bear); }
@@ -474,6 +479,7 @@
         <button data-hours="744" aria-pressed="false">31 days</button>
       </div>
       <span id="link" class="link" role="status">Connecting to the bot</span>
+      <form class="who" method="post" action="/logout"><span id="who"></span><button>Sign out</button></form>
       <button id="present" class="present" aria-pressed="false" aria-label="Hide market controls" title="Hide market controls (P)">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>
@@ -792,6 +798,8 @@ function rollPrice(to, ms = TWEEN_MS) {
 // -------------------------------------------------------------------- data
 async function api(path, options) {
   const response = await fetch(path, options);
+  // The session ran out or the bot restarted: sign in again and come back.
+  if (response.status === 401) location.assign("/login");
   const text = await response.text();
   let body = null;
   try { body = JSON.parse(text); } catch {}
@@ -818,10 +826,12 @@ function renderGauge() {
     rollPrice(market.price);
   }
   // While presenting, the dial behaves as if the market were calm.
-  document.querySelector(".gauge").dataset.regime = presenting ? "calm" : market.regime;
+  // A member is never sent the regime, so for them the market always reads calm.
+  const regime = market.regime ?? "calm";
+  document.querySelector(".gauge").dataset.regime = presenting ? "calm" : regime;
   const state = $("state");
-  state.className = "state " + market.regime;
-  state.textContent = market.regime === "calm" ? "Market calm" : `${market.regime === "bull" ? "Bull" : "Bear"} run, ${ticksLeft(market.ticks_left)}`;
+  state.className = "state " + regime;
+  state.textContent = regime === "calm" ? "Market calm" : `${regime === "bull" ? "Bull" : "Bear"} run, ${ticksLeft(market.ticks_left)}`;
 
   rollNumber($("pot"), overview.lottery_pot, money);
   rollNumber($("circulating"), overview.circulating, whole);
@@ -1375,7 +1385,9 @@ async function poll() {
     if (stale) await loadHistory();
     // Everything that ends on a live value redraws every poll; only the
     // price trace waits for a tick, because only a tick can move it.
-    renderGauge(); renderOverride(); renderLedger(); renderEconomy(); renderGames();
+    showViewer();
+    renderGauge(); renderLedger(); renderEconomy();
+    if (overview.viewer.admin) { renderOverride(); renderGames(); }
     renderBounties(); renderTournament(); observe();
     if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
@@ -1496,6 +1508,7 @@ let presenting = false;
 try { presenting = localStorage.getItem(PRESENTING_KEY) === "1"; } catch {}
 
 function setPresenting(on) {
+  on ||= member;
   presenting = on;
   document.body.classList.toggle("presenting", on);
   $("override-wrap").inert = on;
@@ -1506,11 +1519,23 @@ function setPresenting(on) {
   button.setAttribute("aria-label", label);
   button.title = `${label} (P)`;
   if (on && armed !== null) { stopHold(); armed = null; }
-  if (overview) { renderGauge(); renderOverride(); }
-  try { localStorage.setItem(PRESENTING_KEY, on ? "1" : "0"); } catch {}
+  if (overview) { renderGauge(); if (overview.viewer.admin) renderOverride(); }
+  // A member's forced view is not a preference worth remembering.
+  if (!member) try { localStorage.setItem(PRESENTING_KEY, on ? "1" : "0"); } catch {}
 }
 
 $("present").addEventListener("click", () => setPresenting(!presenting));
+
+// The server leaves the regime and the mines boards out of a member's
+// overview; this only tidies away the panels that would sit empty.
+let member = false;
+function showViewer() {
+  $("who").textContent = overview.viewer.name;
+  if (overview.viewer.admin || member) return;
+  member = true;
+  document.body.classList.add("member");
+  setPresenting(true);
+}
 document.addEventListener("keydown", e => {
   if (e.key.toLowerCase() !== "p" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
   setPresenting(!presenting);

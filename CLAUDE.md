@@ -97,16 +97,22 @@ is lost. Keep that passing.
 
 `cogs/api.py` serves `data/dashboard.html` and the JSON it reads, from inside the bot, on one
 port and one origin, switched on by `dashboard_enabled`. It is in the bot's process because the
-database is: SQLite must not be shared over a network or opened by a second writer. It has **no
-login, by the owner's decision**, resting on a network only they use — a `ponytail:` comment in
-`make_app` marks where Basic auth goes if that stops being true. The owner's browser is on that
-network too, so `is_local_host` refuses any `Host` a website could own (DNS rebinding) and the
-page refuses to be framed; without those, any site the owner visits is inside the trusted
-network. Two things are load-bearing.
-The dashboard is **owner-only, never member-facing** — it names the regime, which the rule under
-Anti-abuse forbids anywhere a member can see. And its market buttons go through `admin.steer_market`, the same
-function `$market` calls, so a run armed from the web is the same run as one armed from
-Discord. Don't give the web its own copy. History is written by the market tick
+database is: SQLite must not be shared over a network or opened by a second writer. Visitors
+**sign in with Discord** (OAuth2, `identify` scope; the `guard` middleware in `make_app`), and
+the role is worked out on every request in `Api._viewer`: `bot.is_owner` — the same check
+`$market` makes — is the admin, a member of any server the bot is in is a viewer, anyone else is
+refused at the callback rather than on the next page load, which would loop through Discord.
+Sessions are an in-memory dict, so a restart signs everyone out. The `Host` allow-list
+(`dashboard_url`'s host plus `is_local_host`) and the no-framing headers stay as a second lock
+behind the session cookie. Three things are load-bearing.
+**A member's overview leaves out the regime, `ticks_left`, and the live mines boards on the
+server**; the page's presenting mode only tidies away the empty panels. The regime is what the
+rule under Anti-abuse forbids anywhere a member can see, and a face-up board is a solved one, so
+hiding them in the browser would be no protection at all — `TestMemberView` in
+`tests/test_api.py` pins it. A new owner-only field goes behind `viewer.admin` in `overview`, not
+behind a CSS class. The market endpoint refuses a non-owner with 403. And its market buttons go
+through `admin.steer_market`, the same function `$market` calls, so a run armed from the web is
+the same run as one armed from Discord. Don't give the web its own copy. History is written by the market tick
 (`Database.record_history`): the price every tick, balances hourly, sharing one `at` so net worth
 is always valued at the price of its own snapshot. Hourly is the history, not the present: the
 overview also carries the economy's live totals, valued at the same price as the rest of that

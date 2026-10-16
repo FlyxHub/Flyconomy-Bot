@@ -14,7 +14,7 @@ classic prefix command, such as `$balance`.
 - [Create a Discord application](#create-a-discord-application)
 - [Set up the bot on Windows](#set-up-the-bot-on-windows)
 - [Deploy the bot with Docker Compose](#deploy-the-bot-with-docker-compose)
-- [Run the owner's dashboard](#run-the-owners-dashboard)
+- [Run the dashboard](#run-the-dashboard)
 - [Upgrade from version 1](#upgrade-from-version-1)
 - [Configuration reference](#configuration-reference)
 - [Command reference](#command-reference)
@@ -253,7 +253,7 @@ SQLite in write-ahead logging mode keeps recent writes in a `bot.db-wal` file
 alongside the database. Stopping the bot first, as in the preceding commands,
 checkpoints that file so the copy is complete.
 
-## Run the owner's dashboard
+## Run the dashboard
 
 The dashboard is a web page for you, the owner. It shows the Flyxcoin price
 and every member's net worth over time, the leaderboards, and the lottery pot.
@@ -261,8 +261,13 @@ Two charts track the season's health: the money supply, split into banks,
 wallets, and Flyxcoin, which shows whether the economy is inflating; and the
 share of all money held by the richest 10% of members, which shows whether a
 few players are pulling away. It also has buttons that do what
-`$market bull|bear|neutral` does. It is not
-for members: it names the market's regime, which nothing member-facing does.
+`$market bull|bear|neutral` does.
+
+Visitors sign in with Discord. You, the bot's owner, see everything. A member
+of any server the bot is in sees the same page without the market override,
+the run status, or the live mines boards: the bot leaves those out of what it
+sends them, so there is nothing in the page for them to dig out. Anyone else
+is turned away.
 
 The rest of the page shows the economy moving as it happens: a swarm that
 places every member along a net worth axis, marks the median, and flares a dot
@@ -276,38 +281,52 @@ tournament: the pot, the standings ranked the way the week will settle, how
 far each entrant is from qualifying, and how last week ended. All of them follow the
 operating system's reduced-motion setting.
 
-To show it to someone, press **P** or the eye button in the top corner. That
-hides the market override and everything that gives a run away: the run status
-under the price, and the gauge ring's run colours and speed. Press it again to
-bring them back. The setting survives a reload, so refreshing the page in
-front of people does not reveal anything.
+To show it to someone over your shoulder, press **P** or the eye button in
+the top corner. That hides the market override and everything that gives a
+run away: the run status under the price, and the gauge ring's run colours and
+speed. Press it again to bring them back. The setting survives a reload, so
+refreshing the page in front of people does not reveal anything. Members
+always get this view and have no button.
 
 The bot serves the dashboard itself, on port 8765, so there is nothing else
 to run. On the bot host:
 
-1. Add these to `.env`, using the host's own LAN address:
+1. In the [Developer Portal](https://discord.com/developers/applications),
+   open the bot's application, go to **OAuth2**, copy the **Client Secret**,
+   and add a redirect of `http://192.168.1.50:8765/callback`, using the
+   host's own LAN address.
+2. Add these to `.env`:
 
    ```
    FLYCONOMY_DASHBOARD_ENABLED=true
+   FLYCONOMY_DASHBOARD_CLIENT_SECRET=<the client secret>
+   FLYCONOMY_DASHBOARD_URL=http://192.168.1.50:8765
    FLYCONOMY_API_BIND=192.168.1.50
    ```
 
-2. Run `./scripts/deploy.sh`.
-3. Open `http://192.168.1.50:8765` from any machine on your network.
+3. Run `./scripts/deploy.sh`.
+4. Open `http://192.168.1.50:8765` and sign in with Discord.
 
-Leave `FLYCONOMY_API_BIND` at its default of `127.0.0.1` and the dashboard is
-reachable only from the bot host itself.
+The bot refuses to start with the dashboard on and no client secret, rather
+than serve it without a sign-in. Leave `FLYCONOMY_API_BIND` at its default of
+`127.0.0.1` and the dashboard is reachable only from the bot host itself.
 
-The dashboard has no login. Anything that can reach the port can start a run,
-so publish it only on a network where you trust every device, and never on an
-internet-facing address. To use it away from home, put the host on a private
-network such as Tailscale rather than forwarding the port.
+Sign-ins last a week and are kept in memory, so restarting the bot signs
+everyone out. Signing back in is one redirect, since Discord remembers that
+you agreed the first time. Whether someone is the owner or a member is checked
+on every request, so leaving the server locks them out at once.
 
-Open it by IP address, `localhost`, a bare machine name, or a `.local` name.
-Any other hostname is refused, Tailscale's MagicDNS names included (use the
-host's `100.x` address), because a website you visit can point a domain it
-owns at your network and then read the page and press its buttons through
-your browser.
+Don't publish it on an internet-facing address yet. It speaks plain HTTP, so
+anyone between a visitor and the bot could read their session cookie and use
+it. Put HTTPS in front first, with a reverse proxy or a tunnel, and set
+`FLYCONOMY_DASHBOARD_URL` to the `https://` address so the cookie is only
+ever sent encrypted.
+
+The dashboard answers to the host in `FLYCONOMY_DASHBOARD_URL`, an IP address,
+`localhost`, a bare machine name, or a `.local` name, and refuses any other
+hostname. A website you visit can point a domain it owns at your network;
+the sign-in already keeps it out, since your session cookie belongs to the
+dashboard's own address, and this refusal is a second lock.
 
 Graphs begin when the bot first runs with this version. Before that, the bot
 kept no history. Each market tick records the price, every five minutes.
@@ -372,7 +391,9 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |
 | `FLYCONOMY_DEV_GUILD_ID` | No | None | Server to sync slash commands to. Set it while developing; leave it empty in production. |
 | `FLYCONOMY_ALWAYS_MINE_USER_IDS` | No | Empty | Comma-separated user IDs whose mine attempts always succeed. |
-| `FLYCONOMY_DASHBOARD_ENABLED` | No | `false` | Serves the [dashboard](#run-the-owners-dashboard) on port 8765. It has no login. |
+| `FLYCONOMY_DASHBOARD_ENABLED` | No | `false` | Serves the [dashboard](#run-the-dashboard) on port 8765. Needs the two settings below. |
+| `FLYCONOMY_DASHBOARD_CLIENT_SECRET` | With the dashboard | None | The OAuth2 client secret of the bot's application, for the Discord sign-in. |
+| `FLYCONOMY_DASHBOARD_URL` | No | `http://localhost:8765` | The address the dashboard is opened at. `<this>/callback` must be a redirect in the Developer Portal. |
 | `FLYCONOMY_API_HOST` | No | `127.0.0.1` | Interface the dashboard listens on. Compose sets `0.0.0.0` inside the container. |
 | `FLYCONOMY_API_BIND` | No | `127.0.0.1` | Compose only: the host interface the dashboard is published on. |
 
