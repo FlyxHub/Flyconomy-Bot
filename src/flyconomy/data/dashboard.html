@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Saira:wdth,wght@75..125,300..700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js" integrity="sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R" crossorigin="anonymous"></script>
 <style>
   /* A heads-up display for one operator. Cyan watches, amber acts,
      mint and red mean a run is moving the market. */
@@ -77,7 +78,7 @@
       "bar bar"
       "gauge trace"
       "conc supply"
-      "pulse swarm"
+      "pulse skyline"
       "left ledger"
       "bounties tourney"
       "games games";
@@ -379,18 +380,28 @@
   }
   @keyframes ping { from { transform: scale(1); opacity: .9; } to { transform: scale(4.5); opacity: 0; } }
 
-  /* ------------------------------------------------------------ swarm */
-  .swarm { grid-area: swarm; display: flex; flex-direction: column; }
-  .swarm p, .pulse p { margin: 0 0 10px; font-size: 14px; color: var(--text-2); }
-  .swarm-box { position: relative; flex: 1; min-height: 340px; }
-  .swarm-box canvas, .pulse-box canvas { display: block; width: 100%; height: 100%; }
-  .swarm-tip {
+  /* ---------------------------------------------------------- skyline */
+  .skyline { grid-area: skyline; display: flex; flex-direction: column; }
+  .skyline p, .pulse p { margin: 0 0 10px; font-size: 14px; color: var(--text-2); }
+  .skyline-box { position: relative; flex: 1; min-height: 380px; overflow: hidden; }
+  .skyline-box canvas, .pulse-box canvas { display: block; width: 100%; height: 100%; }
+  /* Dragging sideways orbits the city; scrolling the page still works. */
+  .skyline-box canvas { cursor: grab; touch-action: pan-y; }
+  .skyline-box canvas:active { cursor: grabbing; }
+  .skyline-median { position: absolute; top: 6px; left: 8px; margin: 0; font: 400 12px var(--body); color: var(--amber); pointer-events: none; }
+  .skyline-labels svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .skyline-labels line { stroke: var(--text-2); stroke-opacity: .5; }
+  .skyline-labels span {
+    position: absolute; top: 0; left: 0; pointer-events: none; white-space: nowrap;
+    font: 400 12px var(--body); color: var(--text); text-shadow: 0 0 6px var(--void), 0 0 2px var(--void);
+  }
+  .skyline-tip {
     position: absolute; pointer-events: none; transform: translate(-50%, calc(-100% - 12px));
     padding: 6px 10px; white-space: nowrap;
     background: rgba(4, 8, 13, .92); border: 1px solid var(--amber);
     font: 600 14px var(--display);
   }
-  .swarm-tip span { display: block; font: 400 12px var(--body); color: var(--text-2); }
+  .skyline-tip span { display: block; font: 400 12px var(--body); color: var(--text-2); }
 
   /* ------------------------------------------------------------ pulse */
   .pulse { grid-area: pulse; display: flex; flex-direction: column; }
@@ -454,7 +465,7 @@
   }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "swarm" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -541,10 +552,10 @@
     <div class="pulse-box"><canvas id="pulse" role="img" aria-label="A scrolling trace that spikes with how much money moved in each five-second window"></canvas></div>
   </section>
 
-  <section class="swarm frame" aria-labelledby="swarm-title">
-    <h2 class="frame-title" id="swarm-title">Wealth spread</h2>
-    <p>Each dot is a member, placed by net worth. A dot flares when its balance changes and trails where it moved from.</p>
-    <div class="swarm-box"><canvas id="swarm" role="img" aria-label="Every member plotted along a net worth axis, flaring when a balance changes"></canvas><div class="swarm-tip" id="swarm-tip" hidden></div></div>
+  <section class="skyline frame" aria-labelledby="skyline-title">
+    <h2 class="frame-title" id="skyline-title">Wealth skyline</h2>
+    <p>Each building is a member, as tall as their net worth. Blue windows are cash, the amber tower on top is Flyxcoin. A beam rises when a balance changes. Drag to look around.</p>
+    <div class="skyline-box"><canvas id="skyline" role="img" aria-label="A city of buildings, one per member, each as tall as that member's net worth, the richest in the middle"></canvas><p class="skyline-median" id="skyline-median"></p><div class="skyline-labels" id="skyline-labels" aria-hidden="true"><svg><line/><line/><line/></svg><span hidden></span><span hidden></span><span hidden></span></div><div class="skyline-tip" id="skyline-tip" hidden></div></div>
   </section>
 
   <div class="left">
@@ -1579,7 +1590,7 @@ setTimeout(() => document.body.classList.remove("instant"), 50);
 // ============================================================ live motion
 //
 // Everything below reads the same five-second poll. Each poll is compared
-// with the one before it, and that one comparison feeds the swarm's flares,
+// with the one before it, and that one comparison feeds the skyline's beams,
 // the ticker, and the pulse, so the three can never tell different stories.
 
 const C = {};
@@ -1616,7 +1627,7 @@ function observe() {
   seen.clear();
   for (const [id, , cash, coins] of overview.members) seen.set(id, { cash, coins });
 
-  swarmUpdate(changes, price);
+  skylineUpdate(changes, price);
   if (observed) {
     const moved = changes.reduce((sum, c) => sum + Math.abs(c.dCash) + Math.abs(c.dCoins) * price, 0);
     pulsePush(moved);
@@ -1628,192 +1639,279 @@ function observe() {
   lastBounties = new Map(overview.bounties.open.map(b => [b.id, b]));
   lastBountyTotal = overview.bounties.total;
   lastTourneyPot = overview.tournament.pot;
-  if (reducedMotion) { drawSwarm(performance.now()); drawPulse(performance.now()); }
+  if (reducedMotion) { drawSkyline(performance.now()); drawPulse(performance.now()); }
 }
 
-// ------------------------------------------------------------------ swarm
+// ---------------------------------------------------------------- skyline
 //
-// A beeswarm: every member on one net worth axis, nudged up or down only as
-// far as it takes not to overlap, so where a dot sits across the axis is the
-// whole reading and a crowd of similar balances shows as a crowd.
-const DOT = 5, SCAN_MS = 6000, TRAIL_MS = 1600;
-const dots = new Map(); // id -> { name, worth, rank, x, y, tx, ty, trail, flare }
-let swarmScale = null, laidOutAt = "";
-
-function swarmUpdate(changes, price) {
-  const present = new Set();
-  overview.members.forEach(([id, name, cash, coins], i) => {
-    let dot = dots.get(id);
-    if (!dot) { dot = { x: null, y: null, trail: [], flare: null }; dots.set(id, dot); }
-    Object.assign(dot, { name, worth: Math.max(0, cash + coins * price), rank: i });
-    present.add(id);
-  });
-  for (const id of [...dots.keys()]) if (!present.has(id)) dots.delete(id);
-  for (const c of changes) {
-    const dot = dots.get(c.id);
-    if (dot) dot.flare = { start: performance.now(), up: c.dCash + c.dCoins * price >= 0 };
-  }
-  laidOutAt = ""; // the balances moved, so the targets must too
-}
-
+// A night city: every member is a building, as tall as their net worth on a
+// log scale. The lit block at street level is cash and the amber setback
+// tower on top of it is Flyxcoin at today's price. The richest stand in the
+// middle and the city grows outward by rank, so the skyline's shape is the
+// economy's. A building throws a beam of light when its balance changes.
+const CELL = 1.4, STOREY = 0.22, TOWER = 14, FLARE_MS = 2400;
+const buildings = new Map(); // id -> building, see addBuilding
+const orbit = { angle: 0.7, tilt: 0.2, dist: 30, drag: null };
 const shortMoney = v => v >= 1e9 ? `$${+(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `$${+(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${+(v / 1e3).toFixed(1)}k` : `$${Math.round(v)}`;
 
-// The axis is logarithmic and spans whole decades, so its labels are always
-// round figures. Balances span orders of magnitude; a linear axis would pin
-// everyone but the richest against the left edge.
-function scaleFor(w) {
-  const worths = [...dots.values()].map(d => d.worth).filter(v => v > 0);
-  let lo = worths.length ? Math.floor(Math.log10(Math.min(...worths))) : 3;
-  const hi = worths.length ? Math.max(lo + 1, Math.ceil(Math.log10(Math.max(...worths)))) : 6;
+// Lots nearest the middle first, so the member ranked n always gets lot n.
+const LOTS = [];
+for (let gx = -12; gx < 12; gx++) for (let gz = -12; gz < 12; gz++) LOTS.push([(gx + 0.5) * CELL, (gz + 0.5) * CELL]);
+LOTS.sort((a, b) => Math.hypot(...a) - Math.hypot(...b) || Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]));
+
+const sky = (() => {
+  try {
+    const renderer = new THREE.WebGLRenderer({ canvas: $("skyline"), antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const scene = new THREE.Scene(), night = new THREE.Color(css("--void"));
+    // The sky is the fog's colour, so the far streets fade into it with no horizon line.
+    renderer.setClearColor(night);
+    scene.fog = new THREE.Fog(night, 40, 110);
+    scene.add(new THREE.HemisphereLight(css("--holo"), night, 0.25));
+    const moon = new THREE.DirectionalLight(0xbfe6ff, 0.35);
+    moon.position.set(-30, 40, 20);
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x060d15 }));
+    ground.rotation.x = -Math.PI / 2;
+    // The grid's lines fall between the lots, so they read as streets.
+    const streets = new THREE.GridHelper(CELL * 60, 60, css("--holo-dim"), css("--holo-dim"));
+    Object.assign(streets.material, { transparent: true, opacity: 0.3 });
+    streets.position.y = 0.01;
+
+    const stars = new THREE.BufferGeometry(), at = [];
+    for (let i = 0; i < 500; i++) {
+      const a = Math.random() * Math.PI * 2, e = 0.1 + Math.random() * 1.3;
+      at.push(Math.cos(a) * Math.cos(e) * 200, Math.sin(e) * 200, Math.sin(a) * Math.cos(e) * 200);
+    }
+    stars.setAttribute("position", new THREE.Float32BufferAttribute(at, 3));
+    const starMat = new THREE.PointsMaterial({ color: css("--text"), size: 1.3, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.55 });
+
+    // The median is a faint amber plane across the city: everyone whose
+    // roof clears it is better off than half the server.
+    const median = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ color: css("--amber"), transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false }));
+    median.rotation.x = -Math.PI / 2;
+    const rim = [];
+    for (let i = 0; i < 64; i++) rim.push(new THREE.Vector3(Math.cos(i / 64 * Math.PI * 2), Math.sin(i / 64 * Math.PI * 2), 0));
+    median.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(rim), new THREE.LineBasicMaterial({ color: css("--amber"), transparent: true, opacity: 0.5 })));
+
+    scene.add(moon, ground, streets, new THREE.Points(stars, starMat), median);
+
+    // One tile of windows, eight across and sixteen storeys, some dark.
+    const tile = document.createElement("canvas");
+    tile.width = 64; tile.height = 128;
+    const g = tile.getContext("2d");
+    g.fillStyle = "#000"; g.fillRect(0, 0, 64, 128);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) {
+      if (Math.random() < 0.42) continue;
+      const v = 110 + Math.floor(Math.random() * 146);
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.fillRect(x * 8 + 2, y * 8 + 2, 4, 5);
+    }
+    const windows = new THREE.CanvasTexture(tile);
+    windows.wrapS = windows.wrapT = THREE.RepeatWrapping;
+    windows.magFilter = THREE.NearestFilter;
+    windows.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+    return {
+      renderer, scene, median, windows, w: 0, h: 0, radius: 0, medianY: 0,
+      camera: new THREE.PerspectiveCamera(36, 1, 0.1, 500),
+      raycaster: new THREE.Raycaster(),
+      box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
+      beam: new THREE.CylinderGeometry(1, 1, 1, 16, 1, true).translate(0, 0.5, 0),
+      spire: new THREE.CylinderGeometry(0.02, 0.07, 1, 6).translate(0, 0.5, 0),
+      beacon: new THREE.SphereGeometry(0.09, 8, 6),
+      roof: new THREE.MeshLambertMaterial({ color: 0x0a1520 }),
+    };
+  } catch (error) {
+    // No WebGL (or no three.js): say so rather than leave a blank panel.
+    console.error("The skyline could not start", error);
+    $("skyline").replaceWith(Object.assign(document.createElement("p"), { textContent: "The skyline needs WebGL, which this browser has switched off." }));
+    return null;
+  }
+})();
+
+function addBuilding(id) {
+  const facade = colour => {
+    const map = sky.windows.clone();
+    map.needsUpdate = true;
+    map.offset.set(Math.random(), Math.random());
+    return new THREE.MeshLambertMaterial({ color: 0x0c1824, emissive: colour, emissiveMap: map });
+  };
+  const cashMat = facade(css("--holo")), coinMat = facade(css("--amber"));
+  const base = new THREE.Mesh(sky.box, [cashMat, cashMat, cashMat, cashMat, sky.roof, sky.roof]);
+  const top = new THREE.Mesh(sky.box, [coinMat, coinMat, coinMat, coinMat, sky.roof, sky.roof]);
+  const beam = new THREE.Mesh(sky.beam, new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const spire = new THREE.Mesh(sky.spire, sky.roof);
+  const beacon = new THREE.Mesh(sky.beacon, new THREE.MeshBasicMaterial({ color: css("--bear") }));
+  const group = new THREE.Group();
+  group.add(base, top, beam, spire, beacon);
+  base.userData.id = top.userData.id = id;
+  sky.scene.add(group);
+  // A footprint of its own, so the city is not a grid of identical blocks.
+  const n = [...String(id)].reduce((s, c) => (s * 31 + c.charCodeAt(0)) % 997, 7);
+  const b = { group, base, top, beam, spire, beacon, cashMat, coinMat, width: 0.78 + (n % 20) / 100, h: 0, x: null, z: null, flare: null };
+  buildings.set(id, b);
+  return b;
+}
+
+function removeBuilding(id, b) {
+  sky.scene.remove(b.group);
+  for (const mat of [b.cashMat, b.coinMat]) { mat.emissiveMap.dispose(); mat.dispose(); }
+  b.beam.material.dispose();
+  b.beacon.material.dispose();
+  buildings.delete(id);
+}
+
+function skylineUpdate(changes, price) {
+  if (!sky) return;
+  const present = new Set();
+  overview.members.forEach(([id, name, cash, coins], rank) => {
+    const b = buildings.get(id) ?? addBuilding(id);
+    Object.assign(b, { name, cash, coins, rank, worth: Math.max(0, cash + coins * price) });
+    present.add(id);
+  });
+  for (const [id, b] of buildings) if (!present.has(id)) removeBuilding(id, b);
+  for (const c of changes) {
+    const b = buildings.get(c.id);
+    if (b) b.flare = { start: performance.now(), up: c.dCash + c.dCoins * price >= 0 };
+  }
+
+  // Heights are logarithmic over whole decades: balances span orders of
+  // magnitude, and a linear scale would flatten everyone but the richest.
+  const worths = [...buildings.values()].map(b => b.worth), positive = worths.filter(v => v > 0);
+  let lo = positive.length ? Math.floor(Math.log10(Math.min(...positive))) : 3;
+  const hi = positive.length ? Math.max(lo + 1, Math.ceil(Math.log10(Math.max(...positive)))) : 6;
   if (hi - lo < 2) lo = hi - 2;
-  const left = 24, right = w - 24;
-  return { lo, hi, x: v => left + ((Math.log10(Math.max(v, 10 ** lo)) - lo) / (hi - lo)) * (right - left) };
+  const height = v => 0.3 + ((Math.log10(Math.max(v, 10 ** lo)) - lo) / (hi - lo)) * TOWER;
+  for (const b of buildings.values()) {
+    b.th = height(b.worth);
+    b.share = b.worth > 0 ? Math.min(1, (b.coins * price) / b.worth) : 0;
+    [b.tx, b.tz] = LOTS[Math.min(b.rank, LOTS.length - 1)];
+    if (b.x === null) { b.x = b.tx; b.z = b.tz; }
+  }
+
+  worths.sort((a, b) => a - b);
+  const median = worths.length % 2 ? worths[(worths.length - 1) / 2] : (worths[worths.length / 2 - 1] + worths[worths.length / 2]) / 2;
+  sky.medianY = worths.length ? height(median) : 0;
+  sky.median.visible = worths.length > 0;
+  $("skyline-median").textContent = worths.length ? `Median ${shortMoney(median)}` : "";
+  sky.radius = Math.sqrt(buildings.size / Math.PI) * CELL + CELL;
 }
 
-function layoutSwarm(w, h) {
-  swarmScale = scaleFor(w);
-  const axisY = h - 28, mid = (axisY + 22) / 2, need = DOT * 2 + 2;
-  const placed = [];
-  // The richest are placed first, so they hold the centre line and the
-  // crowd at the bottom of the economy fans out around them.
-  for (const dot of [...dots.values()].sort((a, b) => b.worth - a.worth)) {
-    dot.tx = swarmScale.x(dot.worth);
-    const near = placed.filter(p => Math.abs(p.tx - dot.tx) < need);
-    let offset = 0;
-    for (let k = 0; k < 200; k++) {
-      offset = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2;
-      if (near.every(p => Math.hypot(p.tx - dot.tx, p.ty - (mid + offset)) >= need)) break;
-    }
-    dot.ty = Math.max(30, Math.min(axisY - DOT - 4, mid + offset));
-    placed.push(dot);
-    if (dot.x === null) { dot.x = dot.tx; dot.y = dot.ty; }
+// Windows stay one size however tall a building grows.
+const fitWindows = (mat, w, h) => mat.emissiveMap.repeat.set(w / (8 * STOREY), h / (16 * STOREY));
+
+function drawSkyline(now) {
+  if (!sky) return;
+  const canvas = sky.renderer.domElement, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  if (w !== sky.w || h !== sky.h) {
+    sky.renderer.setSize(w, h, false);
+    sky.camera.aspect = w / h;
+    sky.camera.updateProjectionMatrix();
+    sky.w = w; sky.h = h;
   }
+  const k = reducedMotion ? 1 : 0.07;
+
+  // A slow drift around the city; dragging takes over.
+  if (!reducedMotion && !orbit.drag) orbit.angle += 0.0012;
+  orbit.dist += (Math.max(12, sky.radius * 1.45 + 8) - orbit.dist) * k;
+  const look = TOWER * 0.3, { angle, tilt, dist } = orbit;
+  sky.camera.position.set(Math.cos(angle) * Math.cos(tilt) * dist, look + Math.sin(tilt) * dist, Math.sin(angle) * Math.cos(tilt) * dist);
+  sky.camera.lookAt(0, look, 0);
+
+  sky.median.position.y += (sky.medianY - sky.median.position.y) * k;
+  sky.median.scale.setScalar(sky.radius + CELL);
+
+  for (const b of buildings.values()) {
+    b.h += (b.th - b.h) * k;
+    b.x += (b.tx - b.x) * k;
+    b.z += (b.tz - b.z) * k;
+    const w = b.width, tw = w * 0.7, topH = b.h * b.share, baseH = Math.max(0.05, b.h - topH);
+    b.group.position.set(b.x, 0, b.z);
+    b.base.scale.set(w, baseH, w);
+    b.top.visible = topH > 0.02;
+    b.top.scale.set(tw, Math.max(0.001, topH), tw);
+    b.top.position.y = baseH;
+    fitWindows(b.cashMat, w, baseH);
+    fitWindows(b.coinMat, tw, topH);
+    b.roofY = baseH + (b.top.visible ? topH : 0);
+
+    // The three richest wear a spire with a beacon, blinking out of step.
+    const crowned = b.rank < 3, spireH = 0.6 + (3 - b.rank) * 0.35;
+    b.spire.visible = crowned;
+    b.beacon.visible = crowned && (reducedMotion || Math.floor((now + b.rank * 400) / 900) % 2 === 0);
+    if (crowned) {
+      b.spire.position.y = b.roofY;
+      b.spire.scale.y = spireH;
+      b.beacon.position.y = b.roofY + spireH;
+    }
+    b.crownY = b.roofY + (crowned ? spireH : 0);
+
+    // A changed balance: the windows flare and a beam rises off the roof.
+    const age = b.flare ? now - b.flare.start : Infinity;
+    if (age >= FLARE_MS) b.flare = null;
+    const lit = age < FLARE_MS, t = reducedMotion ? 0.5 : Math.min(1, age / FLARE_MS);
+    b.cashMat.emissiveIntensity = b.coinMat.emissiveIntensity = lit ? 1 + 1.6 * (1 - t) : 1;
+    b.beam.visible = lit;
+    if (lit) {
+      b.beam.material.color.set(b.flare.up ? C.bull : C.bear);
+      b.beam.material.opacity = 0.5 * (1 - t);
+      b.beam.position.y = b.roofY;
+      b.beam.scale.set(tw * 0.3, 2 + 10 * Math.sqrt(t), tw * 0.3);
+    }
+  }
+  sky.renderer.render(sky.scene, sky.camera);
+
+  // The three richest are named on rows of their own along the top, with a
+  // leader line down to the beacon: they stand side by side in the middle,
+  // where names beside the spires would land on each other.
+  const top3 = [...buildings.values()].filter(b => b.rank < 3).sort((a, b) => a.rank - b.rank);
+  const names = $("skyline-labels").querySelectorAll("span"), leaders = $("skyline-labels").querySelectorAll("line");
+  names.forEach((node, i) => {
+    const b = top3[i];
+    node.hidden = !b;
+    leaders[i].style.display = b ? "" : "none";
+    if (!b) return;
+    const p = new THREE.Vector3(b.x, b.crownY + 0.15, b.z).project(sky.camera);
+    const x = ((p.x + 1) / 2) * w, y = ((1 - p.y) / 2) * h, row = 40 + i * 16;
+    const edge = x > w - 60 ? "-100%" : x < 60 ? "0%" : "-50%";
+    node.style.transform = `translate(${x}px, ${row}px) translate(${edge}, -100%)`;
+    if (node.textContent !== b.name) node.textContent = b.name;
+    leaders[i].setAttribute("x1", x); leaders[i].setAttribute("y1", row + 3);
+    leaders[i].setAttribute("x2", x); leaders[i].setAttribute("y2", Math.max(row + 3, y - 4));
+  });
 }
 
-function drawSwarm(now) {
-  const { ctx, w, h } = fitCanvas($("swarm"));
-  if (!w) return;
-  if (laidOutAt !== `${w}x${h}`) { layoutSwarm(w, h); laidOutAt = `${w}x${h}`; }
-  const scale = swarmScale, axisY = h - 28, TAU = Math.PI * 2;
-  ctx.clearRect(0, 0, w, h);
-
-  // Decades: a gridline and a label at each, small ticks at 2x and 5x.
-  ctx.font = "11px Chakra Petch";
-  ctx.textAlign = "center";
-  for (let p = scale.lo; p <= scale.hi; p++) {
-    const x = scale.x(10 ** p);
-    ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, 22); ctx.lineTo(x, axisY); ctx.stroke();
-    ctx.fillStyle = C["text-2"];
-    ctx.fillText(shortMoney(10 ** p), x, axisY + 18);
-    if (p < scale.hi) {
-      ctx.strokeStyle = C.frame;
-      for (const m of [2, 5]) {
-        const mx = scale.x(m * 10 ** p);
-        ctx.beginPath(); ctx.moveTo(mx, axisY); ctx.lineTo(mx, axisY + 4); ctx.stroke();
-      }
+if (sky) {
+  const canvas = sky.renderer.domElement, tip = $("skyline-tip");
+  const line = text => Object.assign(document.createElement("span"), { textContent: text });
+  canvas.addEventListener("pointerdown", e => {
+    orbit.drag = { x: e.clientX, y: e.clientY };
+    canvas.setPointerCapture(e.pointerId);
+    tip.hidden = true;
+  });
+  canvas.addEventListener("pointerup", () => { orbit.drag = null; });
+  canvas.addEventListener("pointermove", e => {
+    if (orbit.drag) {
+      orbit.angle += (e.clientX - orbit.drag.x) * 0.006;
+      orbit.tilt = Math.min(1.2, Math.max(0.05, orbit.tilt + (e.clientY - orbit.drag.y) * 0.004));
+      orbit.drag = { x: e.clientX, y: e.clientY };
+      if (reducedMotion) drawSkyline(performance.now());
+      return;
     }
-  }
-  ctx.strokeStyle = C.frame;
-  ctx.beginPath(); ctx.moveTo(scale.x(10 ** scale.lo), axisY); ctx.lineTo(scale.x(10 ** scale.hi), axisY); ctx.stroke();
-
-  // The median member, so "typical" is a place on the axis, not a guess.
-  const sorted = [...dots.values()].map(d => d.worth).sort((a, b) => a - b);
-  if (sorted.length) {
-    const median = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
-    const mx = scale.x(median);
-    ctx.save();
-    ctx.strokeStyle = C.amber; ctx.globalAlpha = 0.7; ctx.setLineDash([3, 5]);
-    ctx.beginPath(); ctx.moveTo(mx, 18); ctx.lineTo(mx, axisY); ctx.stroke();
-    ctx.setLineDash([]); ctx.globalAlpha = 1;
-    ctx.fillStyle = C.amber; ctx.font = "12px Saira";
-    ctx.textAlign = mx > w * 0.75 ? "right" : "left";
-    ctx.fillText(`Median ${shortMoney(median)}`, mx + (mx > w * 0.75 ? -6 : 6), 14);
-    ctx.restore();
-  }
-
-  // A scan line crossing left to right, lighting each dot as it passes.
-  const scanX = reducedMotion ? Infinity : ((now % SCAN_MS) / SCAN_MS) * (w + 160) - 80;
-  if (!reducedMotion) {
-    const beam = ctx.createLinearGradient(scanX - 90, 0, scanX, 0);
-    beam.addColorStop(0, "rgba(95, 212, 255, 0)");
-    beam.addColorStop(1, "rgba(95, 212, 255, .12)");
-    ctx.fillStyle = beam;
-    ctx.fillRect(scanX - 90, 22, 90, axisY - 22);
-    ctx.strokeStyle = "rgba(95, 212, 255, .45)";
-    ctx.beginPath(); ctx.moveTo(scanX, 22); ctx.lineTo(scanX, axisY); ctx.stroke();
-  }
-
-  ctx.font = "12px Saira";
-  ctx.textAlign = "center";
-  for (const dot of dots.values()) {
-    if (dot.tx === undefined) continue;
-    const before = [dot.x, dot.y], k = reducedMotion ? 1 : 0.07;
-    dot.x += (dot.tx - dot.x) * k;
-    dot.y += (dot.ty - dot.y) * k;
-    if (Math.hypot(dot.x - before[0], dot.y - before[1]) > 0.25) dot.trail.push({ x: dot.x, y: dot.y, t: now });
-    dot.trail = dot.trail.filter(pt => now - pt.t < TRAIL_MS);
-
-    const flare = dot.flare, age = flare ? now - flare.start : Infinity;
-    if (age >= 2400) dot.flare = null;
-    const colour = age < 2400 ? (flare.up ? C.bull : C.bear) : C.holo;
-
-    // Where it came from, fading out behind it.
-    if (!reducedMotion) {
-      for (let i = 1; i < dot.trail.length; i++) {
-        const a = dot.trail[i - 1], b = dot.trail[i];
-        ctx.strokeStyle = colour; ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.6 * (1 - (now - b.t) / TRAIL_MS);
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      }
-    }
-    if (age < 2400 && !reducedMotion) {
-      const t = age / 2400;
-      ctx.strokeStyle = colour; ctx.globalAlpha = 1 - t; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(dot.x, dot.y, DOT + t * 22, 0, TAU); ctx.stroke();
-    }
-
-    const behind = scanX - dot.x;
-    const glow = reducedMotion ? 0.85 : behind >= 0 ? 0.45 + 0.55 * Math.exp(-behind / 110) : 0.45;
-    const size = dot.rank < 3 ? DOT + 1.5 : DOT;
-    ctx.globalAlpha = age < 2400 ? 1 : glow;
-    ctx.fillStyle = colour; ctx.shadowColor = colour; ctx.shadowBlur = 8;
-    ctx.beginPath(); ctx.arc(dot.x, dot.y, size, 0, TAU); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
-  }
-
-  // The three richest are named on rows of their own above the swarm, with
-  // a leader line down to the dot: they usually sit side by side at the
-  // right edge, where labels beside the dots would land on each other.
-  for (const dot of dots.values()) {
-    if (dot.rank > 2 || dot.tx === undefined) continue;
-    const labelY = 32 + dot.rank * 15, edge = dot.x > w - 60 ? "right" : dot.x < 60 ? "left" : "center";
-    ctx.strokeStyle = C["text-2"]; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(dot.x, labelY + 4); ctx.lineTo(dot.x, dot.y - DOT - 3); ctx.stroke();
-    ctx.globalAlpha = 0.95;
-    ctx.fillStyle = C.text; ctx.textAlign = edge;
-    ctx.fillText(dot.name, dot.x + (edge === "right" ? 4 : edge === "left" ? -4 : 0), labelY);
-    ctx.globalAlpha = 1;
-  }
+    const box = canvas.getBoundingClientRect(), mx = e.clientX - box.left, my = e.clientY - box.top;
+    sky.raycaster.setFromCamera({ x: (mx / box.width) * 2 - 1, y: 1 - (my / box.height) * 2 }, sky.camera);
+    const hit = sky.raycaster.intersectObjects([...buildings.values()].flatMap(b => [b.base, b.top]), false)[0];
+    const b = hit && buildings.get(hit.object.userData.id);
+    tip.hidden = !b;
+    if (!b) return;
+    tip.style.left = mx + "px";
+    tip.style.top = my + "px";
+    tip.replaceChildren(b.name, line(`#${b.rank + 1}, worth ${money(b.worth)}`), line(`${money(b.cash)} cash, ${whole(b.coins)} FLX`));
+  });
+  canvas.addEventListener("pointerleave", () => { tip.hidden = true; });
 }
-
-$("swarm").addEventListener("mousemove", e => {
-  const box = e.currentTarget.getBoundingClientRect(), mx = e.clientX - box.left, my = e.clientY - box.top;
-  let best = null, bestDistance = DOT + 8;
-  for (const dot of dots.values()) {
-    const d = Math.hypot(dot.x - mx, dot.y - my);
-    if (d < bestDistance) { best = dot; bestDistance = d; }
-  }
-  const tip = $("swarm-tip");
-  tip.hidden = !best;
-  if (!best) return;
-  tip.style.left = best.x + "px";
-  tip.style.top = best.y + "px";
-  tip.innerHTML = "";
-  tip.append(best.name, Object.assign(document.createElement("span"), { textContent: `#${best.rank + 1}, worth ${money(best.worth)}` }));
-});
-$("swarm").addEventListener("mouseleave", () => { $("swarm-tip").hidden = true; });
 
 // ------------------------------------------------------------------ pulse
 const PULSE_WINDOW_MS = 60_000;
@@ -1988,7 +2086,7 @@ function frame(now) {
   // Real elapsed time, so the ticker keeps its speed when the browser throttles frames.
   const dt = lastFrame === null ? 0 : Math.min(1000, now - lastFrame);
   lastFrame = now;
-  drawSwarm(now);
+  drawSkyline(now);
   drawPulse(now);
   moveTicker(dt);
   updateTimers();

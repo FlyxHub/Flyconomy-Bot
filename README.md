@@ -269,9 +269,10 @@ the run status, or the live mines boards: the bot leaves those out of what it
 sends them, so there is nothing in the page for them to dig out. Anyone else
 is turned away.
 
-The rest of the page shows the economy moving as it happens: a swarm that
-places every member along a net worth axis, marks the median, and flares a dot
-when its balance changes, a
+The rest of the page shows the economy moving as it happens: a night-city
+skyline with a building per member, as tall as their net worth, lit blue for
+cash and amber for Flyxcoin, with the median as a plane across the city and a
+beam off any roof whose balance changes, a
 heartbeat-style trace that spikes with how much money moved in each
 five-second window, a ticker along the bottom of the screen naming who gained
 or lost what, and countdowns to the next market tick, daily interest payout,
