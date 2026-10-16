@@ -132,7 +132,13 @@ class Api(BaseCog, name="Api"):
             await runner.cleanup()
             return
         self._runner = runner
-        log.info("Dashboard listening on %s:%d", self.settings.api_host, PORT)
+        log.info(
+            "Dashboard listening on %s:%d; sign-in redirects to %s, which the "
+            "Developer Portal must list exactly",
+            self.settings.api_host,
+            PORT,
+            self._redirect_uri,
+        )
 
     async def cog_unload(self) -> None:
         """Stop listening."""
