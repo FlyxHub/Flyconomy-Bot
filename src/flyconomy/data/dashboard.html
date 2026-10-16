@@ -290,7 +290,11 @@
   #result { min-height: 1.5em; margin: 12px 0 0; font-size: 14px; color: var(--text); }
   #result.error { color: var(--bear); }
 
-  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  /* The column shares its row with the ledger, which is taller, so its last
+     two panels grow to meet the ledger's bottom edge rather than leave a hole. */
+  .timers-panel { flex: 1; display: flex; flex-direction: column; margin-bottom: 22px; }
+  .timers-panel .timers { margin: auto 0; }
+  .stats { flex: 1; display: grid; grid-template-columns: 1fr 1fr; align-content: center; gap: 22px; }
   .stat .label { font-size: 14px; color: var(--text-2); }
   .stat .value { margin-top: 4px; font: 600 28px/1.1 var(--display); }
   .stat .sub { font-size: 13px; color: var(--text-2); }
@@ -474,6 +478,8 @@
     <h1 class="callsign">FLYCONOMY<small>Economy monitor</small></h1>
     <div class="bar-right">
       <div class="range" role="group" aria-label="Time range for the charts">
+        <button data-hours="3" aria-pressed="false">3 h</button>
+        <button data-hours="12" aria-pressed="false">12 h</button>
         <button data-hours="24" aria-pressed="true">24 h</button>
         <button data-hours="168" aria-pressed="false">7 days</button>
         <button data-hours="744" aria-pressed="false">31 days</button>
@@ -663,7 +669,7 @@ const $ = id => document.getElementById(id);
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const whole = n => Math.round(n).toLocaleString();
 const money = n => "$" + whole(n);
-const RANGE_NAMES = { 24: "24 hours", 168: "7 days", 744: "31 days" };
+const RANGE_NAMES = { 3: "3 hours", 12: "12 hours", 24: "24 hours", 168: "7 days", 744: "31 days" };
 const SVG = "http://www.w3.org/2000/svg";
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -903,11 +909,29 @@ function meterCell(width, extra = "") {
 }
 const share = fraction => Math.max(2, Math.min(1, fraction) * 100).toFixed(1) + "%";
 
+// Rows that are not staying -- a bounty collected, an entrant gone -- fade
+// out before the table is rebuilt, rather than blinking out of it. Answers
+// false when a newer render of the same table started meanwhile, which then
+// owns the table.
+async function leave(body, staying) {
+  const token = body._render = Symbol();
+  const going = [...body.querySelectorAll("tr[data-id]")].filter(tr => !staying.has(tr.dataset.id));
+  if (going.length && !reducedMotion && !document.hidden) {
+    await Promise.all(going.map(tr => tr.animate(
+      [{ opacity: 1 }, { opacity: 0, transform: "translateX(14px)" }],
+      { duration: 350, easing: "ease-in", fill: "forwards" },
+    ).finished.catch(() => {})));
+  }
+  return body._render === token;
+}
+
 // Ranked tables are rebuilt every poll, but each row starts from where its
 // id was last drawn -- position, bar, and amount -- and moves from there.
 // build(row, i) returns the row's <tr>, its bar's target width, the node
-// whose number rolls, and the value it rolls to.
-function rankedRows(body, rows, format, build) {
+// whose number rolls, and the value it rolls to. A row new to the table
+// slides in with its bar growing from nothing and its amount counting up.
+async function rankedRows(body, rows, format, build) {
+  if (!await leave(body, new Set(rows.map(row => row.id)))) return;
   const before = new Map();
   for (const tr of body.querySelectorAll("tr[data-id]")) {
     before.set(tr.dataset.id, { top: tr.getBoundingClientRect().top, ...tr._drawn });
@@ -917,10 +941,14 @@ function rankedRows(body, rows, format, build) {
     const { tr, width, amount, value } = build(row, i);
     const was = before.get(row.id);
     const bar = tr.querySelector(".meter i");
-    bar.style.width = was?.width ?? width;
+    bar.style.width = was?.width ?? "0%";
     bars.push([bar, width]);
-    amount.textContent = format(was?.value ?? value);
-    rollNumber(amount, value, format, was?.value ?? value);
+    amount.textContent = format(was?.value ?? 0);
+    rollNumber(amount, value, format, was?.value ?? 0);
+    if (!was && !reducedMotion) {
+      tr.animate([{ opacity: 0, transform: "translateX(-14px)" }, { opacity: 1, transform: "none" }],
+        { duration: 600, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    }
     tr.dataset.id = row.id;
     tr._drawn = { width, value };
     return tr;
@@ -1248,13 +1276,16 @@ function renderConcentration() {
 function renderEconomy() { renderSupply(); renderConcentration(); }
 
 // ------------------------------------------------- bounties and tournament
-function emptyRow(body, columns, text) {
+async function emptyRow(body, columns, text) {
+  if (body.querySelector("tr.empty")?.textContent === text) return;
+  if (!await leave(body, new Set())) return;
   const td = cell("", text);
   td.colSpan = columns;
   const tr = document.createElement("tr");
   tr.className = "empty";
   tr.append(td);
   body.replaceChildren(tr);
+  if (!reducedMotion) tr.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500 });
 }
 
 function renderBounties() {
