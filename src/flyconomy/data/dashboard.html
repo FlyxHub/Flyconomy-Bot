@@ -389,12 +389,6 @@
   .skyline-box canvas { cursor: grab; touch-action: pan-y; }
   .skyline-box canvas:active { cursor: grabbing; }
   .skyline-median { position: absolute; top: 6px; left: 8px; margin: 0; font: 400 12px var(--body); color: var(--amber); pointer-events: none; }
-  .skyline-labels svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .skyline-labels line { stroke: var(--text-2); stroke-opacity: .5; }
-  .skyline-labels span {
-    position: absolute; top: 0; left: 0; pointer-events: none; white-space: nowrap;
-    font: 400 12px var(--body); color: var(--text); text-shadow: 0 0 6px var(--void), 0 0 2px var(--void);
-  }
   .skyline-tip {
     position: absolute; pointer-events: none; transform: translate(-50%, calc(-100% - 12px));
     padding: 6px 10px; white-space: nowrap;
@@ -554,8 +548,8 @@
 
   <section class="skyline frame" aria-labelledby="skyline-title">
     <h2 class="frame-title" id="skyline-title">Wealth skyline</h2>
-    <p>Each building is a member, as tall as their net worth. Blue windows are cash, the amber tower on top is Flyxcoin. A beam rises when a balance changes. Drag to look around.</p>
-    <div class="skyline-box"><canvas id="skyline" role="img" aria-label="A city of buildings, one per member, each as tall as that member's net worth, the richest in the middle"></canvas><p class="skyline-median" id="skyline-median"></p><div class="skyline-labels" id="skyline-labels" aria-hidden="true"><svg><line/><line/><line/></svg><span hidden></span><span hidden></span><span hidden></span></div><div class="skyline-tip" id="skyline-tip" hidden></div></div>
+    <p>Each building is a member, as tall as their net worth. Blue windows are cash, the amber tower on top is Flyxcoin. Hover a roof's dot to see whose it is. A beam rises when a balance changes. Drag to look around.</p>
+    <div class="skyline-box"><canvas id="skyline" role="img" aria-label="A city of buildings, one per member, each as tall as that member's net worth, the richest in the middle of a wider city"></canvas><p class="skyline-median" id="skyline-median"></p><div class="skyline-tip" id="skyline-tip" hidden></div></div>
   </section>
 
   <div class="left">
@@ -1647,36 +1641,83 @@ function observe() {
 // A night city: every member is a building, as tall as their net worth on a
 // log scale. The lit block at street level is cash and the amber setback
 // tower on top of it is Flyxcoin at today's price. The richest stand in the
-// middle and the city grows outward by rank, so the skyline's shape is the
-// economy's. A building throws a beam of light when its balance changes.
-const CELL = 1.4, STOREY = 0.22, TOWER = 14, FLARE_MS = 2400;
+// middle and the members' district grows outward by rank, so its shape is the
+// economy's; a dot on each member's roof names them on hover. Around it, a
+// city of unlit-by-data buildings and streets, so the district reads as part
+// of a place rather than a chart. A beam rises when a balance changes.
+const LOT = 1.3, ROAD = 1.1, STOREY = 0.22, TOWER = 10, FLARE_MS = 2400, BLOCKS = 9, CITY = 46;
 const buildings = new Map(); // id -> building, see addBuilding
-const orbit = { angle: 0.7, tilt: 0.2, dist: 30, drag: null };
+const orbit = { angle: 0.7, tilt: 0.22, dist: 30, look: 3, drag: null };
 const shortMoney = v => v >= 1e9 ? `$${+(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `$${+(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${+(v / 1e3).toFixed(1)}k` : `$${Math.round(v)}`;
 
+// Blocks of three lots by three, with a road between blocks. The middle
+// block is centred on the origin, so the city is symmetric about it.
+const lotAt = g => g * LOT + Math.floor((g + 1) / 3) * ROAD;
+const ROADS = [];
+for (let b = -BLOCKS; b < BLOCKS; b++) ROADS.push((lotAt(3 * b + 1) + lotAt(3 * b + 2)) / 2);
 // Lots nearest the middle first, so the member ranked n always gets lot n.
 const LOTS = [];
-for (let gx = -12; gx < 12; gx++) for (let gz = -12; gz < 12; gz++) LOTS.push([(gx + 0.5) * CELL, (gz + 0.5) * CELL]);
+const EDGE = 3 * BLOCKS + 1;
+for (let gx = -EDGE; gx <= EDGE; gx++) for (let gz = -EDGE; gz <= EDGE; gz++) {
+  const lot = [lotAt(gx), lotAt(gz)];
+  if (Math.hypot(...lot) <= CITY) LOTS.push(lot);
+}
 LOTS.sort((a, b) => Math.hypot(...a) - Math.hypot(...b) || Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]));
+
+// A small, stable random number per key, so the city keeps its shape.
+const noise = key => { const x = Math.sin(key * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 const sky = (() => {
   try {
     const renderer = new THREE.WebGLRenderer({ canvas: $("skyline"), antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     const scene = new THREE.Scene(), night = new THREE.Color(css("--void"));
-    // The sky is the fog's colour, so the far streets fade into it with no horizon line.
     renderer.setClearColor(night);
-    scene.fog = new THREE.Fog(night, 40, 110);
+    // Gotham's sky: black overhead, warming to a sodium haze at the horizon.
+    // The haze is also the fog's colour, so the far city dissolves into the
+    // glow rather than stopping at an edge.
+    const haze = new THREE.Color(0x262123), high = new THREE.Color(0x0e1824), tone = new THREE.Color();
+    const dome = new THREE.SphereGeometry(300, 32, 16), tones = [];
+    for (let i = 0; i < dome.attributes.position.count; i++) {
+      const up = Math.max(0, dome.attributes.position.getY(i) / 300);
+      tone.copy(haze).lerp(high, Math.min(1, up / 0.18));
+      if (up > 0.18) tone.lerp(night, Math.min(1, (up - 0.18) / 0.5));
+      tones.push(tone.r, tone.g, tone.b);
+    }
+    dome.setAttribute("color", new THREE.Float32BufferAttribute(tones, 3));
+    const heavens = new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+    heavens.renderOrder = -1;
+    scene.fog = new THREE.Fog(haze, 40, 110);
+    // Searchlights sweeping the sky from the far side of town.
+    const cone = new THREE.ConeGeometry(2.2, 70, 24, 1, true).rotateX(Math.PI).translate(0, 35, 0);
+    const searchlights = [0.5, 2.6, 4.4].map((a, i) => {
+      const light = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({ color: 0xd8ecff, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      light.position.set(Math.cos(a) * 40, 0, Math.sin(a) * 40);
+      light.userData.phase = i * 2.1;
+      return light;
+    });
     scene.add(new THREE.HemisphereLight(css("--holo"), night, 0.25));
     const moon = new THREE.DirectionalLight(0xbfe6ff, 0.35);
     moon.position.set(-30, 40, 20);
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x060d15 }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x03070b }));
     ground.rotation.x = -Math.PI / 2;
-    // The grid's lines fall between the lots, so they read as streets.
-    const streets = new THREE.GridHelper(CELL * 60, 60, css("--holo-dim"), css("--holo-dim"));
-    Object.assign(streets.material, { transparent: true, opacity: 0.3 });
-    streets.position.y = 0.01;
+    // Each block sits on a pavement a shade lighter than the road around it.
+    const side = 3 * LOT, pads = new THREE.InstancedMesh(new THREE.PlaneGeometry(side, side).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x0b1724 }), (2 * BLOCKS + 1) ** 2);
+    const place = new THREE.Matrix4();
+    let n = 0;
+    for (let bx = -BLOCKS; bx <= BLOCKS; bx++) for (let bz = -BLOCKS; bz <= BLOCKS; bz++) pads.setMatrixAt(n++, place.makeTranslation(lotAt(3 * bx), 0.005, lotAt(3 * bz)));
+    // Road markings, and street lamps down both sides of every road.
+    const lines = [], lamps = [], end = lotAt(EDGE) + LOT;
+    for (const r of ROADS) {
+      lines.push(r, 0.01, -end, r, 0.01, end, -end, 0.01, r, end, 0.01, r);
+      for (let t = -end; t <= end; t += LOT) for (const s of [-0.45, 0.45]) lamps.push(r + s * ROAD, 0.12, t, t, 0.12, r + s * ROAD);
+    }
+    const roadGeo = new THREE.BufferGeometry(), lampGeo = new THREE.BufferGeometry();
+    roadGeo.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
+    lampGeo.setAttribute("position", new THREE.Float32BufferAttribute(lamps, 3));
+    const roads = new THREE.LineSegments(roadGeo, new THREE.LineBasicMaterial({ color: css("--holo-dim"), transparent: true, opacity: 0.35 }));
+    const streetLamps = new THREE.Points(lampGeo, new THREE.PointsMaterial({ color: 0xffc27a, size: 2, sizeAttenuation: false, transparent: true, opacity: 0.8 }));
 
     const stars = new THREE.BufferGeometry(), at = [];
     for (let i = 0; i < 500; i++) {
@@ -1686,7 +1727,7 @@ const sky = (() => {
     stars.setAttribute("position", new THREE.Float32BufferAttribute(at, 3));
     const starMat = new THREE.PointsMaterial({ color: css("--text"), size: 1.3, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.55 });
 
-    // The median is a faint amber plane across the city: everyone whose
+    // The median is a faint amber plane across the district: everyone whose
     // roof clears it is better off than half the server.
     const median = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ color: css("--amber"), transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false }));
     median.rotation.x = -Math.PI / 2;
@@ -1694,9 +1735,8 @@ const sky = (() => {
     for (let i = 0; i < 64; i++) rim.push(new THREE.Vector3(Math.cos(i / 64 * Math.PI * 2), Math.sin(i / 64 * Math.PI * 2), 0));
     median.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(rim), new THREE.LineBasicMaterial({ color: css("--amber"), transparent: true, opacity: 0.5 })));
 
-    scene.add(moon, ground, streets, new THREE.Points(stars, starMat), median);
-
-    // One tile of windows, eight across and sixteen storeys, some dark.
+    // One tile of windows, eight across and sixteen storeys, some dark. Its
+    // corner pixel is dark, which is what a roof samples.
     const tile = document.createElement("canvas");
     tile.width = 64; tile.height = 128;
     const g = tile.getContext("2d");
@@ -1712,15 +1752,23 @@ const sky = (() => {
     windows.magFilter = THREE.NearestFilter;
     windows.anisotropy = renderer.capabilities.getMaxAnisotropy();
 
+    // A soft round dot for the members' roofs.
+    const disc = document.createElement("canvas");
+    disc.width = disc.height = 32;
+    const d = disc.getContext("2d"), glow = d.createRadialGradient(16, 16, 0, 16, 16, 16);
+    glow.addColorStop(0, "#fff"); glow.addColorStop(0.45, "#fff"); glow.addColorStop(0.6, "rgba(255,255,255,.35)"); glow.addColorStop(1, "rgba(255,255,255,0)");
+    d.fillStyle = glow; d.fillRect(0, 0, 32, 32);
+    const dots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ size: 9, sizeAttenuation: false, map: new THREE.CanvasTexture(disc), vertexColors: true, transparent: true, depthWrite: false }));
+
+    for (const name of ["position", "color"]) dots.geometry.setAttribute(name, new THREE.Float32BufferAttribute([], 3));
+    scene.add(heavens, ...searchlights, moon, ground, pads, roads, streetLamps, new THREE.Points(stars, starMat), median, dots);
     return {
-      renderer, scene, median, windows, w: 0, h: 0, radius: 0, medianY: 0,
+      renderer, scene, median, windows, dots, searchlights, w: 0, h: 0, radius: 0, medianY: 0, tallest: 1, order: [], filler: null, fillFrom: -1, hover: null,
       camera: new THREE.PerspectiveCamera(36, 1, 0.1, 500),
-      raycaster: new THREE.Raycaster(),
       box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
       beam: new THREE.CylinderGeometry(1, 1, 1, 16, 1, true).translate(0, 0.5, 0),
-      spire: new THREE.CylinderGeometry(0.02, 0.07, 1, 6).translate(0, 0.5, 0),
-      beacon: new THREE.SphereGeometry(0.09, 8, 6),
       roof: new THREE.MeshLambertMaterial({ color: 0x0a1520 }),
+      town: new THREE.MeshLambertMaterial({ color: 0x16212c, emissive: 0xffd9a0, emissiveMap: windows, emissiveIntensity: 0.6 }),
     };
   } catch (error) {
     // No WebGL (or no three.js): say so rather than leave a blank panel.
@@ -1730,6 +1778,48 @@ const sky = (() => {
   }
 })();
 
+// BoxGeometry's faces run +x, -x, +y, -y, +z, -z: the four walls get windows,
+// the roof and floor (+y, -y) do not.
+const walls = facade => [facade, facade, sky.roof, sky.roof, facade, facade];
+
+// Every lot the members do not take gets an ordinary building, lower toward
+// the edge of town and dimly lit, all merged into one mesh so a city of a
+// thousand buildings is one draw call. Each box's UVs are scaled to its own
+// size, so its windows are the same size as the members'.
+function buildTown(from) {
+  if (sky.filler) { sky.scene.remove(sky.filler); sky.filler.geometry.dispose(); }
+  const pos = [], nor = [], uv = [], index = [];
+  LOTS.slice(from).forEach(([x, z], i) => {
+    const key = from + i, edge = Math.hypot(x, z) / CITY;
+    const w = LOT * (0.6 + 0.3 * noise(key)), dpt = LOT * (0.6 + 0.3 * noise(key + 0.5));
+    // A few blocks out of town are downtowns of their own, so the horizon has a skyline.
+    const pitch = 3 * LOT + ROAD, block = Math.round(x / pitch) * 73 + Math.round(z / pitch);
+    const downtown = edge > 0.6 && noise(block + 0.33) > 0.85 ? 2.5 + 2 * noise(key + 0.6) : 1;
+    const h = (0.4 + noise(key + 0.25) ** 2 * TOWER * 0.35 * (1 - 0.75 * edge)) * downtown;
+    const box = new THREE.BoxGeometry(w, h, dpt).translate(x, h / 2, z);
+    const u = box.attributes.uv, du = noise(key + 0.75) * 8, dv = noise(key + 0.9) * 16;
+    for (let v = 0; v < u.count; v++) {
+      const face = Math.floor(v / 4), across = face < 2 ? dpt : w;
+      if (face === 2 || face === 3) u.setXY(v, 0, 0);
+      else u.setXY(v, du + u.getX(v) * across / (8 * STOREY), dv + u.getY(v) * h / (16 * STOREY));
+    }
+    const offset = pos.length / 3;
+    pos.push(...box.attributes.position.array);
+    nor.push(...box.attributes.normal.array);
+    uv.push(...u.array);
+    index.push(...Array.from(box.index.array, k => k + offset));
+    box.dispose();
+  });
+  const town = new THREE.BufferGeometry();
+  town.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  town.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  town.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  town.setIndex(index);
+  sky.filler = new THREE.Mesh(town, sky.town);
+  sky.scene.add(sky.filler);
+  sky.fillFrom = from;
+}
+
 function addBuilding(id) {
   const facade = colour => {
     const map = sky.windows.clone();
@@ -1738,18 +1828,16 @@ function addBuilding(id) {
     return new THREE.MeshLambertMaterial({ color: 0x0c1824, emissive: colour, emissiveMap: map });
   };
   const cashMat = facade(css("--holo")), coinMat = facade(css("--amber"));
-  const base = new THREE.Mesh(sky.box, [cashMat, cashMat, cashMat, cashMat, sky.roof, sky.roof]);
-  const top = new THREE.Mesh(sky.box, [coinMat, coinMat, coinMat, coinMat, sky.roof, sky.roof]);
+  const base = new THREE.Mesh(sky.box, walls(cashMat));
+  const top = new THREE.Mesh(sky.box, walls(coinMat));
   const beam = new THREE.Mesh(sky.beam, new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-  const spire = new THREE.Mesh(sky.spire, sky.roof);
-  const beacon = new THREE.Mesh(sky.beacon, new THREE.MeshBasicMaterial({ color: css("--bear") }));
   const group = new THREE.Group();
-  group.add(base, top, beam, spire, beacon);
+  group.add(base, top, beam);
   base.userData.id = top.userData.id = id;
   sky.scene.add(group);
-  // A footprint of its own, so the city is not a grid of identical blocks.
+  // A footprint of its own, so the district is not a grid of identical blocks.
   const n = [...String(id)].reduce((s, c) => (s * 31 + c.charCodeAt(0)) % 997, 7);
-  const b = { group, base, top, beam, spire, beacon, cashMat, coinMat, width: 0.78 + (n % 20) / 100, h: 0, x: null, z: null, flare: null };
+  const b = { id, group, base, top, beam, cashMat, coinMat, width: LOT * (0.66 + (n % 20) / 80), h: 0, x: null, z: null, flare: null };
   buildings.set(id, b);
   return b;
 }
@@ -1758,7 +1846,6 @@ function removeBuilding(id, b) {
   sky.scene.remove(b.group);
   for (const mat of [b.cashMat, b.coinMat]) { mat.emissiveMap.dispose(); mat.dispose(); }
   b.beam.material.dispose();
-  b.beacon.material.dispose();
   buildings.delete(id);
 }
 
@@ -1783,19 +1870,26 @@ function skylineUpdate(changes, price) {
   const hi = positive.length ? Math.max(lo + 1, Math.ceil(Math.log10(Math.max(...positive)))) : 6;
   if (hi - lo < 2) lo = hi - 2;
   const height = v => 0.3 + ((Math.log10(Math.max(v, 10 ** lo)) - lo) / (hi - lo)) * TOWER;
+  sky.tallest = 1;
   for (const b of buildings.values()) {
     b.th = height(b.worth);
+    sky.tallest = Math.max(sky.tallest, b.th);
     b.share = b.worth > 0 ? Math.min(1, (b.coins * price) / b.worth) : 0;
     [b.tx, b.tz] = LOTS[Math.min(b.rank, LOTS.length - 1)];
     if (b.x === null) { b.x = b.tx; b.z = b.tz; }
   }
+  const taken = Math.min(buildings.size, LOTS.length);
+  if (taken !== sky.fillFrom) buildTown(taken);
+  sky.radius = taken ? Math.hypot(...LOTS[taken - 1]) + LOT : LOT;
+  sky.order = [...buildings.values()];
+  sky.dots.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(sky.order.length * 3), 3));
+  sky.dots.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(sky.order.length * 3), 3));
 
   worths.sort((a, b) => a - b);
   const median = worths.length % 2 ? worths[(worths.length - 1) / 2] : (worths[worths.length / 2 - 1] + worths[worths.length / 2]) / 2;
   sky.medianY = worths.length ? height(median) : 0;
   sky.median.visible = worths.length > 0;
   $("skyline-median").textContent = worths.length ? `Median ${shortMoney(median)}` : "";
-  sky.radius = Math.sqrt(buildings.size / Math.PI) * CELL + CELL;
 }
 
 // Windows stay one size however tall a building grows.
@@ -1813,17 +1907,30 @@ function drawSkyline(now) {
   }
   const k = reducedMotion ? 1 : 0.07;
 
-  // A slow drift around the city; dragging takes over.
-  if (!reducedMotion && !orbit.drag) orbit.angle += 0.0012;
-  orbit.dist += (Math.max(12, sky.radius * 1.45 + 8) - orbit.dist) * k;
-  const look = TOWER * 0.3, { angle, tilt, dist } = orbit;
+  // Stand back just far enough that the whole district, tallest tower
+  // included, fits the frame at any angle: a sphere around it, fitted to
+  // whichever field of view is narrower. A wide panel shows town either side.
+  if (!reducedMotion && !orbit.drag) orbit.angle += 0.0004;
+  const half = THREE.MathUtils.degToRad(sky.camera.fov / 2), across = Math.atan(Math.tan(half) * sky.camera.aspect);
+  const reach = Math.hypot(sky.radius, sky.tallest / 2) / Math.sin(Math.min(half, across));
+  orbit.dist += (Math.max(8, reach) - orbit.dist) * k;
+  orbit.look += (sky.tallest / 2 - orbit.look) * k;
+  const { angle, tilt, dist, look } = orbit;
   sky.camera.position.set(Math.cos(angle) * Math.cos(tilt) * dist, look + Math.sin(tilt) * dist, Math.sin(angle) * Math.cos(tilt) * dist);
   sky.camera.lookAt(0, look, 0);
+  // The district is sharp and the town beyond it fades into the haze.
+  sky.scene.fog.near = dist * 0.8;
+  sky.scene.fog.far = dist * 3.2;
+  for (const light of sky.searchlights) {
+    const t = reducedMotion ? 0 : now / 1000 + light.userData.phase;
+    light.rotation.set(0.3 * Math.cos(t / 5.3), 0, 0.35 * Math.sin(t / 4));
+  }
 
   sky.median.position.y += (sky.medianY - sky.median.position.y) * k;
-  sky.median.scale.setScalar(sky.radius + CELL);
+  sky.median.scale.setScalar(sky.radius);
 
-  for (const b of buildings.values()) {
+  const spots = sky.dots.geometry.attributes.position, tints = sky.dots.geometry.attributes.color, tint = new THREE.Color();
+  sky.order.forEach((b, i) => {
     b.h += (b.th - b.h) * k;
     b.x += (b.tx - b.x) * k;
     b.z += (b.tz - b.z) * k;
@@ -1837,17 +1944,6 @@ function drawSkyline(now) {
     fitWindows(b.coinMat, tw, topH);
     b.roofY = baseH + (b.top.visible ? topH : 0);
 
-    // The three richest wear a spire with a beacon, blinking out of step.
-    const crowned = b.rank < 3, spireH = 0.6 + (3 - b.rank) * 0.35;
-    b.spire.visible = crowned;
-    b.beacon.visible = crowned && (reducedMotion || Math.floor((now + b.rank * 400) / 900) % 2 === 0);
-    if (crowned) {
-      b.spire.position.y = b.roofY;
-      b.spire.scale.y = spireH;
-      b.beacon.position.y = b.roofY + spireH;
-    }
-    b.crownY = b.roofY + (crowned ? spireH : 0);
-
     // A changed balance: the windows flare and a beam rises off the roof.
     const age = b.flare ? now - b.flare.start : Infinity;
     if (age >= FLARE_MS) b.flare = null;
@@ -1860,36 +1956,32 @@ function drawSkyline(now) {
       b.beam.position.y = b.roofY;
       b.beam.scale.set(tw * 0.3, 2 + 10 * Math.sqrt(t), tw * 0.3);
     }
-  }
-  sky.renderer.render(sky.scene, sky.camera);
 
-  // The three richest are named on rows of their own along the top, with a
-  // leader line down to the beacon: they stand side by side in the middle,
-  // where names beside the spires would land on each other.
-  const top3 = [...buildings.values()].filter(b => b.rank < 3).sort((a, b) => a.rank - b.rank);
-  const names = $("skyline-labels").querySelectorAll("span"), leaders = $("skyline-labels").querySelectorAll("line");
-  names.forEach((node, i) => {
-    const b = top3[i];
-    node.hidden = !b;
-    leaders[i].style.display = b ? "" : "none";
-    if (!b) return;
-    const p = new THREE.Vector3(b.x, b.crownY + 0.15, b.z).project(sky.camera);
-    const x = ((p.x + 1) / 2) * w, y = ((1 - p.y) / 2) * h, row = 40 + i * 16;
-    const edge = x > w - 60 ? "-100%" : x < 60 ? "0%" : "-50%";
-    node.style.transform = `translate(${x}px, ${row}px) translate(${edge}, -100%)`;
-    if (node.textContent !== b.name) node.textContent = b.name;
-    leaders[i].setAttribute("x1", x); leaders[i].setAttribute("y1", row + 3);
-    leaders[i].setAttribute("x2", x); leaders[i].setAttribute("y2", Math.max(row + 3, y - 4));
+    // The roof's dot: amber under the pointer, the beam's colour while flaring.
+    spots.setXYZ(i, b.x, b.roofY + 0.2, b.z);
+    tint.set(sky.hover === b ? C.amber : lit ? (b.flare.up ? C.bull : C.bear) : C.holo);
+    tints.setXYZ(i, tint.r, tint.g, tint.b);
   });
+  spots.needsUpdate = tints.needsUpdate = true;
+  sky.renderer.render(sky.scene, sky.camera);
 }
 
 if (sky) {
   const canvas = sky.renderer.domElement, tip = $("skyline-tip");
   const line = text => Object.assign(document.createElement("span"), { textContent: text });
+  const point = (b, box) => {
+    const p = new THREE.Vector3(b.x, b.roofY + 0.2, b.z).project(sky.camera);
+    return [((p.x + 1) / 2) * box.width, ((1 - p.y) / 2) * box.height];
+  };
+  const hover = b => {
+    sky.hover = b;
+    if (reducedMotion) drawSkyline(performance.now());
+  };
   canvas.addEventListener("pointerdown", e => {
     orbit.drag = { x: e.clientX, y: e.clientY };
     canvas.setPointerCapture(e.pointerId);
     tip.hidden = true;
+    hover(null);
   });
   canvas.addEventListener("pointerup", () => { orbit.drag = null; });
   canvas.addEventListener("pointermove", e => {
@@ -1900,17 +1992,22 @@ if (sky) {
       if (reducedMotion) drawSkyline(performance.now());
       return;
     }
+    // The nearest roof dot within reach of the pointer.
     const box = canvas.getBoundingClientRect(), mx = e.clientX - box.left, my = e.clientY - box.top;
-    sky.raycaster.setFromCamera({ x: (mx / box.width) * 2 - 1, y: 1 - (my / box.height) * 2 }, sky.camera);
-    const hit = sky.raycaster.intersectObjects([...buildings.values()].flatMap(b => [b.base, b.top]), false)[0];
-    const b = hit && buildings.get(hit.object.userData.id);
-    tip.hidden = !b;
-    if (!b) return;
-    tip.style.left = mx + "px";
-    tip.style.top = my + "px";
-    tip.replaceChildren(b.name, line(`#${b.rank + 1}, worth ${money(b.worth)}`), line(`${money(b.cash)} cash, ${whole(b.coins)} FLX`));
+    let best = null, bestDistance = 12, at = null;
+    for (const b of buildings.values()) {
+      if (b.roofY === undefined) continue;
+      const [x, y] = point(b, box), d = Math.hypot(x - mx, y - my);
+      if (d < bestDistance) { best = b; bestDistance = d; at = [x, y]; }
+    }
+    tip.hidden = !best;
+    if (best !== sky.hover) hover(best);
+    if (!best) return;
+    tip.style.left = at[0] + "px";
+    tip.style.top = at[1] + "px";
+    tip.replaceChildren(best.name, line(`#${best.rank + 1}, worth ${money(best.worth)}`), line(`${money(best.cash)} cash, ${whole(best.coins)} FLX`));
   });
-  canvas.addEventListener("pointerleave", () => { tip.hidden = true; });
+  canvas.addEventListener("pointerleave", () => { tip.hidden = true; hover(null); });
 }
 
 // ------------------------------------------------------------------ pulse
