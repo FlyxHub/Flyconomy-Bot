@@ -269,7 +269,9 @@ Two charts track the season's health: the money supply, split into banks,
 wallets, and Flyxcoin, which shows whether the economy is inflating; and the
 share of all money held by the richest 10% of members, which shows whether a
 few players are pulling away. It also has buttons that do what
-`$market bull|bear|neutral` does.
+`$market bull|bear|neutral` does, and buttons that start a server event the way
+`$startevent` does. Those announce in the announcement channel and are refused
+when none is set, since a web page has no channel of its own to fall back to.
 
 The **Profile** button in the top bar opens your own profile: balances, rank,
 career stats, and every achievement, earned or with a progress bar toward it.

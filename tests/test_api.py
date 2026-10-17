@@ -13,13 +13,15 @@ from zoneinfo import ZoneInfo
 import pytest
 from aiohttp import test_utils, web
 
-from flyconomy import economy, mines, tournament
+from flyconomy import economy, events, mines, tournament
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.api import SESSION_COOKIE, Api, is_local_host, top_share
+from flyconomy.cogs.events import Events
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB
-from tests.test_cog_behavior import FakeChannel, FakeUser
+from tests.test_cog_behavior import FakeBot, FakeChannel, FakeUser
+from tests.test_events import make_cog as make_events_cog
 from tests.test_mines import make_view
 
 HOUR = 3600
@@ -572,3 +574,57 @@ class TestMemberView:
         await db.record_history(int(time.time()), 5_000)
 
         assert (await member.get("/api/history?hours=1")).status == 200
+
+
+ANNOUNCE = 7070
+
+
+def events_cog(bot: FakeApiBot, db: Database, channel: FakeChannel | None) -> Events:
+    """Register a real Events cog on the API's bot, announcing into ``channel``."""
+    settings = Settings(
+        discord_token="placeholder",
+        lottery_announce_channel_id=ANNOUNCE if channel is not None else None,
+    )
+    channels: dict[int, object] = {ANNOUNCE: channel} if channel is not None else {}
+    cog = make_events_cog(FakeBot(db, settings, channels=channels))
+    bot.cogs["Events"] = cog
+    return cog
+
+
+class TestEventButtons:
+    async def test_the_owner_starts_an_event_where_the_scheduler_would(self, client, bot, db):
+        channel = FakeChannel()
+        cog = events_cog(bot, db, channel)
+
+        response = await client.post("/api/event", json={"event": "goldrush"})
+
+        assert response.status == 200
+        assert "Gold Rush" in (await response.json())["message"]
+        assert cog.current() is events.GOLD_RUSH
+        assert len(channel.embeds) == 1
+        overview = await (await client.get("/api/overview")).json()
+        assert overview["event"]["key"] == "goldrush"
+
+    async def test_a_member_cannot_start_one(self, member, bot, db):
+        cog = events_cog(bot, db, FakeChannel())
+
+        response = await member.post("/api/event", json={"event": "drop"})
+
+        assert response.status == 403
+        assert cog.current() is None
+
+    async def test_an_unknown_event_is_refused(self, client, bot, db):
+        events_cog(bot, db, FakeChannel())
+        assert (await client.post("/api/event", json={"event": "jackpot"})).status == 400
+
+    async def test_without_an_announcement_channel_nothing_starts(self, client, bot, db):
+        cog = events_cog(bot, db, None)
+
+        response = await client.post("/api/event", json={"event": "charity"})
+
+        assert response.status == 409
+        assert cog.current() is None
+
+    async def test_it_demands_json(self, client, bot, db):
+        events_cog(bot, db, FakeChannel())
+        assert (await client.post("/api/event", data={"event": "drop"})).status == 415

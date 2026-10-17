@@ -254,6 +254,11 @@
   .override p { margin: 0 0 14px; color: var(--text-2); }
 
   .switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  #event-switch { grid-template-columns: repeat(4, 1fr); }
+  #event-switch button { font-size: 13px; letter-spacing: .02em; }
+  .events-panel { margin-top: 22px; }
+  #event-result { min-height: 1.5em; margin: 12px 0 0; font-size: 14px; }
+  #event-result.error { color: var(--bear); }
   .switch button {
     cursor: pointer;
     padding: 12px 0;
@@ -596,7 +601,7 @@
     <section class="override frame" aria-labelledby="override-title">
       <h2 class="frame-title" id="override-title">Market override</h2>
       <p id="regime-text">Reading the market…</p>
-      <div class="switch" role="group" aria-label="Market direction">
+      <div class="switch" id="market-switch" role="group" aria-label="Market direction">
         <button data-direction="bear" aria-pressed="false">Bear</button>
         <button data-direction="calm" aria-pressed="true">Calm</button>
         <button data-direction="bull" aria-pressed="false">Bull</button>
@@ -606,6 +611,18 @@
         <button class="cancel" id="cancel">Cancel</button>
       </div>
       <p id="result" role="status"></p>
+    </section>
+
+    <section class="override events-panel frame" aria-labelledby="events-title">
+      <h2 class="frame-title" id="events-title">Server events</h2>
+      <p id="event-text">Reading the events…</p>
+      <div class="switch" id="event-switch" role="group" aria-label="Start a server event">
+        <button data-event="goldrush">Gold Rush</button>
+        <button data-event="charity">Charity</button>
+        <button data-event="crimewave">Crime Wave</button>
+        <button data-event="drop">Drop</button>
+      </div>
+      <p id="event-result" role="status"></p>
     </section>
     </div></div>
 
@@ -931,7 +948,7 @@ function renderOverride() {
   const { regime, ticks_left } = overview.market;
   const panel = document.querySelector(".override");
   panel.toggleAttribute("data-armed", armed !== null);
-  document.querySelectorAll(".switch button").forEach(b => {
+  document.querySelectorAll("#market-switch button").forEach(b => {
     const d = b.dataset.direction;
     b.setAttribute("aria-pressed", d === regime);
     b.classList.toggle("armed", d === armed);
@@ -1555,6 +1572,40 @@ $("ledger-rows").addEventListener("keydown", e => {
   if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openProfile(row.dataset.id); }
 });
 
+// The owner's event buttons. A press starts the event at once, through the
+// same path as $startevent, so it lands in the announcement channel. A
+// timed event replaces whichever one is running, which the panel says.
+function renderEventPanel() {
+  const event = overview.event;
+  $("event-text").textContent = event
+    ? `${event.emoji} ${event.name} is running. Starting a timed event replaces it.`
+    : "Nothing is running. A press announces the event straight away.";
+  document.querySelectorAll("#event-switch button").forEach(b => {
+    b.setAttribute("aria-pressed", event?.key === b.dataset.event);
+  });
+}
+
+document.querySelectorAll("#event-switch button").forEach(button => button.addEventListener("click", async () => {
+  const result = $("event-result");
+  button.disabled = true;
+  try {
+    const { message } = await api("/api/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: button.dataset.event }),
+    });
+    result.className = "";
+    result.textContent = message;
+    await loadOverview();
+    renderEvent(); renderEventPanel();
+  } catch (error) {
+    result.className = "error";
+    result.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}));
+
 function renderEvent() {
   const pill = $("event-pill");
   const event = overview.event;
@@ -1605,7 +1656,7 @@ async function poll() {
     showViewer();
     renderEvent();
     renderGauge(); renderLedger(); renderEconomy();
-    if (overview.viewer.admin) { renderOverride(); renderGames(); }
+    if (overview.viewer.admin) { renderOverride(); renderEventPanel(); renderGames(); }
     renderBounties(); renderTournament(); observe();
     if (stale) { renderMoves(); previous && chart ? advanceChart(previous) : renderChart(); }
     setLink(true, "Live, updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
@@ -1635,7 +1686,7 @@ document.querySelectorAll(".tabs button").forEach(button => button.addEventListe
   renderLedger();
 }));
 
-document.querySelectorAll(".switch button").forEach(button => button.addEventListener("click", () => {
+document.querySelectorAll("#market-switch button").forEach(button => button.addEventListener("click", () => {
   if (!overview) return;
   const wanted = button.dataset.direction;
   armed = wanted === overview.market.regime ? null : wanted;

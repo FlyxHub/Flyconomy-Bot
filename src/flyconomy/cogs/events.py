@@ -59,20 +59,32 @@ class Events(BaseCog, name="Events"):
         self.active = (event, ends)
         log.info("Server event started: %s", event.key)
 
+    async def start_announced(self, event: events.Event) -> bool:
+        """Start ``event`` in the announcement channel.
+
+        The one way an event starts on purpose: the scheduler, the owner's
+        ``$startevent``, and the dashboard's event buttons all come through
+        here, so an event started from the web is the same event as one
+        started from Discord.
+
+        Returns:
+            ``False``, starting nothing, when no announcement channel is set
+            or it cannot be reached. An event nobody can see is pointless.
+        """
+        channel_id = self.settings.lottery_announce_channel_id
+        channel = await self.resolve_channel(channel_id) if channel_id is not None else None
+        if channel is None:
+            return False
+        await self.start(event, channel)
+        return True
+
     @tasks.loop(minutes=events.CHECK_MINUTES)
     async def event_loop(self) -> None:
         """Now and then, while nothing is running, start an event in the announcement channel."""
-        channel_id = self.settings.lottery_announce_channel_id
-        # An event nobody can see is pointless, so without a channel only the
-        # owner's $startevent starts them.
-        if channel_id is None or self.current() is not None:
-            return
-        if self.rng.randrange(events.START_ODDS):
+        if self.current() is not None or self.rng.randrange(events.START_ODDS):
             return
         try:
-            channel = await self.resolve_channel(channel_id)
-            if channel is not None:
-                await self.start(events.pick(self.rng), channel)
+            await self.start_announced(events.pick(self.rng))
         except Exception:
             # A failed start must not kill the loop, or events stop for good.
             log.exception("Starting a server event failed; will try again next interval")

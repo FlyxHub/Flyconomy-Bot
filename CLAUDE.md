@@ -112,7 +112,9 @@ hiding them in the browser would be no protection at all — `TestMemberView` in
 `tests/test_api.py` pins it. A new owner-only field goes behind `viewer.admin` in `overview`, not
 behind a CSS class. The market endpoint refuses a non-owner with 403. And its market buttons go
 through `admin.steer_market`, the same function `$market` calls, so a run armed from the web is
-the same run as one armed from Discord. Don't give the web its own copy. History is written by the market tick
+the same run as one armed from Discord. Don't give the web its own copy. The event
+buttons follow the same rule through `Events.start_announced`, which the scheduler and
+`$startevent` share. History is written by the market tick
 (`Database.record_history`): the price every tick, balances hourly, sharing one `at` so net worth
 is always valued at the price of its own snapshot. Hourly is the history, not the present: the
 overview also carries the economy's live totals, valued at the same price as the rest of that

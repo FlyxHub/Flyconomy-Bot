@@ -16,6 +16,7 @@ from discord.ext import commands
 from flyconomy import economy, embeds, events
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
+from flyconomy.cogs.events import Events
 from flyconomy.database import Database
 
 #: A raw snowflake or a mention of one. Deliberately looser than discord.py's
@@ -74,14 +75,13 @@ class Admin(BaseCog, name="Admin"):
         """
         event = events.BY_KEY.get(name.lower())
         cog = self.bot.get_cog("Events")
-        if event is None or cog is None:
+        if event is None or not isinstance(cog, Events):
             await ctx.send(f"Unknown event. Try one of: {', '.join(events.BY_KEY)}.")
             return
-        channel_id = self.settings.lottery_announce_channel_id
-        channel = await self.resolve_channel(channel_id) if channel_id is not None else None
-        await cog.start(event, channel or ctx)  # type: ignore[attr-defined]
-        if channel is not None:
+        if await cog.start_announced(event):
             await ctx.send(f"Started {event.emoji} {event.name}.")
+        else:
+            await cog.start(event, ctx)
 
     @commands.command(name="reset")
     async def reset(self, ctx: commands.Context[FlyconomyBot], member: discord.Member) -> None:

@@ -31,7 +31,7 @@ import aiohttp
 from aiohttp import web
 from aiohttp.typedefs import Handler
 
-from flyconomy import achievements, economy, mines, tournament
+from flyconomy import achievements, economy, events, mines, tournament
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.base import BaseCog
@@ -186,6 +186,7 @@ class Api(BaseCog, name="Api"):
         app.router.add_get("/api/history", self.history)
         app.router.add_get("/api/profile", self.profile)
         app.router.add_post("/api/market", self.market)
+        app.router.add_post("/api/event", self.event_start)
         return app
 
     # ---------------------------------------------------------------- sign-in
@@ -449,7 +450,13 @@ class Api(BaseCog, name="Api"):
         if not isinstance(cog, Events) or cog.current() is None or cog.active is None:
             return None
         event, ends = cog.active
-        return {"emoji": event.emoji, "name": event.name, "blurb": event.blurb, "ends": ends}
+        return {
+            "key": event.key,
+            "emoji": event.emoji,
+            "name": event.name,
+            "blurb": event.blurb,
+            "ends": ends,
+        }
 
     def _board(self, entries: list[LeaderboardEntry]) -> list[dict[str, object]]:
         # Ids as strings: snowflakes are past JavaScript's safe integers.
@@ -591,6 +598,30 @@ class Api(BaseCog, name="Api"):
         message = await steer_market(self.db, wanted, self.rng)
         log.info("Dashboard steered the market: %s", message)
         return web.json_response({"message": message})
+
+    async def event_start(self, request: web.Request) -> web.Response:
+        """Start a server event now, exactly as ``$startevent`` would."""
+        if not request[VIEWER].admin:
+            raise web.HTTPForbidden(text="only the bot's owner can start an event")
+        # The same CORS-preflight lock the market endpoint relies on.
+        if request.content_type != "application/json":
+            raise web.HTTPUnsupportedMediaType(text="send the event as application/json")
+        try:
+            body = await request.json()
+            event = events.BY_KEY.get(str(body["event"]).lower())
+        except (ValueError, KeyError, TypeError):
+            event = None
+        cog = self.bot.get_cog("Events")
+        if event is None or not isinstance(cog, Events):
+            raise web.HTTPBadRequest(text=f"event must be one of {', '.join(events.BY_KEY)}")
+        if not await cog.start_announced(event):
+            # $startevent can fall back to the channel it was run in; a web
+            # page has no channel, and an event nobody sees is pointless.
+            raise web.HTTPConflict(
+                text="No announcement channel is set or reachable. Use $startevent in a channel."
+            )
+        log.info("Dashboard started a server event: %s", event.key)
+        return web.json_response({"message": f"Started {event.emoji} {event.name}."})
 
 
 #: Paths a visitor reaches before they have a session.
