@@ -240,7 +240,8 @@
   .window { display: grid; gap: 8px; justify-items: center; padding: 14px; border-radius: 10px; background: rgba(10, 2, 5, .82); border: 1px solid var(--brass-dark); }
   .window input { width: 160px; padding: 8px 10px; text-align: center; border: 1px solid var(--brass-dark); border-radius: 8px; background: #12040a; font-weight: 600; }
   .window .controls { justify-content: center; }
-  #cage-verdict { text-align: center; }
+  /* The rail is drawn 6px outside the cage, so clear it rather than touch it. */
+  #cage-verdict { margin-top: 18px; text-align: center; }
   .cage-note { margin: 0; text-align: center; font-size: 14px; color: var(--ivory-dim); }
 
   /* ---------------------------------------------------------------- cards */
@@ -273,6 +274,10 @@
   /* Blackjack's table is the half moon it is in every casino. */
   #t-blackjack { border-radius: 18px 18px 50% 50% / 18px 18px 36% 36%; padding-bottom: 60px; }
   #t-blackjack .arc { margin: 0; text-align: center; font: 400 15px var(--display); color: rgba(241, 212, 140, .55); }
+  /* Everything sits on the table's centre line, as on a real half moon, so
+     nothing reaches the curve where the sides narrow toward the bottom. */
+  #t-blackjack { align-items: center; text-align: center; }
+  #t-blackjack .seat, #t-blackjack .hand, #t-blackjack .controls { justify-content: center; justify-items: center; }
 
   /* ------------------------------------------------------------ roulette */
   #t-roulette { background: radial-gradient(circle at 50% 40%, #6b3a1c, #3b1d0c 70%); }
