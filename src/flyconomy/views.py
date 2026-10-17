@@ -444,6 +444,19 @@ class CrashView(_PlayerView):
             )
         )
 
+    @property
+    def cashed_out_multiplier(self) -> float | None:
+        """What the player cashed out at, or ``None`` if they have not."""
+        return self._cashed_out_multiplier
+
+    def result_line(self) -> str:
+        """The embed's Result line, for a page that draws the round itself."""
+        if self.voided:
+            return embeds.VOIDED_LINE
+        return embeds.crash_result_line(
+            self.game, elapsed=self.elapsed(), cashed_out_multiplier=self._cashed_out_multiplier
+        )
+
     def _refresh_buttons(self) -> None:
         """Disable the button once the round is settled."""
         for child in self.children:
@@ -486,6 +499,22 @@ class CrashView(_PlayerView):
         self._refresh_buttons()
         return None
 
+    async def check_bust(self) -> bool:
+        """Settle the round as a bust if it has crashed by now.
+
+        The tick calls this every couple of seconds; the dashboard calls it
+        on every poll, so a page watching the round sees the bust the moment
+        it happens rather than on the next tick.
+
+        Returns:
+            Whether the round busted on this call.
+        """
+        if self._settled or not crash.has_crashed(self.game, self.elapsed()):
+            return False
+        await self.settle(multiplier=0.0)
+        self._refresh_buttons()
+        return True
+
     def start_ticking(self) -> None:
         """Begin the live redraw loop.
 
@@ -506,10 +535,7 @@ class CrashView(_PlayerView):
             self._tick.stop()
             return
 
-        elapsed = self.elapsed()
-        if crash.has_crashed(self.game, elapsed):
-            await self.settle(multiplier=0.0)
-            self._refresh_buttons()
+        if await self.check_bust():
             self._tick.stop()
 
         if self.message is None:
@@ -640,6 +666,11 @@ class MinesView(_PlayerView):
                 cashed_out_multiplier=self._cashed_out_multiplier,
             )
         )
+
+    @property
+    def cashed_out_multiplier(self) -> float | None:
+        """What the board was cashed out at, or ``None`` if it was not."""
+        return self._cashed_out_multiplier
 
     def result_line(self) -> str:
         """The embed's Result line: a prompt while live, the outcome once decided."""

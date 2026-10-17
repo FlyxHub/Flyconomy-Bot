@@ -336,11 +336,11 @@ class TestAResetForfeitsWhatIsStillInPlay:
     async def test_an_instant_win_after_a_reset_says_it_was_forfeited(self, db, settings, ctx):
         cog = Gambling(FakeBot(db, settings))
         await db.add_wallet(ALICE, 100)
-        marker = await cog._stake(ctx, 100)
+        marker = await cog._stake(ctx.author.id, 100)
         await db.reset_account(ALICE, now=time.time())
 
         with pytest.raises(FlyconomyError) as raised:
-            await cog._settle(ctx, 100, economy.COINFLIP_RETURN, marker)
+            await cog._settle(ctx.author.id, 100, economy.COINFLIP_RETURN, marker)
 
         assert describe_command_error(raised.value) == embeds.VOIDED_LINE
         assert (await db.get_account(ALICE)).wallet == economy.STARTING_WALLET
@@ -694,6 +694,8 @@ class TestGrindingIsNotProfitable:
         args = {"coinflip": ("heads",), "rps": ("rock",), "dice": (3,)}.get(game, ())
         for _ in range(4_000):
             ctx.sent.clear()
+            # The slots timer is a pacing rule, not the property under test.
+            cog._slots_ready.clear()
             await getattr(cog, game).callback(cog, ctx, *args, stake)
 
         final = (await db.get_account(ALICE)).wallet

@@ -163,13 +163,13 @@ class TestAddedGames:
         assert command is not None
         assert command._buckets._cooldown is None
 
-    async def test_slots_has_its_own_cooldown(self, bot: FlyconomyBot):
+    async def test_slots_keeps_its_timer_in_the_cog_not_the_command(self, bot: FlyconomyBot):
         # The exception: slots was being spammed, so it spins once a window.
+        # The window is the casino cog's, so the dashboard shares it; a
+        # command cooldown would give the page a second, separate timer.
         command = bot.get_command("slots")
         assert command is not None
-        cooldown = command._buckets._cooldown
-        assert cooldown is not None
-        assert (cooldown.rate, cooldown.per) == (1, economy.SLOTS_COOLDOWN_SECONDS)
+        assert command._buckets._cooldown is None
         assert economy.SLOTS_COOLDOWN_SECONDS == 5 * 60
 
 
@@ -276,7 +276,7 @@ class TestOwnerCommands:
         ctx.send.assert_not_awaited()
 
 
-@pytest.mark.parametrize("name", ["rob", "slots"])
+@pytest.mark.parametrize("name", ["rob"])
 async def test_a_mistyped_argument_does_not_spend_the_cooldown(bot: FlyconomyBot, name: str):
     # discord.py charges the cooldown before parsing unless told otherwise, so
     # `$rob notamember` would burn an hour for nothing.

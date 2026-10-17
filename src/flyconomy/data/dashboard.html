@@ -116,6 +116,8 @@
   .who { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; color: var(--text-2); }
   .who button { cursor: pointer; padding: 6px 10px; border: 1px solid var(--frame); background: none; color: var(--holo); font: inherit; }
   .who button:hover { border-color: var(--holo); }
+  .who a { padding: 6px 10px; border: 1px solid var(--amber); color: var(--amber); text-decoration: none; }
+  .who a:hover { background: rgba(255, 181, 71, .12); }
   .link { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
   .link::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bull); box-shadow: 0 0 10px var(--bull); }
   .link.lost { color: var(--bear); }
@@ -410,35 +412,6 @@
   .tile.pressed { background: rgba(77, 255, 195, .18); border-color: var(--bull); color: var(--bull); }
   .tile.mine { background: rgba(255, 84, 104, .16); border-color: var(--bear); color: var(--bear); }
 
-  /* ----------------------------------------------------------- casino */
-  /* Mines and blackjack against the casino's own tables, in the profile's
-     dialog shell. The page draws only what /api/play sends, and that never
-     holds an unturned mine or the dealer's face-down card. */
-  .play-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; margin-bottom: 18px; }
-  .play-bar label { display: grid; gap: 4px; font-size: 13px; color: var(--text-2); }
-  .play-bar input, .play-bar select { width: 130px; padding: 8px 10px; border: 1px solid var(--frame); background: var(--void); color: var(--text); font: 500 15px var(--display); }
-  .play-bar label[hidden] { display: none; }
-  #play-game { grid-template-columns: repeat(2, 1fr); min-width: 220px; }
-  .play-go { cursor: pointer; padding: 10px 18px; border: 1px solid var(--holo); background: rgba(95, 212, 255, .1); color: var(--holo); font: 600 15px var(--display); letter-spacing: .06em; }
-  .play-go:hover:not(:disabled) { background: rgba(95, 212, 255, .2); }
-  .play-go:disabled { cursor: not-allowed; opacity: .35; }
-  .play-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-  #play-mines-board[hidden], #play-bj[hidden] { display: none; }
-  #play-mines-board { max-width: 360px; }
-  #play-tiles .tile { cursor: pointer; background: none; }
-  #play-tiles .tile:hover:not(:disabled) { border-color: var(--bull); color: var(--bull); }
-  #play-tiles .tile:disabled { cursor: default; }
-  #play-tiles .tile.mine:disabled { background: rgba(255, 84, 104, .16); }
-  #play-tiles .tile.busted { background: var(--bear); border-color: var(--bear); color: var(--void); }
-  .hand { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
-  .card { min-width: 52px; padding: 14px 8px; text-align: center; border: 1px solid var(--frame); font: 600 20px var(--display); }
-  .card.red { color: var(--bear); }
-  .card.down { color: transparent; background: repeating-linear-gradient(45deg, rgba(95, 212, 255, .1) 0 6px, transparent 6px 12px); }
-  .hand-label { font-size: 13px; color: var(--text-2); }
-  .hand-label b { color: var(--text); }
-  #play-result { min-height: 1.5em; margin: 14px 0 0; font: 500 16px var(--display); }
-  #play-result.error { color: var(--bear); }
-
   /* --------------------------------------------------------- live dot */
   /* The price trace's newest point, marked as the live edge it is. */
   .live-dot {
@@ -563,7 +536,7 @@
       </div>
       <span id="event-pill" class="event-pill" hidden></span>
       <span id="link" class="link" role="status">Connecting to the bot</span>
-      <form class="who" method="post" action="/logout"><span id="who"></span><button type="button" id="open-casino" aria-haspopup="dialog">Play</button><button type="button" id="open-profile" aria-haspopup="dialog">Profile</button><button>Sign out</button></form>
+      <form class="who" method="post" action="/logout"><span id="who"></span><a href="/play">Play</a><button type="button" id="open-profile" aria-haspopup="dialog">Profile</button><button>Sign out</button></form>
       <button id="present" class="present" aria-pressed="false" aria-label="Hide market controls" title="Hide market controls (P)">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>
@@ -770,40 +743,6 @@
     </div>
     <h3 class="badges-title" id="badges-title">Achievements</h3>
     <ul class="badges" id="badges"></ul>
-  </dialog>
-
-  <dialog class="me frame" id="casino" aria-labelledby="play-title">
-    <div class="ledger-head">
-      <h2 class="frame-title" id="play-title">Casino</h2>
-      <span class="week" id="play-wallet"></span>
-      <button type="button" class="close" id="close-casino" aria-label="Close casino">Close</button>
-    </div>
-    <div class="play-bar">
-      <div class="switch" id="play-game" role="group" aria-label="Game">
-        <button type="button" data-game="mines" aria-pressed="true">Mines</button>
-        <button type="button" data-game="blackjack" aria-pressed="false">Blackjack</button>
-      </div>
-      <label>Bet <input id="play-bet" type="number" min="1" step="1" value="100" inputmode="numeric"></label>
-      <label id="play-mines-field">Mines <select id="play-mines"></select></label>
-      <button type="button" class="play-go" id="deal">Deal</button>
-    </div>
-    <div id="play-mines-board" hidden>
-      <div class="board-head"><span id="play-stake"></span><b id="play-mult"></b></div>
-      <div class="tiles" id="play-tiles"></div>
-      <div class="play-actions"><button type="button" class="play-go" id="cashout">Cash out</button></div>
-    </div>
-    <div id="play-bj" hidden>
-      <span class="hand-label">Dealer <b id="bj-dealer-value"></b></span>
-      <div class="hand" id="bj-dealer"></div>
-      <span class="hand-label">You <b id="bj-player-value"></b></span>
-      <div class="hand" id="bj-player"></div>
-      <div class="play-actions" id="bj-moves">
-        <button type="button" class="play-go" data-move="hit">Hit</button>
-        <button type="button" class="play-go" data-move="stand">Stand</button>
-        <button type="button" class="play-go" data-move="double">Double down</button>
-      </div>
-    </div>
-    <p id="play-result" role="status"></p>
   </dialog>
 
 <footer class="ticker" aria-label="Recent activity">
@@ -1861,128 +1800,6 @@ $("present").addEventListener("click", () => setPresenting(!presenting));
 // The server leaves the regime and the mines boards out of a member's
 // overview; this only tidies away the panels that would sit empty.
 let member = false;
-// ------------------------------------------------------------------ casino
-// Mines and blackjack against the same tables as Discord. Every press is one
-// POST, answered with the table as the server lets its player see it, so the
-// page never knows more than it draws.
-let table = null;
-let playGame = "mines";
-let playing = false;
-const MINE_TEXT = { safe: "✓", mine: "✕", busted: "✕" };
-const MINE_CLASS = { safe: " pressed", mine: " mine", busted: " mine busted" };
-
-function choosePlayGame(game) {
-  playGame = game;
-  for (const b of $("play-game").querySelectorAll("button")) b.setAttribute("aria-pressed", b.dataset.game === game);
-  $("play-mines-field").hidden = game !== "mines";
-}
-
-function cardNode(text) {
-  const node = document.createElement("span");
-  node.className = "card" + (/[♥♦]/.test(text) ? " red" : "");
-  node.textContent = text;
-  return node;
-}
-
-function renderTable(body) {
-  table = body.table;
-  $("play-wallet").textContent = "Wallet " + money(body.wallet);
-  $("play-bet").max = body.max_bet;
-  const select = $("play-mines");
-  if (!select.options.length) {
-    const [low, high, usual] = body.mine_range;
-    for (let n = low; n <= high; n++) select.add(new Option(n, n, false, n === usual));
-  }
-  const live = table !== null && !table.finished;
-  for (const b of $("play-game").querySelectorAll("button")) b.disabled = live;
-  $("deal").disabled = live;
-  if (live) choosePlayGame(table.game);
-  $("play-mines-board").hidden = table?.game !== "mines";
-  $("play-bj").hidden = table?.game !== "blackjack";
-  const unlocked = (body.unlocked ?? []).map(a => ` · 🏆 ${a.emoji} ${a.name}`).join("");
-  $("play-result").className = "";
-  $("play-result").textContent = (table?.result ?? "") + unlocked;
-  if (table?.game === "mines") {
-    const grid = $("play-tiles");
-    grid.style.gridTemplateColumns = `repeat(${table.columns}, 1fr)`;
-    grid.replaceChildren(...table.tiles.map((state, tile) => {
-      const node = document.createElement("button");
-      node.type = "button";
-      node.className = "tile" + (MINE_CLASS[state] ?? "");
-      node.textContent = MINE_TEXT[state] ?? "·";
-      node.disabled = table.finished || state !== "hidden";
-      node.dataset.tile = tile;
-      node.setAttribute("aria-label", `Tile ${tile + 1}, ${state}`);
-      return node;
-    }));
-    $("play-stake").textContent = `${money(table.stake)} on ${table.mines} mine${table.mines === 1 ? "" : "s"}`;
-    $("play-mult").textContent = table.finished ? "" : `${table.multiplier.toFixed(2)}x`;
-    $("cashout").disabled = !table.can_cash_out;
-  } else if (table) {
-    const dealer = table.dealer.map(cardNode);
-    if (!table.finished) {
-      const down = cardNode("??");
-      down.classList.add("down");
-      down.setAttribute("aria-label", "Face-down card");
-      dealer.push(down);
-    }
-    $("bj-dealer").replaceChildren(...dealer);
-    $("bj-player").replaceChildren(...table.player.map(cardNode));
-    $("bj-dealer-value").textContent = table.dealer_value ?? "";
-    $("bj-player-value").textContent = table.player_value;
-    for (const b of $("bj-moves").querySelectorAll("button")) {
-      b.disabled = table.finished || (b.dataset.move === "double" && !table.can_double);
-    }
-  }
-}
-
-async function playPost(path, body) {
-  // One press at a time: the server would refuse a second, but not prettily.
-  if (playing) return;
-  playing = true;
-  try {
-    renderTable(await api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
-  } catch (error) {
-    // The round may have ended without us -- a timeout settles it on the
-    // server -- so redraw what is really there before saying what went wrong.
-    try { renderTable(await api("/api/play")); } catch {}
-    $("play-result").className = "error";
-    $("play-result").textContent = error.message;
-  } finally {
-    playing = false;
-  }
-}
-
-async function openCasino() {
-  try {
-    renderTable(await api("/api/play"));
-  } catch (error) {
-    setLink(false, `Could not open the casino: ${error.message}`);
-    return;
-  }
-  if (!$("casino").open) $("casino").showModal();
-}
-
-$("open-casino").addEventListener("click", openCasino);
-$("close-casino").addEventListener("click", () => $("casino").close());
-$("casino").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
-$("play-game").addEventListener("click", e => {
-  const button = e.target.closest("button[data-game]");
-  if (button && !button.disabled) choosePlayGame(button.dataset.game);
-});
-$("deal").addEventListener("click", () => playPost("/api/play", {
-  game: playGame, bet: Number($("play-bet").value), mines: Number($("play-mines").value),
-}));
-$("play-tiles").addEventListener("click", e => {
-  const tile = e.target.closest("button[data-tile]");
-  if (tile && !tile.disabled) playPost("/api/play/move", { move: "reveal", tile: Number(tile.dataset.tile) });
-});
-$("cashout").addEventListener("click", () => playPost("/api/play/move", { move: "cashout" }));
-$("bj-moves").addEventListener("click", e => {
-  const button = e.target.closest("button[data-move]");
-  if (button && !button.disabled) playPost("/api/play/move", { move: button.dataset.move });
-});
-
 function showViewer() {
   $("who").textContent = overview.viewer.name;
   if (overview.viewer.admin || member) return;

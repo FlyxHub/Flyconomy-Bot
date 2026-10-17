@@ -280,13 +280,22 @@ rank, levels, and the badges they have earned. Their career stats and progress
 are left out of what the bot sends. A running server event shows as a pill in
 the top bar.
 
-The **Play** button opens mines and blackjack, dealt by the same code as
-`$mines` and `$blackjack`: the same wallet, table limit, rate limit,
-tournament scoring, and achievements, without a trip through Discord on every
-press. The bot sends only what the Discord message would show, so unturned
-tiles stay hidden and the dealer's second card stays face down until the round
-is over. A member has one game on the table at a time; an idle one ends after
-the same timeout as in Discord, and a restart refunds it like any board.
+The **Play** link opens the casino, its own page at `/play`. You walk in
+through the front doors onto a floor with every house game laid out at once
+(blackjack, roulette, war, crash, mines, slots, coinflip, dice, and rock paper
+scissors), plus the jackpot and the lottery, a cage for depositing and
+withdrawing, and one chip stack that sets the bet for every table. Each game
+plays through the same code as its Discord command: the same wallet, table
+limit, rate limit, tournament scoring, and achievements, and the same
+five-minute slots timer, shared between the two. The bot sends only what the
+Discord message would show, so unturned tiles stay hidden, the dealer's second
+card stays face down, and the crash point stays secret until the round is
+over. A member has one multi-press game (blackjack, mines, or crash) on the
+table at a time; an idle one ends after the same timeout as in Discord, and a
+restart refunds it like any board. A jackpot round opened from the page goes
+up in the announcement channel so Discord can join it too, and is refused when
+none is set. Tic-tac-toe needs an opponent in Discord, so the page only
+explains how to challenge one.
 
 Visitors sign in with Discord. You, the bot's owner, see everything. A member
 of any server the bot is in sees the same page without the market override,

@@ -15,6 +15,7 @@ from typing import Any
 
 import discord
 import pytest
+from discord.ext import commands
 
 from flyconomy import economy
 from flyconomy.cogs.base import BaseCog
@@ -1223,15 +1224,19 @@ class TestSlots:
             await cog.slots.callback(cog, ctx, 11)
 
         assert (await db.get_account(ALICE)).wallet == 10
-        assert ctx.command.cooldown_reset is True
+        # A refused bet costs nothing, and that includes the cooldown.
+        assert cog.slots_wait(ALICE) == 0
 
     async def test_a_spin_that_lands_keeps_the_cooldown(self, db, settings, ctx):
         cog = _seeded(Gambling(FakeBot(db, settings)), 4)
-        await db.add_wallet(ALICE, 100)
+        await db.add_wallet(ALICE, 200)
 
         await cog.slots.callback(cog, ctx, 100)
 
-        assert ctx.command.cooldown_reset is False
+        assert cog.slots_wait(ALICE) > economy.SLOTS_COOLDOWN_SECONDS - 5
+        with pytest.raises(commands.CommandOnCooldown):
+            await cog.slots.callback(cog, ctx, 100)
+        assert (await db.get_account(ALICE)).wallet >= 0
 
     async def test_the_wallet_never_goes_negative_over_many_spins(self, db, settings, ctx):
         cog = _seeded(Gambling(FakeBot(db, settings)), 11)
@@ -1241,6 +1246,7 @@ class TestSlots:
             balance = (await db.get_account(ALICE)).wallet
             if balance < 10:
                 break
+            cog._slots_ready.clear()
             await cog.slots.callback(cog, ctx, 10)
             assert (await db.get_account(ALICE)).wallet >= 0
 

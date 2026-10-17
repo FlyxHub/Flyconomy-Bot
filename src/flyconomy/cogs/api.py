@@ -10,9 +10,10 @@ bot's owner sees everything and can arm a run; a member of a server the bot is
 in sees the rest, and never the regime or a live mines board, because nothing
 member-facing may name the regime and a board shown face up is a solved one.
 
-Members can also play mines and blackjack here. The page only ever draws what
-the server sends, and the server sends a table the way the Discord embed shows
-it -- unturned tiles hidden, the dealer's hole card face down -- because a
+Members also play every house game, the jackpot, and the lottery on the
+casino floor at ``/play``. The page only ever draws what the server sends, and
+the server sends a table the way the Discord embed shows it -- unturned tiles
+hidden, the dealer's hole card face down, the crash point unknown -- because a
 board whose answer reached the browser is solved however the page hides it.
 """
 
@@ -34,18 +35,21 @@ from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 import aiohttp
+import discord
 from aiohttp import web
 from aiohttp.typedefs import Handler
+from discord.ext import commands
 
-from flyconomy import achievements, economy, events, mines, tournament
+from flyconomy import achievements, blackjack, crash, economy, events, jackpot, mines, tournament
 from flyconomy.bot import FlyconomyBot, describe_command_error
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.events import Events
-from flyconomy.cogs.gambling import Gambling
+from flyconomy.cogs.gambling import Bet, Gambling
+from flyconomy.cogs.lottery import Lottery
 from flyconomy.database import LeaderboardEntry
 from flyconomy.errors import FlyconomyError, RateLimitedError
-from flyconomy.views import BlackjackView, MinesView
+from flyconomy.views import BlackjackView, CrashView, MinesView
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +59,9 @@ PORT: Final = 8765
 
 #: The page, shipped as package data beside the member guide.
 PAGE_RESOURCE: Final = "data/dashboard.html"
+
+#: The casino floor members play on, served at ``/play``.
+CASINO_RESOURCE: Final = "data/casino.html"
 
 #: The slice of members whose share of the money the dashboard tracks.
 TOP_FRACTION: Final = 0.10
@@ -90,7 +97,7 @@ class Viewer:
 VIEWER: Final = web.RequestKey("viewer", Viewer)
 
 #: A game the dashboard deals: one of the casino's own views, never posted.
-type Table = BlackjackView | MinesView
+type Table = BlackjackView | CrashView | MinesView
 
 
 def top_count(accounts: int, fraction: float = TOP_FRACTION) -> int:
@@ -172,8 +179,13 @@ class Api(BaseCog, name="Api"):
         """Build the application. Separate from :meth:`cog_load` so tests can serve it."""
         page = (resources.files("flyconomy") / PAGE_RESOURCE).read_text(encoding="utf-8")
 
+        floor = (resources.files("flyconomy") / CASINO_RESOURCE).read_text(encoding="utf-8")
+
         async def index(_request: web.Request) -> web.Response:
             return web.Response(text=page, content_type="text/html")
+
+        async def casino_page(_request: web.Request) -> web.Response:
+            return web.Response(text=floor, content_type="text/html")
 
         public_host = urlsplit(self.settings.dashboard_url).netloc.lower()
 
@@ -207,9 +219,15 @@ class Api(BaseCog, name="Api"):
         app.router.add_get("/api/profile", self.profile)
         app.router.add_post("/api/market", self.market)
         app.router.add_post("/api/event", self.event_start)
-        app.router.add_get("/api/play", self.play)
-        app.router.add_post("/api/play", self.deal)
-        app.router.add_post("/api/play/move", self.move)
+        app.router.add_get("/play", casino_page)
+        app.router.add_get("/api/casino", self.casino)
+        app.router.add_get("/api/casino/table", self.casino_table)
+        app.router.add_post("/api/casino/bank", self.bank)
+        app.router.add_post("/api/casino/bet", self.bet)
+        app.router.add_post("/api/casino/deal", self.deal)
+        app.router.add_post("/api/casino/move", self.move)
+        app.router.add_post("/api/casino/jackpot", self.jackpot_ante)
+        app.router.add_post("/api/casino/lottery", self.lottery_ticket)
         return app
 
     # ---------------------------------------------------------------- sign-in
@@ -647,7 +665,19 @@ class Api(BaseCog, name="Api"):
         log.info("Dashboard started a server event: %s", event.key)
         return web.json_response({"message": f"Started {event.emoji} {event.name}."})
 
-    # ------------------------------------------------------------------ play
+    # ---------------------------------------------------------------- casino
+    #
+    # Every game here is the casino cog's own: the instant games through its
+    # play_* functions, the tables through its deal_* functions and views, the
+    # jackpot and the lottery through the cogs that run them. The web only
+    # reads the request, spends the shared rate limit, and says what happened.
+
+    def _casino(self) -> Gambling:
+        """The casino cog, or a 503 while it is not loaded."""
+        casino = self.bot.get_cog("Casino")
+        if not isinstance(casino, Gambling):
+            raise web.HTTPServiceUnavailable(text="The casino is not open right now.")
+        return casino
 
     async def _json(self, request: web.Request) -> dict[str, object]:
         """A POST's JSON body: the same CORS-preflight lock the market relies on."""
@@ -661,17 +691,81 @@ class Api(BaseCog, name="Api"):
             raise web.HTTPBadRequest(text="send a JSON object")
         return body
 
-    async def _table_response(self, user_id: int, *, claim: bool = False) -> web.Response:
-        """The member's table and wallet, plus any badge the move just earned."""
+    def _spend(self, user_id: int) -> None:
+        """Charge one action to the budget every command shares, as ``cog_check`` does."""
+        wait = self.limiter.acquire(user_id)
+        if wait:
+            raise web.HTTPTooManyRequests(text=describe_command_error(RateLimitedError(wait)))
+
+    async def _table(self, user_id: int) -> Table | None:
+        """The member's table, with a crash round that has busted settled first.
+
+        A crash round's tick only looks every couple of seconds, so a page
+        polling it would otherwise keep climbing past the crash point.
+        """
         table = self._tables.get(user_id)
-        # find, not get: opening the page is not a command, so it opens no account.
-        account = await self.db.find_account(user_id)
-        body: dict[str, object] = {
-            "table": table_state(table) if table is not None else None,
-            "wallet": account.wallet if account is not None else 0,
-            "max_bet": self.settings.max_bet,
-            "mine_range": [mines.MIN_MINES, mines.MAX_MINES, mines.DEFAULT_MINES],
+        if isinstance(table, CrashView):
+            await table.check_bust()
+        return table
+
+    def _jackpot(self, user_id: int) -> dict[str, object] | None:
+        """The jackpot round in play, or the last one, as anyone in it sees it."""
+        live = getattr(self.bot.get_cog("Casino"), "live_jackpot", None)
+        if live is None:
+            return None
+        state = live.state
+        return {
+            "round": state.round_number,
+            "open": live.is_open(),
+            "seconds_left": live.seconds_left(),
+            "pot": state.pot,
+            "entrants": [
+                {
+                    "name": self._name(entry.user_id),
+                    "amount": entry.amount,
+                    "chance": jackpot.win_chance(entry.amount, state.pot),
+                    "me": entry.user_id == user_id,
+                }
+                for entry in state.entries
+            ],
+            "winner": self._name(live.winner_id) if live.winner_id is not None else None,
+            "won": live.winner_id == user_id,
+            "paid": live.paid,
+            "refunded": live.refunded,
         }
+
+    async def _lottery(self, user_id: int) -> dict[str, object]:
+        """The open draw, and whether this member holds a ticket for it."""
+        state = await self.db.lottery_state()
+        return {
+            "draw": state.draw,
+            "pot": state.pot,
+            "entrants": state.entrants,
+            "price": self.settings.lottery_ticket_price,
+            "entered": user_id in await self.db.lottery_entrants(),
+            "draws_at": self._next_run("Lottery", "draw_loop"),
+        }
+
+    async def _casino_state(
+        self, user_id: int, *, claim: bool = False, result: object = None, rules: bool = False
+    ) -> web.Response:
+        """Everything the casino page draws for one member, in one response."""
+        # find, not get: walking in is not a command, so it opens no account.
+        account = await self.db.find_account(user_id)
+        table = await self._table(user_id)
+        casino = self.bot.get_cog("Casino")
+        body: dict[str, object] = {
+            "wallet": account.wallet if account is not None else 0,
+            "bank": account.bank if account is not None else 0,
+            "max_bet": self.settings.max_bet,
+            "table": table_state(table) if table is not None else None,
+            "slots_wait": casino.slots_wait(user_id) if isinstance(casino, Gambling) else 0.0,
+            "jackpot": self._jackpot(user_id),
+            "lottery": await self._lottery(user_id),
+            "result": result,
+        }
+        if rules:
+            body["rules"] = CASINO_RULES
         if claim:
             # The web has no channel to announce in, so the page says it.
             body["unlocked"] = [
@@ -680,59 +774,150 @@ class Api(BaseCog, name="Api"):
             ]
         return web.json_response(body)
 
-    async def play(self, request: web.Request) -> web.Response:
-        """The signed-in member's table, as the page should draw it."""
-        return await self._table_response(request[VIEWER].user_id)
+    async def casino(self, request: web.Request) -> web.Response:
+        """The whole floor for the signed-in member, with the rules the page draws from."""
+        return await self._casino_state(request[VIEWER].user_id, rules=True)
 
-    async def deal(self, request: web.Request) -> web.Response:
-        """Stake and deal a game through the casino's own deal, as the command does."""
+    async def casino_table(self, request: web.Request) -> web.Response:
+        """Just the member's table: what a page polls while a crash round climbs."""
+        user_id = request[VIEWER].user_id
+        table = await self._table(user_id)
+        body: dict[str, object] = {"table": table_state(table) if table is not None else None}
+        if table is not None and table.is_finished():
+            body["unlocked"] = [
+                {"emoji": a.emoji, "name": a.name, "description": a.description}
+                for a in await self.db.claim_achievements(user_id, time.time())
+            ]
+        return web.json_response(body)
+
+    async def bank(self, request: web.Request) -> web.Response:
+        """Deposit or withdraw, as ``$deposit`` and ``$withdraw`` do."""
         user_id = request[VIEWER].user_id
         body = await self._json(request)
-        game, bet = body.get("game"), body.get("bet")
-        if game not in ("mines", "blackjack"):
-            raise web.HTTPBadRequest(text="game must be mines or blackjack")
-        # bool is an int to Python; a page posting `true` has not named a bet.
-        if type(bet) is not int or bet < 1:
-            raise web.HTTPBadRequest(text="bet must be a whole number of dollars")
+        source, destination = _BANK_MOVES.get(str(body.get("move")), (None, None))
+        amount = body.get("amount")
+        if source is None or destination is None:
+            raise web.HTTPBadRequest(text="move must be deposit or withdraw")
+        if type(amount) is not int or amount < 1:
+            raise web.HTTPBadRequest(text="amount must be a whole number of dollars")
+        self._spend(user_id)
+        try:
+            await self.db.transfer(user_id, source=source, destination=destination, amount=amount)
+        except FlyconomyError as exc:
+            raise _refused(exc) from exc
+        return await self._casino_state(user_id, result={"move": body["move"], "amount": amount})
+
+    async def bet(self, request: web.Request) -> web.Response:
+        """Play one instant game through the casino's own ``play_*``."""
+        user_id = request[VIEWER].user_id
+        body = await self._json(request)
+        game, stake, pick = body.get("game"), _stake_of(body), body.get("pick")
+        casino = self._casino()
+        # Every pick is checked before anything is spent, as each command does.
+        wager: int | str | None = None
+        match game:
+            case "coinflip" if pick in economy.COIN_SIDES:
+                pass
+            case "rps" if pick in economy.RPS_MOVES:
+                pass
+            case "dice" if type(pick) is int and 1 <= pick <= economy.DICE_SIDES:
+                pass
+            case "roulette" if isinstance(pick, str):
+                wager = economy.parse_roulette_bet(pick)
+                if wager is None:
+                    raise web.HTTPBadRequest(text="bet on red, black, 0, 00, or 1 to 36")
+            case "slots" | "war":
+                pass
+            case _:
+                raise web.HTTPBadRequest(text="that is not a game, or not a pick for it")
+        self._spend(user_id)
+        # Bet is covariant in its outcome, so every game's result fits here;
+        # each branch turns its outcome into something JSON can carry.
+        played: Bet[object]
+        outcome: object
+        try:
+            match game:
+                case "coinflip":
+                    played = await casino.play_coinflip(user_id, str(pick), stake)
+                    outcome = played.outcome
+                case "rps":
+                    played = await casino.play_rps(user_id, str(pick), stake)
+                    outcome = played.outcome
+                case "dice":
+                    played = await casino.play_dice(user_id, int(str(pick)), stake)
+                    outcome = played.outcome
+                case "slots":
+                    spun = await casino.play_slots(user_id, stake)
+                    played = spun
+                    outcome = [economy.SLOT_REEL.index(symbol) for symbol in spun.outcome]
+                case "war":
+                    drawn = await casino.play_war(user_id, stake)
+                    played, outcome = drawn, [str(card) for card in drawn.outcome]
+                case _:
+                    assert wager is not None  # noqa: S101 - parsed above
+                    landed = await casino.play_roulette(user_id, wager, stake)
+                    played, outcome = landed, str(landed.outcome)
+        except (FlyconomyError, commands.CommandError) as exc:
+            raise _refused(exc) from exc
+        return await self._casino_state(
+            user_id,
+            claim=True,
+            result={
+                "game": game,
+                "stake": played.stake,
+                "multiplier": played.multiplier,
+                "paid": played.paid,
+                "outcome": outcome,
+            },
+        )
+
+    async def deal(self, request: web.Request) -> web.Response:
+        """Stake and deal a table through the casino's own deal, as the command does."""
+        user_id = request[VIEWER].user_id
+        body = await self._json(request)
+        game, stake = body.get("game"), _stake_of(body)
+        if game not in ("mines", "blackjack", "crash"):
+            raise web.HTTPBadRequest(text="game must be mines, blackjack, or crash")
         mine_count = body.get("mines", mines.DEFAULT_MINES)
         if type(mine_count) is not int or not mines.MIN_MINES <= mine_count <= mines.MAX_MINES:
             raise web.HTTPBadRequest(text=f"mines must be {mines.MIN_MINES} to {mines.MAX_MINES}")
-        casino = self.bot.get_cog("Casino")
+        casino = self._casino()
         player = self.bot.get_user(user_id)
-        if not isinstance(casino, Gambling) or player is None:
-            raise web.HTTPServiceUnavailable(text="the casino is not open right now")
+        if player is None:
+            raise web.HTTPServiceUnavailable(text="The casino cannot see you right now.")
 
         async with self._dealing:
             live = self._tables.get(user_id)
             if live is not None and not live.is_finished():
                 raise web.HTTPConflict(text="Finish the game you have on the table first.")
-            # The same shared budget every command spends, so the page is not
-            # a way around it. Charged per deal, as a command is; a move is a
-            # button press, which Discord does not charge either.
-            wait = self.limiter.acquire(user_id)
-            if wait:
-                raise web.HTTPTooManyRequests(text=describe_command_error(RateLimitedError(wait)))
+            # Charged per deal, as a command is; a move is a button press,
+            # which Discord does not charge either.
+            self._spend(user_id)
             table: Table
             try:
                 if game == "mines":
-                    table = await casino.deal_mines(player, bet, mine_count)
+                    table = await casino.deal_mines(player, stake, mine_count)
+                elif game == "crash":
+                    table = await casino.deal_crash(player, stake)
+                    if not table.is_finished():
+                        table.start_ticking()
                 else:
-                    table = await casino.deal_blackjack(player, bet)
+                    table = await casino.deal_blackjack(player, stake)
             except FlyconomyError as exc:
-                raise web.HTTPBadRequest(text=describe_command_error(exc) or str(exc)) from exc
+                raise _refused(exc) from exc
             self._tables[user_id] = table
             self._touched[user_id] = time.monotonic()
         if not table.is_finished():
             task = asyncio.create_task(self._expire(user_id, table))
             self._expiring.add(task)
             task.add_done_callback(self._expiring.discard)
-        return await self._table_response(user_id, claim=True)
+        return await self._casino_state(user_id, claim=True)
 
     async def move(self, request: web.Request) -> web.Response:
         """Press one of the table's buttons, through the view's own ``apply_*``."""
         user_id = request[VIEWER].user_id
         body = await self._json(request)
-        table = self._tables.get(user_id)
+        table = await self._table(user_id)
         if table is None or table.is_finished():
             raise web.HTTPConflict(text="That game is already over. Deal a new one.")
         self._touched[user_id] = time.monotonic()
@@ -743,7 +928,7 @@ class Api(BaseCog, name="Api"):
                 if type(tile) is not int or not 0 <= tile < mines.TILES:
                     raise web.HTTPBadRequest(text=f"tile must be 0 to {mines.TILES - 1}")
                 problem = await table.apply_reveal(tile)
-            case "cashout", MinesView():
+            case "cashout", MinesView() | CrashView():
                 problem = await table.apply_cashout()
             case "hit", BlackjackView():
                 await table.apply_hit()
@@ -755,7 +940,40 @@ class Api(BaseCog, name="Api"):
                 raise web.HTTPBadRequest(text="that move is not part of this game")
         if problem is not None:
             raise web.HTTPConflict(text=problem)
-        return await self._table_response(user_id, claim=table.is_finished())
+        return await self._casino_state(user_id, claim=table.is_finished())
+
+    async def jackpot_ante(self, request: web.Request) -> web.Response:
+        """Ante into the jackpot, opening a round in the announcement channel if none is."""
+        user_id = request[VIEWER].user_id
+        body = await self._json(request)
+        ante = _stake_of(body, "ante")
+        casino = self._casino()
+        self._spend(user_id)
+        # A round goes up in the channel the bot's own announcements use, so
+        # everyone in Discord can still press Join on it.
+        channel_id = self.settings.lottery_announce_channel_id
+        channel = await self.resolve_channel(channel_id) if channel_id else None
+        try:
+            await casino.ante_jackpot(user_id, ante, channel)
+        except (FlyconomyError, discord.HTTPException) as exc:
+            raise _refused(exc) from exc
+        return await self._casino_state(user_id, result={"ante": ante})
+
+    async def lottery_ticket(self, request: web.Request) -> web.Response:
+        """Buy this draw's ticket, through the lottery cog's own entry."""
+        user_id = request[VIEWER].user_id
+        await self._json(request)
+        lottery = self.bot.get_cog("Lottery")
+        if not isinstance(lottery, Lottery):
+            raise web.HTTPServiceUnavailable(text="The lottery is not open right now.")
+        self._spend(user_id)
+        try:
+            entered = await lottery.enter(user_id)
+        except FlyconomyError as exc:
+            raise _refused(exc) from exc
+        if not entered:
+            raise web.HTTPConflict(text="You already hold a ticket for this draw.")
+        return await self._casino_state(user_id, claim=True, result={"ticket": True})
 
     async def _expire(self, user_id: int, table: Table) -> None:
         """Run the view's own timeout once its player stops pressing.
@@ -773,13 +991,74 @@ class Api(BaseCog, name="Api"):
             await asyncio.sleep(timeout - idle)
 
 
+#: The two banking moves, as the columns each one moves money between.
+_BANK_MOVES: Final = {"deposit": ("wallet", "bank"), "withdraw": ("bank", "wallet")}
+
+#: What the casino page draws its tables from. Sent once, on walking in, and
+#: read from the rules modules so a retuned payout reaches the page unasked.
+CASINO_RULES: Final = {
+    "mine_range": [mines.MIN_MINES, mines.MAX_MINES, mines.DEFAULT_MINES],
+    "mine_tiles": mines.TILES,
+    "mine_columns": mines.COLUMNS,
+    "dice_sides": economy.DICE_SIDES,
+    "roulette_red": sorted(economy.ROULETTE_RED),
+    "slot_reel": [
+        {"emoji": s.emoji, "name": s.name, "triple": s.triple_return, "pair": s.pays_on_pair}
+        for s in economy.SLOT_REEL
+    ],
+    "slot_pair": economy.SLOT_PAIR_RETURN,
+    "slots_cooldown": economy.SLOTS_COOLDOWN_SECONDS,
+    "returns": {
+        "coinflip": economy.COINFLIP_RETURN,
+        "rps": economy.RPS_RETURN,
+        "dice": economy.DICE_RETURN,
+        "war": economy.WAR_WIN_RETURN,
+        "roulette_color": economy.ROULETTE_COLOR_RETURN,
+        "roulette_pocket": economy.ROULETTE_STRAIGHT_RETURN,
+    },
+    "crash_growth": crash.GROWTH_PER_SECOND,
+    "crash_max": crash.MAX_MULTIPLIER,
+    "jackpot_cut": jackpot.HOUSE_CUT,
+    "jackpot_seconds": jackpot.ROUND_SECONDS,
+}
+
+
+def _stake_of(body: dict[str, object], key: str = "bet") -> int:
+    """A whole, positive number of dollars from a request, or a 400."""
+    stake = body.get(key)
+    # bool is an int to Python; a page posting `true` has not named a bet.
+    if type(stake) is not int or stake < 1:
+        raise web.HTTPBadRequest(text=f"{key} must be a whole number of dollars")
+    return stake
+
+
+def _refused(exc: Exception) -> web.HTTPBadRequest:
+    """The member-facing message for a refused move, the same one Discord gives."""
+    return web.HTTPBadRequest(text=describe_command_error(exc) or str(exc))
+
+
+def _paid(table: Table) -> int:
+    """What a settled table credited back, by the same payout the view settled with."""
+    if table.voided:
+        return 0
+    if isinstance(table, BlackjackView):
+        outcome = table.game.outcome
+        return blackjack.payout(table.game.stake, outcome) if outcome is not None else 0
+    cashed = table.cashed_out_multiplier
+    if cashed is None:
+        return 0
+    if isinstance(table, MinesView):
+        return mines.payout(table.game.stake, cashed)
+    return crash.payout(table.game.stake, cashed)
+
+
 def table_state(table: Table) -> dict[str, object]:
     """A table as its player may see it: what the Discord embed shows, no more.
 
-    Unturned tiles stay hidden and the dealer's second card face down until the
-    round is settled. This is the only thing standing between the browser and
-    a solved board, so it decides what to leave out here rather than trusting
-    the page to hide it.
+    Unturned tiles stay hidden, the dealer's second card face down, and a
+    crash round's crash point unknown until the round is settled. This is the
+    only thing standing between the browser and a solved board, so it decides
+    what to leave out here rather than trusting the page to hide it.
     """
     done = table.is_finished()
     result = table.result_line()
@@ -787,6 +1066,7 @@ def table_state(table: Table) -> dict[str, object]:
         "stake": table.game.stake,
         "finished": done,
         "result": result.replace("**", "") if result is not None else None,
+        "paid": _paid(table) if done else None,
     }
     if isinstance(table, MinesView):
         board = table.game
@@ -798,6 +1078,14 @@ def table_state(table: Table) -> dict[str, object]:
             "multiplier": board.multiplier,
             "next_multiplier": board.next_multiplier,
             "can_cash_out": not done and bool(board.revealed),
+        }
+    if isinstance(table, CrashView):
+        rocket = table.game
+        return common | {
+            "game": "crash",
+            "elapsed": table.elapsed(),
+            "cashed_out": table.cashed_out_multiplier,
+            "crash_point": rocket.crash_point if done else None,
         }
     hand = table.game
     return common | {

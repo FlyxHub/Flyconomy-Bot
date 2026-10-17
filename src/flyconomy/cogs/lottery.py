@@ -140,9 +140,7 @@ class Lottery(BaseCog, name="Lottery"):
     async def lottery_enter(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """Enter the current draw. One entry per member, paid from your bank."""
         price = self.settings.lottery_ticket_price
-        async with self._draw_lock:
-            entered = await self.db.enter_lottery(ctx.author.id, price)
-        if not entered:
+        if not await self.enter(ctx.author.id):
             await ctx.send("You are already in this draw. Everyone gets exactly one entry.")
             return
 
@@ -151,6 +149,15 @@ class Lottery(BaseCog, name="Lottery"):
             f"You are in draw #{state.draw} for {embeds.money(price)}. "
             f"The pot is {embeds.money(state.pot)} across {state.entrants:,} entrants."
         )
+
+    async def enter(self, user_id: int) -> bool:
+        """Buy a member's ticket, behind the draw's lock. Shared with the dashboard.
+
+        Returns:
+            ``False`` when they already hold one for this draw.
+        """
+        async with self._draw_lock:
+            return await self.db.enter_lottery(user_id, self.settings.lottery_ticket_price)
 
 
 async def setup(bot: FlyconomyBot) -> None:

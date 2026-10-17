@@ -129,14 +129,23 @@ can only show the time the bot will actually act. The live mines panel serves ev
 play with its mines face up, read from `Gambling.live_mines` (a `WeakSet`, so a settled board needs
 no cleanup); it is the answer to a live round, so it folds away with the override when presenting.
 
-Members also **play mines and blackjack on the page** (`/api/play`). A web table is the casino's
-own `MinesView` or `BlackjackView`, dealt by `Gambling.deal_mines`/`deal_blackjack` -- the same
-functions the commands call -- and simply never posted, so the held wager, reset marker, rake,
-tournament score, and idempotent settle all come along without a copy. Don't give the web its own
-game logic. Two things are the web's own. `table_state` is all that stands between the browser
-and a solved board, so it sends what the embed shows and nothing more; `TestPlay` pins it. And a
-view's timeout only starts when Discord posts it, so `Api._expire` runs `on_timeout` itself once
-the player goes idle -- without it an abandoned web table would hold its stake until a restart.
+Members also **play every game on the casino floor**, `data/casino.html` served at `/play`
+over `/api/casino/*`. Each game's logic lives once, in the cog, and both the command and the page
+call it: the instant games through `Gambling.play_*` (which stake, roll, and settle, and return a
+`Bet` for the caller to describe), the multi-press tables through `deal_blackjack`/`deal_mines`/
+`deal_crash`, the jackpot through `ante_jackpot`, the lottery through `Lottery.enter`. A web table
+is the casino's own view, simply never posted, so the held wager, reset marker, rake, tournament
+score, and idempotent settle all come along without a copy. Don't give the web its own game
+logic. That is also why the slots timer moved off the command and into `play_slots`: a command
+cooldown would have given the page a second, separate five minutes. Three things are the web's
+own. `table_state` is all that stands between the browser and a solved board, so it sends what
+the embed shows and nothing more -- no unturned mine, no hole card, no crash point while the
+rocket climbs; `TestCasinoTables` pins it. A view's timeout only starts when Discord posts it, so
+`Api._expire` runs `on_timeout` itself once the player goes idle -- without it an abandoned web
+table would hold its stake until a restart. And a crash round's tick looks only every couple of
+seconds, so `Api._table` calls `CrashView.check_bust` on every read, or a polling page would show
+the rocket climbing past its crash point. Every web action spends the shared rate limit the way a
+command does; a table move doesn't, because a button press in Discord doesn't either.
 
 ## The member guide
 
