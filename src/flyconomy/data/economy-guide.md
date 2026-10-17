@@ -212,6 +212,8 @@ same 3% too. The mine count buys a different *shape* of gamble, never a better
 one. The multiplier is capped at **100x**, and a board reaching it cashes itself
 out — past that point the tiles can only lose.
 
+You can also play mines and blackjack on the dashboard: press **Play**.
+
 ════════════════════════════════════ 7 of 9 ════════════════════════════════════
 
 # 🏆 Playing against each other

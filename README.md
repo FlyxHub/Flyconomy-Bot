@@ -280,6 +280,14 @@ rank, levels, and the badges they have earned. Their career stats and progress
 are left out of what the bot sends. A running server event shows as a pill in
 the top bar.
 
+The **Play** button opens mines and blackjack, dealt by the same code as
+`$mines` and `$blackjack`: the same wallet, table limit, rate limit,
+tournament scoring, and achievements, without a trip through Discord on every
+press. The bot sends only what the Discord message would show, so unturned
+tiles stay hidden and the dealer's second card stays face down until the round
+is over. A member has one game on the table at a time; an idle one ends after
+the same timeout as in Discord, and a restart refunds it like any board.
+
 Visitors sign in with Discord. You, the bot's owner, see everything. A member
 of any server the bot is in sees the same page without the market override,
 the run status, or the live mines boards: the bot leaves those out of what it

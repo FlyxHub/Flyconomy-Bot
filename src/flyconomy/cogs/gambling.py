@@ -120,9 +120,7 @@ class Gambling(BaseCog, name="Casino"):
         self._check_limit(bet)
         return await self.db.stake(ctx.author.id, bet)
 
-    async def _hold(
-        self, ctx: commands.Context[FlyconomyBot], bet: int
-    ) -> tuple[int, float | None]:
+    async def _hold(self, user_id: int, bet: int) -> tuple[int, float | None]:
         """:meth:`_stake` for a game played across button presses.
 
         The stake is recorded as a held wager, so a restart before the board
@@ -132,7 +130,7 @@ class Gambling(BaseCog, name="Casino"):
             The wager's id for the view, and the reset marker.
         """
         self._check_limit(bet)
-        return await self.db.hold_wager(ctx.author.id, bet)
+        return await self.db.hold_wager(user_id, bet)
 
     async def _settle(
         self,
@@ -188,6 +186,7 @@ class Gambling(BaseCog, name="Casino"):
             return await ctx.send(embed=view.embed(), view=view)
         except discord.HTTPException:
             await self.db.pay_winnings(ctx.author.id, bet, view.reset_marker, view.wager_id)
+            view.stop()
             raise
 
     @commands.hybrid_command(name="coinflip", aliases=["cf"])  # type: ignore[arg-type]
@@ -316,13 +315,29 @@ class Gambling(BaseCog, name="Casino"):
         self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
     ) -> None:
         """Play a hand of blackjack against the dealer. A natural pays 3:2."""
-        wager, marker = await self._hold(ctx, bet)
-        game = blackjack.Game.deal(bet, self.rng)
+        view = await self.deal_blackjack(ctx.author, bet)
+        # A natural for either side decides the hand on the deal, so there is
+        # nothing to press and the buttons never appear.
+        if view.is_finished():
+            await ctx.send(embed=view.embed())
+            return
+        view.message = await self._post(ctx, view, bet)
 
+    async def deal_blackjack(self, player: discord.abc.User, bet: int) -> BlackjackView:
+        """Stake and deal a hand, settling it now if a natural decided it.
+
+        The one way a hand starts, shared by ``$blackjack`` and the dashboard
+        so the web cannot drift from the table limit or the held wager.
+
+        Raises:
+            BetTooLargeError: If the stake exceeds the table limit.
+            InsufficientFundsError: If the wallet cannot cover the stake.
+        """
+        wager, marker = await self._hold(player.id, bet)
         view = BlackjackView(
             db=self.db,
-            game=game,
-            player=ctx.author,
+            game=blackjack.Game.deal(bet, self.rng),
+            player=player,
             base_bet=bet,
             timezone=self.timezone,
             rake=self.settings.lottery_rake,
@@ -331,15 +346,8 @@ class Gambling(BaseCog, name="Casino"):
             reset_marker=marker,
         )
         view.wager_id = wager
-
-        # A natural for either side decides the hand on the deal, so there is
-        # nothing to press and the buttons never appear.
-        if game.finished:
-            await view.settle()
-            await ctx.send(embed=view.embed())
-            return
-
-        view.message = await self._post(ctx, view, bet)
+        await view.settle()
+        return view
 
     @commands.hybrid_command(name="crash")  # type: ignore[arg-type]
     @app_commands.describe(bet="Dollars to stake.")
@@ -347,7 +355,7 @@ class Gambling(BaseCog, name="Casino"):
         self, ctx: commands.Context[FlyconomyBot], bet: commands.Range[int, 1]
     ) -> None:
         """Cash out before the multiplier crashes. The longer you wait, the more it pays."""
-        wager, marker = await self._hold(ctx, bet)
+        wager, marker = await self._hold(ctx.author.id, bet)
         game = crash.Game.deal(bet, self.rng)
 
         view = CrashView(
@@ -387,7 +395,17 @@ class Gambling(BaseCog, name="Casino"):
         ),
     ) -> None:
         """Turn over tiles for a rising multiplier. Cash out before you hit a mine."""
-        wager, marker = await self._hold(ctx, bet)
+        view = await self.deal_mines(ctx.author, bet, mines)
+        view.message = await self._post(ctx, view, bet)
+
+    async def deal_mines(self, player: discord.abc.User, bet: int, mines: int) -> MinesView:
+        """Stake and deal a board, shared by ``$mines`` and the dashboard.
+
+        Raises:
+            BetTooLargeError: If the stake exceeds the table limit.
+            InsufficientFundsError: If the wallet cannot cover the stake.
+        """
+        wager, marker = await self._hold(player.id, bet)
         game = mines_rules.Game.deal(bet, mines, self.rng)
         # Logged at deal time, before a tile is pressed, so the board can be
         # read while the round is still live. That is the point of it and also
@@ -397,7 +415,7 @@ class Gambling(BaseCog, name="Casino"):
         # 3% edge. Keep the log where only the host can see it.
         log.info(
             "mines board for %s: stake=%d mines=%s safe=%s",
-            ctx.author.id,
+            player.id,
             bet,
             sorted(game.mine_tiles),
             sorted(set(range(mines_rules.TILES)) - game.mine_tiles),
@@ -406,7 +424,7 @@ class Gambling(BaseCog, name="Casino"):
         view = MinesView(
             db=self.db,
             game=game,
-            player=ctx.author,
+            player=player,
             timezone=self.timezone,
             rake=self.settings.lottery_rake,
             creator_tax_rate=self.settings.creator_tax_rate,
@@ -414,8 +432,8 @@ class Gambling(BaseCog, name="Casino"):
             reset_marker=marker,
         )
         view.wager_id = wager
-        view.message = await self._post(ctx, view, bet)
         self.live_mines.add(view)
+        return view
 
     @commands.hybrid_command(name="jackpot", aliases=["jp"])  # type: ignore[arg-type]
     @app_commands.describe(ante="Dollars to ante into the pot.")

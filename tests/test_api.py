@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import random
 import time
@@ -13,12 +14,14 @@ from zoneinfo import ZoneInfo
 import pytest
 from aiohttp import test_utils, web
 
-from flyconomy import economy, events, mines, tournament
+from flyconomy import blackjack, economy, events, mines, tournament
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.api import SESSION_COOKIE, Api, is_local_host, top_share
 from flyconomy.cogs.events import Events
+from flyconomy.cogs.gambling import Gambling
 from flyconomy.config import Settings
 from flyconomy.database import Database
+from flyconomy.ratelimit import SlidingWindowLimiter
 from tests.conftest import ALICE, BOB
 from tests.test_cog_behavior import FakeBot, FakeChannel, FakeUser
 from tests.test_events import make_cog as make_events_cog
@@ -42,6 +45,7 @@ class FakeApiBot:
         self.db = db
         self.settings = settings
         self.cogs: dict[str, object] = {}
+        self.limiter = SlidingWindowLimiter(rate=100, per=60)
         # Alice and Bob stay unseen, so their names read back as their ids.
         self.users = {
             OWNER: SimpleNamespace(id=OWNER, display_name="Owner", mutual_guilds=[object()]),
@@ -293,10 +297,10 @@ class TestApi:
     async def test_live_mines_boards_are_served_face_up_until_settled(self, client, bot, db):
         game = mines.Game(stake=500, mine_tiles=frozenset({3, 9}))
         live = make_view(db, game, FakeUser(ALICE))
-        live.message = SimpleNamespace(id=2, channel=FakeChannel())  # type: ignore[assignment]
+        live.wager_id = 2
         await live.apply_reveal(0)
         done = make_view(db, mines.Game(stake=1, mine_tiles=frozenset({0})), FakeUser(BOB))
-        done.message = SimpleNamespace(id=1, channel=FakeChannel())  # type: ignore[assignment]
+        done.wager_id = 1
         await done.apply_reveal(0)
         bot.cogs["Casino"] = SimpleNamespace(live_mines={live, done})
 
@@ -628,3 +632,104 @@ class TestEventButtons:
     async def test_it_demands_json(self, client, bot, db):
         events_cog(bot, db, FakeChannel())
         assert (await client.post("/api/event", data={"event": "drop"})).status == 415
+
+
+@pytest.fixture
+async def casino(bot: FakeApiBot, db: Database) -> Gambling:
+    """The real casino cog, and a member with a wallet to stake from."""
+    cog = Gambling(bot)  # type: ignore[arg-type]
+    cog.rng = random.Random(7)
+    bot.cogs["Casino"] = cog
+    await db.add_wallet(MEMBER, 10_000)
+    return cog
+
+
+def hand_with_a_turn() -> random.Random:
+    """A seed whose opening hand is not a natural, so there is a choice to make."""
+    seed = next(i for i in range(100) if not blackjack.Game.deal(1, random.Random(i)).finished)
+    return random.Random(seed)
+
+
+class TestPlay:
+    async def test_a_board_is_played_from_the_page_without_its_mines(self, member, cog, casino, db):
+        before = (await db.get_account(MEMBER)).wallet
+
+        dealt = await (await member.post("/api/play", json={"game": "mines", "bet": 100})).json()
+
+        assert dealt["wallet"] == before - 100
+        assert dealt["table"]["tiles"] == [mines.HIDDEN] * mines.TILES
+        board = cog._tables[MEMBER].game
+        safe = next(t for t in range(mines.TILES) if not board.is_mine(t))
+        mine = next(iter(board.mine_tiles))
+
+        moved = await member.post("/api/play/move", json={"move": "reveal", "tile": safe})
+        state = (await moved.json())["table"]
+        # Nothing about where the mines are, in any field, until it is over.
+        assert state["tiles"][safe] == mines.SAFE
+        assert mines.MINE not in state["tiles"]
+        assert str(sorted(board.mine_tiles)) not in await moved.text()
+
+        done = await (await member.post("/api/play/move", json={"move": "cashout"})).json()
+
+        assert done["table"]["finished"] is True
+        assert done["table"]["tiles"][mine] == mines.MINE
+        assert done["wallet"] == before - 100 + mines.payout(100, board.multiplier)
+        assert "First Bet" in {a["name"] for a in done["unlocked"]}
+
+    async def test_the_dealers_hole_card_stays_down_until_the_hand_is_over(self, member, casino):
+        casino.rng = hand_with_a_turn()
+
+        dealt = await (await member.post("/api/play", json={"game": "blackjack", "bet": 50})).json()
+        assert len(dealt["table"]["dealer"]) == 1
+        assert dealt["table"]["dealer_value"] is None
+
+        stood = await (await member.post("/api/play/move", json={"move": "stand"})).json()
+
+        assert stood["table"]["finished"] is True
+        assert len(stood["table"]["dealer"]) >= 2
+        assert stood["table"]["result"]
+
+    async def test_a_bet_over_the_table_limit_costs_nothing(self, member, casino, db, settings):
+        before = (await db.get_account(MEMBER)).wallet
+
+        response = await member.post(
+            "/api/play", json={"game": "mines", "bet": settings.max_bet + 1}
+        )
+
+        assert response.status == 400
+        assert (await db.get_account(MEMBER)).wallet == before
+
+    async def test_one_table_at_a_time(self, member, casino):
+        await member.post("/api/play", json={"game": "mines", "bet": 10})
+
+        again = await member.post("/api/play", json={"game": "mines", "bet": 10})
+
+        assert again.status == 409
+
+    async def test_dealing_spends_the_shared_rate_limit(self, member, bot, casino):
+        bot.limiter = SlidingWindowLimiter(rate=1, per=60)
+        bot.limiter.acquire(MEMBER)
+
+        response = await member.post("/api/play", json={"game": "mines", "bet": 10})
+
+        assert response.status == 429
+
+    async def test_a_play_must_be_posted_as_json(self, member, casino):
+        response = await member.post("/api/play", data={"game": "mines", "bet": "10"})
+
+        assert response.status == 415
+
+    async def test_a_walked_away_board_settles_on_its_own(
+        self, member, cog, casino, db, monkeypatch
+    ):
+        # A posted view's clock is Discord's; an unposted one has only ours.
+        monkeypatch.setattr(mines, "DECISION_TIMEOUT_SECONDS", 0.05)
+        before = (await db.get_account(MEMBER)).wallet
+        await member.post("/api/play", json={"game": "mines", "bet": 100})
+
+        await asyncio.sleep(0.2)
+
+        assert cog._tables[MEMBER].is_finished()
+        # Untouched, so refunded, exactly as an abandoned Discord board is.
+        assert (await db.get_account(MEMBER)).wallet == before
+        assert (await (await member.get("/api/play")).json())["table"]["finished"] is True

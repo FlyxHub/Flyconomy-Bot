@@ -9,10 +9,16 @@ Off unless ``dashboard_enabled`` is set. Visitors sign in with Discord. The
 bot's owner sees everything and can arm a run; a member of a server the bot is
 in sees the rest, and never the regime or a live mines board, because nothing
 member-facing may name the regime and a board shown face up is a solved one.
+
+Members can also play mines and blackjack here. The page only ever draws what
+the server sends, and the server sends a table the way the Discord embed shows
+it -- unturned tiles hidden, the dealer's hole card face down -- because a
+board whose answer reached the browser is solved however the page hides it.
 """
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import ipaddress
 import itertools
@@ -32,11 +38,14 @@ from aiohttp import web
 from aiohttp.typedefs import Handler
 
 from flyconomy import achievements, economy, events, mines, tournament
-from flyconomy.bot import FlyconomyBot
+from flyconomy.bot import FlyconomyBot, describe_command_error
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.base import BaseCog
 from flyconomy.cogs.events import Events
+from flyconomy.cogs.gambling import Gambling
 from flyconomy.database import LeaderboardEntry
+from flyconomy.errors import FlyconomyError, RateLimitedError
+from flyconomy.views import BlackjackView, MinesView
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +89,9 @@ class Viewer:
 
 VIEWER: Final = web.RequestKey("viewer", Viewer)
 
+#: A game the dashboard deals: one of the casino's own views, never posted.
+type Table = BlackjackView | MinesView
+
 
 def top_count(accounts: int, fraction: float = TOP_FRACTION) -> int:
     """How many accounts make up the top ``fraction``: rounded up, and never none."""
@@ -116,6 +128,14 @@ class Api(BaseCog, name="Api"):
         # ponytail: sessions live in memory, so a restart signs everyone out;
         # Discord remembers the consent, so signing back in is one redirect.
         self._sessions: dict[str, tuple[int, float]] = {}
+        # One table per member, kept once settled so the page can show the
+        # result, and replaced by their next deal.
+        self._tables: dict[int, Table] = {}
+        self._touched: dict[int, float] = {}
+        # ponytail: one lock for every deal, so a double-clicked Deal cannot
+        # stake twice; per-member locks if dealing is ever a bottleneck.
+        self._dealing = asyncio.Lock()
+        self._expiring: set[asyncio.Task[None]] = set()
 
     async def cog_load(self) -> None:
         """Start listening, unless the dashboard is switched off.
@@ -187,6 +207,9 @@ class Api(BaseCog, name="Api"):
         app.router.add_get("/api/profile", self.profile)
         app.router.add_post("/api/market", self.market)
         app.router.add_post("/api/event", self.event_start)
+        app.router.add_get("/api/play", self.play)
+        app.router.add_post("/api/play", self.deal)
+        app.router.add_post("/api/play/move", self.move)
         return app
 
     # ---------------------------------------------------------------- sign-in
@@ -324,13 +347,14 @@ class Api(BaseCog, name="Api"):
         served here: anyone who sees it plays a solved board.
         """
         live = getattr(self.bot.get_cog("Casino"), "live_mines", ())
-        # A board's message id is a snowflake, so it orders boards by start.
+        # Wager ids count up, so they order boards by start, from Discord and
+        # this page alike.
         boards = sorted(
-            (v.message.id, v) for v in live if v.message is not None and not v.is_finished()
+            ((v.wager_id or 0, v) for v in live if not v.is_finished()), key=lambda b: b[0]
         )
         return [
             {
-                "id": str(message_id),
+                "id": str(wager_id),
                 "player": self._name(v.player.id),
                 "stake": v.game.stake,
                 "mines": sorted(v.game.mine_tiles),
@@ -338,7 +362,7 @@ class Api(BaseCog, name="Api"):
                 "multiplier": v.game.multiplier,
                 "next_multiplier": v.game.next_multiplier,
             }
-            for message_id, v in boards
+            for wager_id, v in boards
         ]
 
     async def _tournament(self) -> dict[str, object]:
@@ -622,6 +646,168 @@ class Api(BaseCog, name="Api"):
             )
         log.info("Dashboard started a server event: %s", event.key)
         return web.json_response({"message": f"Started {event.emoji} {event.name}."})
+
+    # ------------------------------------------------------------------ play
+
+    async def _json(self, request: web.Request) -> dict[str, object]:
+        """A POST's JSON body: the same CORS-preflight lock the market relies on."""
+        if request.content_type != "application/json":
+            raise web.HTTPUnsupportedMediaType(text="send the move as application/json")
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            raise web.HTTPBadRequest(text="send a JSON object")
+        return body
+
+    async def _table_response(self, user_id: int, *, claim: bool = False) -> web.Response:
+        """The member's table and wallet, plus any badge the move just earned."""
+        table = self._tables.get(user_id)
+        # find, not get: opening the page is not a command, so it opens no account.
+        account = await self.db.find_account(user_id)
+        body: dict[str, object] = {
+            "table": table_state(table) if table is not None else None,
+            "wallet": account.wallet if account is not None else 0,
+            "max_bet": self.settings.max_bet,
+            "mine_range": [mines.MIN_MINES, mines.MAX_MINES, mines.DEFAULT_MINES],
+        }
+        if claim:
+            # The web has no channel to announce in, so the page says it.
+            body["unlocked"] = [
+                {"emoji": a.emoji, "name": a.name, "description": a.description}
+                for a in await self.db.claim_achievements(user_id, time.time())
+            ]
+        return web.json_response(body)
+
+    async def play(self, request: web.Request) -> web.Response:
+        """The signed-in member's table, as the page should draw it."""
+        return await self._table_response(request[VIEWER].user_id)
+
+    async def deal(self, request: web.Request) -> web.Response:
+        """Stake and deal a game through the casino's own deal, as the command does."""
+        user_id = request[VIEWER].user_id
+        body = await self._json(request)
+        game, bet = body.get("game"), body.get("bet")
+        if game not in ("mines", "blackjack"):
+            raise web.HTTPBadRequest(text="game must be mines or blackjack")
+        # bool is an int to Python; a page posting `true` has not named a bet.
+        if type(bet) is not int or bet < 1:
+            raise web.HTTPBadRequest(text="bet must be a whole number of dollars")
+        mine_count = body.get("mines", mines.DEFAULT_MINES)
+        if type(mine_count) is not int or not mines.MIN_MINES <= mine_count <= mines.MAX_MINES:
+            raise web.HTTPBadRequest(text=f"mines must be {mines.MIN_MINES} to {mines.MAX_MINES}")
+        casino = self.bot.get_cog("Casino")
+        player = self.bot.get_user(user_id)
+        if not isinstance(casino, Gambling) or player is None:
+            raise web.HTTPServiceUnavailable(text="the casino is not open right now")
+
+        async with self._dealing:
+            live = self._tables.get(user_id)
+            if live is not None and not live.is_finished():
+                raise web.HTTPConflict(text="Finish the game you have on the table first.")
+            # The same shared budget every command spends, so the page is not
+            # a way around it. Charged per deal, as a command is; a move is a
+            # button press, which Discord does not charge either.
+            wait = self.limiter.acquire(user_id)
+            if wait:
+                raise web.HTTPTooManyRequests(text=describe_command_error(RateLimitedError(wait)))
+            table: Table
+            try:
+                if game == "mines":
+                    table = await casino.deal_mines(player, bet, mine_count)
+                else:
+                    table = await casino.deal_blackjack(player, bet)
+            except FlyconomyError as exc:
+                raise web.HTTPBadRequest(text=describe_command_error(exc) or str(exc)) from exc
+            self._tables[user_id] = table
+            self._touched[user_id] = time.monotonic()
+        if not table.is_finished():
+            task = asyncio.create_task(self._expire(user_id, table))
+            self._expiring.add(task)
+            task.add_done_callback(self._expiring.discard)
+        return await self._table_response(user_id, claim=True)
+
+    async def move(self, request: web.Request) -> web.Response:
+        """Press one of the table's buttons, through the view's own ``apply_*``."""
+        user_id = request[VIEWER].user_id
+        body = await self._json(request)
+        table = self._tables.get(user_id)
+        if table is None or table.is_finished():
+            raise web.HTTPConflict(text="That game is already over. Deal a new one.")
+        self._touched[user_id] = time.monotonic()
+        problem: str | None = None
+        match body.get("move"), table:
+            case "reveal", MinesView():
+                tile = body.get("tile")
+                if type(tile) is not int or not 0 <= tile < mines.TILES:
+                    raise web.HTTPBadRequest(text=f"tile must be 0 to {mines.TILES - 1}")
+                problem = await table.apply_reveal(tile)
+            case "cashout", MinesView():
+                problem = await table.apply_cashout()
+            case "hit", BlackjackView():
+                await table.apply_hit()
+            case "stand", BlackjackView():
+                await table.apply_stand()
+            case "double", BlackjackView():
+                problem = await table.apply_double()
+            case _:
+                raise web.HTTPBadRequest(text="that move is not part of this game")
+        if problem is not None:
+            raise web.HTTPConflict(text=problem)
+        return await self._table_response(user_id, claim=table.is_finished())
+
+    async def _expire(self, user_id: int, table: Table) -> None:
+        """Run the view's own timeout once its player stops pressing.
+
+        A view only starts its clock when Discord posts it, and these never
+        are, so the page keeps the clock instead: idle for the view's timeout,
+        and the round ends the way a walked-away Discord one does.
+        """
+        timeout = table.timeout or 0.0
+        while not table.is_finished():
+            idle = time.monotonic() - self._touched[user_id]
+            if idle >= timeout:
+                await table.on_timeout()
+                return
+            await asyncio.sleep(timeout - idle)
+
+
+def table_state(table: Table) -> dict[str, object]:
+    """A table as its player may see it: what the Discord embed shows, no more.
+
+    Unturned tiles stay hidden and the dealer's second card face down until the
+    round is settled. This is the only thing standing between the browser and
+    a solved board, so it decides what to leave out here rather than trusting
+    the page to hide it.
+    """
+    done = table.is_finished()
+    result = table.result_line()
+    common: dict[str, object] = {
+        "stake": table.game.stake,
+        "finished": done,
+        "result": result.replace("**", "") if result is not None else None,
+    }
+    if isinstance(table, MinesView):
+        board = table.game
+        return common | {
+            "game": "mines",
+            "mines": board.mine_count,
+            "columns": mines.COLUMNS,
+            "tiles": [mines.tile_state(board, t, finished=done) for t in range(mines.TILES)],
+            "multiplier": board.multiplier,
+            "next_multiplier": board.next_multiplier,
+            "can_cash_out": not done and bool(board.revealed),
+        }
+    hand = table.game
+    return common | {
+        "game": "blackjack",
+        "player": [str(card) for card in hand.player],
+        "player_value": hand.player_value,
+        "dealer": [str(card) for card in hand.dealer] if done else [str(hand.dealer_upcard)],
+        "dealer_value": hand.dealer_value if done else None,
+        "can_double": not done and hand.can_double,
+    }
 
 
 #: Paths a visitor reaches before they have a session.

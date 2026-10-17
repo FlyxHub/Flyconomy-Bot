@@ -75,6 +75,10 @@ async def announce_achievements(
         log.exception("Could not award achievements to %s", user.id)
 
 
+#: Announcements still sending, held so the event loop cannot drop them.
+_announcing: set[asyncio.Task[None]] = set()
+
+
 class _PlayerView(discord.ui.View):
     """A view only its own player may press, which every one-player game is."""
 
@@ -122,9 +126,15 @@ class _PlayerView(discord.ui.View):
             creator_tax_user_id=self.creator_tax_user_id,
         )
         # A round decided on the deal has no message yet; the member's next
-        # command announces what it earned instead.
+        # command announces what it earned instead. In the background, because
+        # this runs before the deciding press is answered, and a channel send
+        # queued behind the channel's rate limit held that answer up with it.
         if self.message is not None:
-            await announce_achievements(self.db, self.player, self.message.channel)
+            task = asyncio.create_task(
+                announce_achievements(self.db, self.player, self.message.channel)
+            )
+            _announcing.add(task)
+            task.add_done_callback(_announcing.discard)
 
     def _mark(self, embed: discord.Embed) -> discord.Embed:
         """Say so on the embed when the round was voided by a reset."""
@@ -212,6 +222,12 @@ class BlackjackView(_PlayerView):
     def embed(self) -> discord.Embed:
         """Return the embed for the hand as it currently stands."""
         return self._mark(embeds.blackjack_embed(self.game, self.player, self.timezone))
+
+    def result_line(self) -> str | None:
+        """The embed's Result line, or ``None`` while the hand is live."""
+        if not self.game.finished:
+            return None
+        return embeds.VOIDED_LINE if self.voided else embeds.blackjack_result_line(self.game)
 
     def _refresh_buttons(self) -> None:
         """Enable or disable each button to match the state of the hand."""
@@ -623,6 +639,14 @@ class MinesView(_PlayerView):
                 self.timezone,
                 cashed_out_multiplier=self._cashed_out_multiplier,
             )
+        )
+
+    def result_line(self) -> str:
+        """The embed's Result line: a prompt while live, the outcome once decided."""
+        if self.voided:
+            return embeds.VOIDED_LINE
+        return embeds.mines_result_line(
+            self.game, cashed_out_multiplier=self._cashed_out_multiplier
         )
 
     def _refresh_buttons(self) -> None:

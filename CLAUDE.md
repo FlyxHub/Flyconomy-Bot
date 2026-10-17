@@ -129,6 +129,15 @@ can only show the time the bot will actually act. The live mines panel serves ev
 play with its mines face up, read from `Gambling.live_mines` (a `WeakSet`, so a settled board needs
 no cleanup); it is the answer to a live round, so it folds away with the override when presenting.
 
+Members also **play mines and blackjack on the page** (`/api/play`). A web table is the casino's
+own `MinesView` or `BlackjackView`, dealt by `Gambling.deal_mines`/`deal_blackjack` -- the same
+functions the commands call -- and simply never posted, so the held wager, reset marker, rake,
+tournament score, and idempotent settle all come along without a copy. Don't give the web its own
+game logic. Two things are the web's own. `table_state` is all that stands between the browser
+and a solved board, so it sends what the embed shows and nothing more; `TestPlay` pins it. And a
+view's timeout only starts when Discord posts it, so `Api._expire` runs `on_timeout` itself once
+the player goes idle -- without it an abandoned web table would hold its stake until a restart.
+
 ## The member guide
 
 `data/economy-guide.md` inside the package is the guide members read, and `cogs/guide.py`
