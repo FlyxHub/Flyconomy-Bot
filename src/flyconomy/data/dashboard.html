@@ -94,7 +94,7 @@
   }
   .callsign { margin: 0; font: 600 22px/1 var(--display); letter-spacing: .32em; color: var(--holo); }
   .callsign small { margin-left: 14px; font: 400 14px/1 var(--body); letter-spacing: 0; color: var(--text-2); }
-  .bar-right { display: flex; align-items: center; gap: 16px; }
+  .bar-right { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
   .present {
     display: grid; place-items: center;
     width: 34px; height: 34px;
@@ -465,7 +465,7 @@
   }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: 1fr; grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
