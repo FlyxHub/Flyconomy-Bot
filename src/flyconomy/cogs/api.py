@@ -184,6 +184,7 @@ class Api(BaseCog, name="Api"):
         app.router.add_post("/logout", self.logout)
         app.router.add_get("/api/overview", self.overview)
         app.router.add_get("/api/history", self.history)
+        app.router.add_get("/api/profile", self.profile)
         app.router.add_post("/api/market", self.market)
         return app
 
@@ -382,34 +383,52 @@ class Api(BaseCog, name="Api"):
             return None
         return tournament.week_ends(datetime.datetime.now(ZoneInfo(self.timezone))).timestamp()
 
-    async def _me(self, user_id: int, worths: Sequence[int]) -> dict[str, object]:
-        """The viewer's own profile: balances, career, and every achievement with progress.
+    async def profile(self, request: web.Request) -> web.Response:
+        """A member's profile: the viewer's own in full, anyone else's condensed.
 
-        Locked achievements are listed too, with how far along the viewer is,
-        because a goal you can see is the point of having them.
+        The viewer's own carries their career and every achievement with how
+        far along they are, because a goal you can see is the point of having
+        them. Someone else's is what ``/balance @them`` already shows in
+        Discord, plus the badges they have earned; their career and progress
+        stay theirs, and are left out here rather than hidden by the page.
         """
+        viewer = request[VIEWER]
+        try:
+            user_id = int(request.query.get("id", viewer.user_id))
+        except ValueError:
+            raise web.HTTPBadRequest(text="id must be a member id") from None
         account = await self.db.find_account(user_id)
+        own = user_id == viewer.user_id
+        if account is None and not own:
+            raise web.HTTPNotFound(text="that member has no account")
         values = await self.db.achievement_values(user_id) or {}
         held = await self.db.earned_achievements(user_id)
+        badges: list[dict[str, object]] = []
+        for a in achievements.ALL:
+            if not own and a.key not in held:
+                continue
+            badge: dict[str, object] = {
+                "emoji": a.emoji,
+                "name": a.name,
+                "description": a.description,
+                "earned_at": held.get(a.key),
+            }
+            if own:
+                badge |= {"goal": a.goal, "progress": min(values.get(a.stat, 0), a.goal)}
+            badges.append(badge)
         body: dict[str, object] = {
+            "name": viewer.name if own else self._name(user_id),
+            "own": own,
             "account": None,
-            "career": {
+            "achievements": badges,
+        }
+        if own:
+            body["career"] = {
                 stat: values.get(stat, 0)
                 for stat in ("plays", "wagered", "best_multiple", "best_profit", "robberies")
-            },
-            "achievements": [
-                {
-                    "emoji": a.emoji,
-                    "name": a.name,
-                    "description": a.description,
-                    "goal": a.goal,
-                    "progress": min(values.get(a.stat, 0), a.goal),
-                    "earned_at": held.get(a.key),
-                }
-                for a in achievements.ALL
-            ],
-        }
+            }
         if account is not None:
+            worths = await self.db.net_worths(account.flx_price)
             body["account"] = {
                 "wallet": account.wallet,
                 "bank": account.bank,
@@ -422,7 +441,7 @@ class Api(BaseCog, name="Api"):
                 "rank": 1 + sum(w > account.net_worth for w in worths),
                 "accounts": len(worths),
             }
-        return body
+        return web.json_response(body)
 
     def _event(self) -> dict[str, object] | None:
         """The server event running now, which every member may see."""
@@ -469,7 +488,6 @@ class Api(BaseCog, name="Api"):
             market_body |= {"regime": market.regime, "ticks_left": market.ticks_left}
         body: dict[str, object] = {
             "viewer": {"name": viewer.name, "admin": viewer.admin},
-            "me": await self._me(viewer.user_id, worths),
             "event": self._event(),
             "market": market_body,
             "lottery_pot": lottery.pot,

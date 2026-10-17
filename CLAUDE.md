@@ -536,6 +536,11 @@ so a refused move counts nothing. Awarding happens in one place,
 if no counter exists for it, one `_add_career` call. Like the `resets` row, both tables
 survive `reset_account` and are cleared by `purge_user`.
 
+The dashboard serves profiles from `/api/profile`, not the overview, so the five-second poll
+does not carry them. A viewer's own is full; anyone else's (opened from a leaderboard row)
+is condensed **on the server** -- earned badges only, no career, no progress -- for the same
+reason the regime is left out of a member's overview rather than hidden by the page.
+
 ## Preserved quirks
 
 - **`always_mine_user_ids`** exists because version 1 hardcoded one Discord user ID for guaranteed

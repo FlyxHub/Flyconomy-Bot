@@ -271,9 +271,12 @@ share of all money held by the richest 10% of members, which shows whether a
 few players are pulling away. It also has buttons that do what
 `$market bull|bear|neutral` does.
 
-Every visitor gets a profile panel at the top: their own balances, rank,
+The **Profile** button in the top bar opens your own profile: balances, rank,
 career stats, and every achievement, earned or with a progress bar toward it.
-A running server event shows as a pill in the top bar.
+Clicking a member on the leaderboard opens a condensed one for them: balances,
+rank, levels, and the badges they have earned. Their career stats and progress
+are left out of what the bot sends. A running server event shows as a pill in
+the top bar.
 
 Visitors sign in with Discord. You, the bot's owner, see everything. A member
 of any server the bot is in sees the same page without the market override,
@@ -599,7 +602,7 @@ Flyxcoin, and reaching $1,000,000 and $1,000,000,000 in net worth.
 - **They unlock on their own.** The bot checks after every command and every
   button round, and announces a new badge in that channel.
 - **`balance` shows them as emoji.** The dashboard's profile panel lists every
-  badge with what earns it and how close the viewer is.
+  badge with what earns it and how close the viewer is, behind the **Profile** button.
 - **They pay nothing.** Several can be farmed with a second account, which is
   harmless only because a badge is worth nothing.
 - **`resetme` keeps them,** and the career stats behind them. `$purge` clears both.

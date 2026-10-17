@@ -76,7 +76,6 @@
     grid-template-columns: 430px minmax(0, 1fr);
     grid-template-areas:
       "bar bar"
-      "me me"
       "gauge trace"
       "conc supply"
       "pulse skyline"
@@ -302,9 +301,25 @@
   .stat .sub { font-size: 13px; color: var(--text-2); }
 
   /* ----------------------------------------------------------- profile */
-  /* The viewer's own account, career, and badges. Locked badges show how
-     far along they are, because a goal you can see is the point of them. */
-  .me { grid-area: me; }
+  /* A member's account and badges, opened from the top bar for yourself or
+     from a leaderboard row for anyone else. Your own adds your career and
+     every locked badge's progress, because a goal you can see is the point. */
+  .me {
+    /* Fixed, because .frame makes it relative, which would undo a modal's own. */
+    position: fixed; inset: 0;
+    width: min(960px, calc(100% - 32px)); max-height: calc(100vh - 64px); overflow: auto;
+    margin: auto; color: var(--text); background-color: var(--deep); border: 1px solid var(--frame);
+  }
+  .me::backdrop { background: rgba(4, 8, 13, .75); backdrop-filter: blur(4px); }
+  .me .close { cursor: pointer; padding: 4px 10px; border: 1px solid var(--frame); background: none; color: var(--text-2); font: 500 14px var(--display); }
+  .me .close:hover { border-color: var(--holo); color: var(--holo); }
+  .me .career[hidden] { display: none; }
+  .badges.compact { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .badges.compact .badge { padding: 6px 10px; }
+  .badges.compact .glyph { grid-row: span 1; font-size: 20px; }
+  .badges-empty { margin: 0; font-size: 14px; color: var(--text-2); }
+  #ledger-rows tr[data-id] { cursor: pointer; }
+  #ledger-rows tr[data-id]:hover td.name, #ledger-rows tr[data-id]:focus-visible td.name { color: var(--holo); }
   .me .figures { margin-bottom: 14px; }
   .me .figures .sub { display: block; font-size: 13px; color: var(--text-2); }
   .me .figures[hidden] { display: none; }
@@ -482,7 +497,7 @@
   }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "me" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -514,7 +529,7 @@
       </div>
       <span id="event-pill" class="event-pill" hidden></span>
       <span id="link" class="link" role="status">Connecting to the bot</span>
-      <form class="who" method="post" action="/logout"><span id="who"></span><button>Sign out</button></form>
+      <form class="who" method="post" action="/logout"><span id="who"></span><button type="button" id="open-profile" aria-haspopup="dialog">Profile</button><button>Sign out</button></form>
       <button id="present" class="present" aria-pressed="false" aria-label="Hide market controls" title="Hide market controls (P)">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>
@@ -524,31 +539,6 @@
       </button>
     </div>
   </header>
-
-  <section class="me frame" aria-labelledby="me-title">
-    <div class="ledger-head">
-      <h2 class="frame-title" id="me-title">Your profile</h2>
-      <span class="week" id="me-rank"></span>
-    </div>
-    <p class="me-empty" id="me-empty" hidden>You have no account yet. Run <b>/balance</b> in Discord to open one.</p>
-    <div class="figures" id="me-figures">
-      <div><span class="label">Wallet</span><b id="me-wallet">–</b></div>
-      <div><span class="label">Bank</span><b id="me-bank">–</b></div>
-      <div><span class="label">Flyxcoin</span><b id="me-coins">–</b><span class="sub" id="me-coin-value"></span></div>
-      <div><span class="label">Net worth</span><b id="me-worth">–</b></div>
-      <div><span class="label">Miner</span><b id="me-miner">–</b></div>
-      <div><span class="label">Wallet security</span><b id="me-security">–</b><span class="sub" id="me-rob"></span></div>
-    </div>
-    <div class="figures career">
-      <div><span class="label">Bets settled</span><b id="me-plays">–</b></div>
-      <div><span class="label">Total staked</span><b id="me-wagered">–</b></div>
-      <div><span class="label">Best multiple</span><b id="me-multiple">–</b></div>
-      <div><span class="label">Best single profit</span><b id="me-profit">–</b></div>
-      <div><span class="label">Robberies</span><b id="me-robberies">–</b></div>
-    </div>
-    <h3 class="badges-title" id="badges-title">Achievements</h3>
-    <ul class="badges" id="badges"></ul>
-  </section>
 
   <section class="gauge boot" data-regime="calm" aria-label="Flyxcoin price gauge">
     <svg id="dial" viewBox="-200 -200 400 400" aria-hidden="true"></svg>
@@ -709,6 +699,32 @@
   </section>
   </div></div>
 </div>
+
+  <dialog class="me frame" id="profile" aria-labelledby="me-title">
+    <div class="ledger-head">
+      <h2 class="frame-title" id="me-title">Your profile</h2>
+      <span class="week" id="me-rank"></span>
+      <button type="button" class="close" id="close-profile" aria-label="Close profile">Close</button>
+    </div>
+    <p class="me-empty" id="me-empty" hidden>You have no account yet. Run <b>/balance</b> in Discord to open one.</p>
+    <div class="figures" id="me-figures">
+      <div><span class="label">Wallet</span><b id="me-wallet">–</b></div>
+      <div><span class="label">Bank</span><b id="me-bank">–</b></div>
+      <div><span class="label">Flyxcoin</span><b id="me-coins">–</b><span class="sub" id="me-coin-value"></span></div>
+      <div><span class="label">Net worth</span><b id="me-worth">–</b></div>
+      <div><span class="label">Miner</span><b id="me-miner">–</b></div>
+      <div><span class="label">Wallet security</span><b id="me-security">–</b><span class="sub" id="me-rob"></span></div>
+    </div>
+    <div class="figures career" id="me-career">
+      <div><span class="label">Bets settled</span><b id="me-plays">–</b></div>
+      <div><span class="label">Total staked</span><b id="me-wagered">–</b></div>
+      <div><span class="label">Best multiple</span><b id="me-multiple">–</b></div>
+      <div><span class="label">Best single profit</span><b id="me-profit">–</b></div>
+      <div><span class="label">Robberies</span><b id="me-robberies">–</b></div>
+    </div>
+    <h3 class="badges-title" id="badges-title">Achievements</h3>
+    <ul class="badges" id="badges"></ul>
+  </dialog>
 
 <footer class="ticker" aria-label="Recent activity">
   <span class="ticker-label">Live</span>
@@ -1005,6 +1021,10 @@ async function rankedRows(body, rows, format, build) {
     }
     tr.dataset.id = row.id;
     tr._drawn = { width, value };
+    if (body.id === "ledger-rows") {
+      tr.tabIndex = 0;
+      tr.title = `View ${row.name}'s profile`;
+    }
     return tr;
   }));
   requestAnimationFrame(() => bars.forEach(([bar, width]) => { bar.style.width = width; }));
@@ -1434,46 +1454,63 @@ function renderGames() {
 }
 
 // ----------------------------------------------------------------- profile
-let badgesShown = "";
-function renderMe() {
-  const { account, career, achievements } = overview.me;
+function renderProfile(p) {
+  const { account, achievements } = p;
+  $("me-title").textContent = p.own ? "Your profile" : p.name;
   $("me-empty").hidden = !!account;
   $("me-figures").hidden = !account;
   if (account) {
-    rollNumber($("me-wallet"), account.wallet, money);
-    rollNumber($("me-bank"), account.bank, money);
-    rollNumber($("me-coins"), account.crypto, whole);
+    $("me-wallet").textContent = money(account.wallet);
+    $("me-bank").textContent = money(account.bank);
+    $("me-coins").textContent = whole(account.crypto);
     $("me-coin-value").textContent = "worth " + money(account.coin_value);
-    rollNumber($("me-worth"), account.net_worth, money);
+    $("me-worth").textContent = money(account.net_worth);
     $("me-miner").textContent = account.miner ? `Level ${account.miner}` : "None";
     $("me-security").textContent = `Level ${account.security}`;
     $("me-rob").textContent = `robbed ${account.rob_chance}% of the time`;
     $("me-rank").textContent = `#${account.rank} of ${whole(account.accounts)} by net worth`;
   } else $("me-rank").textContent = "";
-  rollNumber($("me-plays"), career.plays, whole);
-  rollNumber($("me-wagered"), career.wagered, money);
-  $("me-multiple").textContent = career.best_multiple ? career.best_multiple + "x" : "–";
-  rollNumber($("me-profit"), career.best_profit, money);
-  rollNumber($("me-robberies"), career.robberies, whole);
 
-  // The grid only changes when a badge does, so it is only rebuilt then.
-  const key = JSON.stringify(achievements);
-  if (key === badgesShown) return;
-  badgesShown = key;
+  // Someone else's career and progress are theirs; the bot does not send them.
+  $("me-career").hidden = !p.career;
+  if (p.career) {
+    const c = p.career;
+    $("me-plays").textContent = whole(c.plays);
+    $("me-wagered").textContent = money(c.wagered);
+    $("me-multiple").textContent = c.best_multiple ? c.best_multiple + "x" : "–";
+    $("me-profit").textContent = money(c.best_profit);
+    $("me-robberies").textContent = whole(c.robberies);
+  }
+
   const earned = achievements.filter(a => a.earned_at).length;
-  $("badges-title").textContent = `Achievements · ${earned} of ${achievements.length}`;
-  $("badges").replaceChildren(...achievements.map(a => {
+  $("badges-title").textContent = p.own
+    ? `Achievements · ${earned} of ${achievements.length}`
+    : `Achievements · ${earned}`;
+  const list = $("badges");
+  list.classList.toggle("compact", !p.own);
+  if (!achievements.length) {
+    const none = document.createElement("li");
+    none.className = "badges-empty";
+    none.textContent = "No badges yet.";
+    list.replaceChildren(none);
+    return;
+  }
+  list.replaceChildren(...achievements.map(a => {
     const li = document.createElement("li");
     li.className = "badge" + (a.earned_at ? " earned" : "");
+    li.title = a.description;
     const glyph = document.createElement("div");
     glyph.className = "glyph";
     glyph.textContent = a.emoji;
     glyph.setAttribute("aria-hidden", "true");
     const name = document.createElement("b");
     name.textContent = a.name;
+    li.append(glyph, name);
+    // The condensed view is a row of earned badges; the description is its tooltip.
+    if (!p.own) return li;
     const what = document.createElement("span");
     what.textContent = a.description;
-    li.append(glyph, name, what);
+    li.append(what);
     if (a.earned_at) {
       const when = document.createElement("span");
       when.textContent = "Earned " + new Date(a.earned_at * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
@@ -1491,6 +1528,32 @@ function renderMe() {
     return li;
   }));
 }
+
+async function openProfile(id) {
+  try {
+    renderProfile(await api("/api/profile" + (id ? `?id=${encodeURIComponent(id)}` : "")));
+  } catch (error) {
+    setLink(false, `Could not load that profile: ${error.message}`);
+    return;
+  }
+  const dialog = $("profile");
+  if (!dialog.open) dialog.showModal();
+  dialog.scrollTop = 0;
+}
+
+$("open-profile").addEventListener("click", () => openProfile(null));
+$("close-profile").addEventListener("click", () => $("profile").close());
+// A click on the dimmed backdrop lands on the dialog itself, not its contents.
+$("profile").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+// Rows are rebuilt every poll, so one listener on the table body serves them all.
+$("ledger-rows").addEventListener("click", e => {
+  const row = e.target.closest("tr[data-id]");
+  if (row) openProfile(row.dataset.id);
+});
+$("ledger-rows").addEventListener("keydown", e => {
+  const row = e.target.closest("tr[data-id]");
+  if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openProfile(row.dataset.id); }
+});
 
 function renderEvent() {
   const pill = $("event-pill");
@@ -1540,7 +1603,7 @@ async function poll() {
     // Everything that ends on a live value redraws every poll; only the
     // price trace waits for a tick, because only a tick can move it.
     showViewer();
-    renderMe(); renderEvent();
+    renderEvent();
     renderGauge(); renderLedger(); renderEconomy();
     if (overview.viewer.admin) { renderOverride(); renderGames(); }
     renderBounties(); renderTournament(); observe();

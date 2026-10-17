@@ -526,14 +526,40 @@ class TestMemberView:
         await db.record_house_play(MEMBER, 100, 1_500)
         await db.claim_achievements(MEMBER, time.time())
 
-        me = (await (await member.get("/api/overview")).json())["me"]
+        me = await (await member.get("/api/profile")).json()
 
+        assert me["own"] is True
         assert me["account"]["bank"] == economy.STARTING_BANK + 1_000_000
         assert me["account"]["rank"] == 1
         assert me["career"]["best_multiple"] == 15
         badges = {a["name"]: a for a in me["achievements"]}
         assert badges["Big Win"]["earned_at"] is not None
         assert badges["Regular"] == badges["Regular"] | {"earned_at": None, "progress": 1}
+
+    async def test_the_overview_no_longer_carries_a_profile(self, member):
+        assert "me" not in await (await member.get("/api/overview")).json()
+
+    async def test_someone_elses_profile_is_condensed(self, member, db):
+        await db.add_bank(ALICE, 1_000_000)
+        await db.record_house_play(ALICE, 100, 1_500)
+        await db.claim_achievements(ALICE, time.time())
+
+        alice = await (await member.get(f"/api/profile?id={ALICE}")).json()
+
+        assert alice["own"] is False
+        assert alice["account"]["net_worth"] == economy.STARTING_BANK + 1_000_000
+        # Their career and their progress toward locked badges stay theirs.
+        assert "career" not in alice
+        assert {a["name"] for a in alice["achievements"]} == {
+            "First Bet",
+            "Big Win",
+            "Millionaire",
+        }
+        assert all("progress" not in a for a in alice["achievements"])
+
+    async def test_a_member_without_an_account_has_no_profile(self, member):
+        assert (await member.get(f"/api/profile?id={BOB}")).status == 404
+        assert (await member.get("/api/profile?id=nobody")).status == 400
 
     async def test_a_member_cannot_steer_the_market(self, member, db):
         response = await member.post("/api/market", json={"direction": "bull"})
