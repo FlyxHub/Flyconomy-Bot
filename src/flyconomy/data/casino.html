@@ -241,6 +241,7 @@
   .window input { width: 160px; padding: 8px 10px; text-align: center; border: 1px solid var(--brass-dark); border-radius: 8px; background: #12040a; font-weight: 600; }
   .window .controls { justify-content: center; }
   #cage-verdict { text-align: center; }
+  .cage-note { margin: 0; text-align: center; font-size: 14px; color: var(--ivory-dim); }
 
   /* ---------------------------------------------------------------- cards */
   .hand { display: flex; min-height: 104px; gap: 8px; flex-wrap: wrap; perspective: 600px; }
@@ -460,6 +461,7 @@
       <div class="vault" id="v-bank"><span>Bank, safe from robbers</span><b id="cage-bank">–</b></div>
     </div>
     <p class="verdict" id="cage-verdict" role="status"></p>
+    <p class="cage-note">Deposits and withdrawals made here are announced in Discord, the same as ones made there.</p>
   </section>
 
   <section class="zone" aria-labelledby="z-tables">

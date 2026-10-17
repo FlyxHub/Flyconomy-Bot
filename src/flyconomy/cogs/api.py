@@ -40,7 +40,17 @@ from aiohttp import web
 from aiohttp.typedefs import Handler
 from discord.ext import commands
 
-from flyconomy import achievements, blackjack, crash, economy, events, jackpot, mines, tournament
+from flyconomy import (
+    achievements,
+    blackjack,
+    crash,
+    economy,
+    embeds,
+    events,
+    jackpot,
+    mines,
+    tournament,
+)
 from flyconomy.bot import FlyconomyBot, describe_command_error
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.base import BaseCog
@@ -805,7 +815,33 @@ class Api(BaseCog, name="Api"):
             await self.db.transfer(user_id, source=source, destination=destination, amount=amount)
         except FlyconomyError as exc:
             raise _refused(exc) from exc
+        await self._announce_bank(user_id, str(body["move"]), amount)
         return await self._casino_state(user_id, result={"move": body["move"], "amount": amount})
+
+    async def _announce_bank(self, user_id: int, move: str, amount: int) -> None:
+        """Say in Discord that someone moved cash, as ``$deposit``/``$withdraw`` do.
+
+        A command's reply lands in a channel where anyone can see a wallet
+        just filled up and go and rob it. The page has no channel of its own,
+        so without this a withdrawal made here would be invisible, and the web
+        would be the safe way to carry cash. Best effort, like every post the
+        bot makes on its own: the money has moved by now, so an unreachable
+        channel is logged rather than undoing it.
+        """
+        channel_id = self.settings.lottery_announce_channel_id
+        channel = await self.resolve_channel(channel_id) if channel_id else None
+        if channel is None:
+            return
+        verb = "deposited" if move == "deposit" else "withdrew"
+        where = "into" if move == "deposit" else "from"
+        try:
+            # A mention so a robber can click through, without pinging them.
+            await channel.send(
+                f"<@{user_id}> {verb} {embeds.money(amount)} {where} the bank at the casino.",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            log.warning("Could not announce a casino %s for %s", move, user_id)
 
     async def bet(self, request: web.Request) -> web.Response:
         """Play one instant game through the casino's own ``play_*``."""

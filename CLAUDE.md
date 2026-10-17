@@ -145,7 +145,11 @@ rocket climbs; `TestCasinoTables` pins it. A view's timeout only starts when Dis
 table would hold its stake until a restart. And a crash round's tick looks only every couple of
 seconds, so `Api._table` calls `CrashView.check_bust` on every read, or a polling page would show
 the rocket climbing past its crash point. Every web action spends the shared rate limit the way a
-command does; a table move doesn't, because a button press in Discord doesn't either.
+command does; a table move doesn't, because a button press in Discord doesn't either. And a
+deposit or withdrawal made on the page is posted to the announcement channel
+(`Api._announce_bank`): `$withdraw` answers in a channel everyone can see, which is how a robber
+learns a wallet just filled up, so a silent web withdrawal would make the page the safe way to
+carry cash. `TestCageAnnouncements` pins it.
 
 ## The member guide
 

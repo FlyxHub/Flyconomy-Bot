@@ -292,7 +292,10 @@ Discord message would show, so unturned tiles stay hidden, the dealer's second
 card stays face down, and the crash point stays secret until the round is
 over. A member has one multi-press game (blackjack, mines, or crash) on the
 table at a time; an idle one ends after the same timeout as in Discord, and a
-restart refunds it like any board. A jackpot round opened from the page goes
+restart refunds it like any board. Deposits and withdrawals made at the cage
+are announced in the announcement channel, the same as `$deposit` and
+`$withdraw` answer in public, so the page is no safer place to carry cash than
+Discord. A jackpot round opened from the page goes
 up in the announcement channel so Discord can join it too, and is refused when
 none is set. Tic-tac-toe needs an opponent in Discord, so the page only
 explains how to challenge one.

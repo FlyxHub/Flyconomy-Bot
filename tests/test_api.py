@@ -892,6 +892,45 @@ class TestCasinoCage:
         assert (await db.get_account(MEMBER)).bank == bank
 
 
+class TestCageAnnouncements:
+    """A web withdrawal has to be as visible as ``$withdraw``, or the page is a safe."""
+
+    @pytest.fixture
+    def channel(self, bot, cog, monkeypatch) -> FakeChannel:
+        bot.settings = bot.settings.model_copy(update={"lottery_announce_channel_id": 555})
+        channel = FakeChannel()
+
+        async def resolve(channel_id: int) -> FakeChannel | None:
+            return channel if channel_id == 555 else None
+
+        monkeypatch.setattr(cog, "resolve_channel", resolve)
+        return channel
+
+    async def test_deposits_and_withdrawals_are_announced_in_discord(self, member, casino, channel):
+        await member.post("/api/casino/bank", json={"move": "deposit", "amount": 4_000})
+        await member.post("/api/casino/bank", json={"move": "withdraw", "amount": 1_500})
+
+        assert channel.sent == [
+            f"<@{MEMBER}> deposited $4,000 into the bank at the casino.",
+            f"<@{MEMBER}> withdrew $1,500 from the bank at the casino.",
+        ]
+
+    async def test_a_refused_withdrawal_announces_nothing(self, member, casino, channel, db):
+        bank = (await db.get_account(MEMBER)).bank
+
+        await member.post("/api/casino/bank", json={"move": "withdraw", "amount": bank + 1})
+
+        assert channel.sent == []
+
+    async def test_without_a_channel_the_money_still_moves(self, member, casino, db):
+        before = (await db.get_account(MEMBER)).wallet
+
+        response = await member.post("/api/casino/bank", json={"move": "deposit", "amount": 100})
+
+        assert response.status == 200
+        assert (await db.get_account(MEMBER)).wallet == before - 100
+
+
 class TestCasinoPots:
     async def test_a_ticket_is_bought_once_a_draw(self, member, casino, db, settings):
         await db.add_bank(MEMBER, settings.lottery_ticket_price)
