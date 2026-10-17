@@ -178,6 +178,7 @@
   .chip[data-v="10000"] { --c: #1b7a46; }
   .chip[data-v="100000"] { --c: #23202a; }
   .chip.tweak { --c: #6b4a14; font-size: 13px; }
+  .chip.max { --c: #8a6420; color: #fff3c4; }
   .back { font-size: 14px; }
 
   /* --------------------------------------------------------------- floor */
@@ -446,6 +447,7 @@
     <button class="chip" data-v="100000" aria-label="Bet $100,000">100K</button>
     <button class="chip tweak" data-x="0.5" aria-label="Halve the bet">½</button>
     <button class="chip tweak" data-x="2" aria-label="Double the bet">2×</button>
+    <button class="chip max" data-max aria-label="Bet your whole wallet, up to the table limit">Max</button>
   </div>
   <a class="back" href="/">Dashboard</a>
 </header>
@@ -767,8 +769,11 @@ document.querySelector(".chips").addEventListener("click", e => {
   if (!chip) return;
   const input = $("bet");
   const max = S.state?.max_bet ?? Infinity;
-  const next = chip.dataset.v ? Number(chip.dataset.v) : Math.max(1, Math.round(Number(input.value || 1) * Number(chip.dataset.x)));
-  input.value = Math.min(next, max);
+  // Max is the whole wallet, or the table limit if the wallet holds more.
+  const next = "max" in chip.dataset ? S.state?.wallet ?? 0
+    : chip.dataset.v ? Number(chip.dataset.v)
+    : Math.round(Number(input.value || 1) * Number(chip.dataset.x));
+  input.value = Math.max(1, Math.min(next, max));
   input.animate?.([{ transform: "scale(1.08)" }, { transform: "none" }], { duration: ms(200) });
 });
 
