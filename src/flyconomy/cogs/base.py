@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import discord
 from discord.ext import commands
 
+from flyconomy import events
 from flyconomy.errors import RateLimitedError
 from flyconomy.views import split_house_take
 
@@ -52,6 +53,12 @@ class BaseCog(commands.Cog):
     def timezone(self) -> str:
         """IANA timezone used for embed timestamps."""
         return self.bot.settings.timezone
+
+    @property
+    def event(self) -> events.Event | None:
+        """The server event running right now, or ``None``."""
+        cog = self.bot.get_cog("Events")
+        return cog.current() if cog is not None else None  # type: ignore[attr-defined]
 
     @property
     def limiter(self) -> SlidingWindowLimiter:

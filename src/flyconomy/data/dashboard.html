@@ -76,6 +76,7 @@
     grid-template-columns: 430px minmax(0, 1fr);
     grid-template-areas:
       "bar bar"
+      "me me"
       "gauge trace"
       "conc supply"
       "pulse skyline"
@@ -300,6 +301,28 @@
   .stat .value { margin-top: 4px; font: 600 28px/1.1 var(--display); }
   .stat .sub { font-size: 13px; color: var(--text-2); }
 
+  /* ----------------------------------------------------------- profile */
+  /* The viewer's own account, career, and badges. Locked badges show how
+     far along they are, because a goal you can see is the point of them. */
+  .me { grid-area: me; }
+  .me .figures { margin-bottom: 14px; }
+  .me .figures .sub { display: block; font-size: 13px; color: var(--text-2); }
+  .me .figures[hidden] { display: none; }
+  .me .career b { font-size: 18px; }
+  .me-empty { margin: 0 0 14px; color: var(--text-2); }
+  .badges-title { margin: 6px 0 10px; font: 500 14px var(--display); letter-spacing: .06em; color: var(--text-2); }
+  .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .badge { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--grid); }
+  .badge .glyph { grid-row: span 3; font-size: 26px; line-height: 1; filter: grayscale(1); opacity: .35; }
+  .badge b { font: 600 14px var(--display); color: var(--text-2); }
+  .badge span { font-size: 12px; line-height: 1.35; color: var(--text-2); }
+  .badge .meter { margin-top: 4px; }
+  .badge.earned { border-color: rgba(255, 181, 71, .45); box-shadow: inset 0 0 18px rgba(255, 181, 71, .07); }
+  .badge.earned .glyph { filter: none; opacity: 1; }
+  .badge.earned b { color: var(--amber); }
+  .event-pill { padding: 5px 12px; border: 1px solid var(--amber); color: var(--amber); font: 500 14px var(--display); }
+  .event-pill[hidden] { display: none; }
+
   /* ------------------------------------------------------------ ledger */
   .ledger { grid-area: ledger; }
   .ledger-head { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
@@ -459,7 +482,7 @@
   }
 
   @media (max-width: 1060px) {
-    .hud { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
+    .hud { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "me" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
@@ -489,6 +512,7 @@
         <button data-hours="168" aria-pressed="false">7 days</button>
         <button data-hours="744" aria-pressed="false">31 days</button>
       </div>
+      <span id="event-pill" class="event-pill" hidden></span>
       <span id="link" class="link" role="status">Connecting to the bot</span>
       <form class="who" method="post" action="/logout"><span id="who"></span><button>Sign out</button></form>
       <button id="present" class="present" aria-pressed="false" aria-label="Hide market controls" title="Hide market controls (P)">
@@ -500,6 +524,31 @@
       </button>
     </div>
   </header>
+
+  <section class="me frame" aria-labelledby="me-title">
+    <div class="ledger-head">
+      <h2 class="frame-title" id="me-title">Your profile</h2>
+      <span class="week" id="me-rank"></span>
+    </div>
+    <p class="me-empty" id="me-empty" hidden>You have no account yet. Run <b>/balance</b> in Discord to open one.</p>
+    <div class="figures" id="me-figures">
+      <div><span class="label">Wallet</span><b id="me-wallet">–</b></div>
+      <div><span class="label">Bank</span><b id="me-bank">–</b></div>
+      <div><span class="label">Flyxcoin</span><b id="me-coins">–</b><span class="sub" id="me-coin-value"></span></div>
+      <div><span class="label">Net worth</span><b id="me-worth">–</b></div>
+      <div><span class="label">Miner</span><b id="me-miner">–</b></div>
+      <div><span class="label">Wallet security</span><b id="me-security">–</b><span class="sub" id="me-rob"></span></div>
+    </div>
+    <div class="figures career">
+      <div><span class="label">Bets settled</span><b id="me-plays">–</b></div>
+      <div><span class="label">Total staked</span><b id="me-wagered">–</b></div>
+      <div><span class="label">Best multiple</span><b id="me-multiple">–</b></div>
+      <div><span class="label">Best single profit</span><b id="me-profit">–</b></div>
+      <div><span class="label">Robberies</span><b id="me-robberies">–</b></div>
+    </div>
+    <h3 class="badges-title" id="badges-title">Achievements</h3>
+    <ul class="badges" id="badges"></ul>
+  </section>
 
   <section class="gauge boot" data-regime="calm" aria-label="Flyxcoin price gauge">
     <svg id="dial" viewBox="-200 -200 400 400" aria-hidden="true"></svg>
@@ -1384,6 +1433,75 @@ function renderGames() {
   }));
 }
 
+// ----------------------------------------------------------------- profile
+let badgesShown = "";
+function renderMe() {
+  const { account, career, achievements } = overview.me;
+  $("me-empty").hidden = !!account;
+  $("me-figures").hidden = !account;
+  if (account) {
+    rollNumber($("me-wallet"), account.wallet, money);
+    rollNumber($("me-bank"), account.bank, money);
+    rollNumber($("me-coins"), account.crypto, whole);
+    $("me-coin-value").textContent = "worth " + money(account.coin_value);
+    rollNumber($("me-worth"), account.net_worth, money);
+    $("me-miner").textContent = account.miner ? `Level ${account.miner}` : "None";
+    $("me-security").textContent = `Level ${account.security}`;
+    $("me-rob").textContent = `robbed ${account.rob_chance}% of the time`;
+    $("me-rank").textContent = `#${account.rank} of ${whole(account.accounts)} by net worth`;
+  } else $("me-rank").textContent = "";
+  rollNumber($("me-plays"), career.plays, whole);
+  rollNumber($("me-wagered"), career.wagered, money);
+  $("me-multiple").textContent = career.best_multiple ? career.best_multiple + "x" : "–";
+  rollNumber($("me-profit"), career.best_profit, money);
+  rollNumber($("me-robberies"), career.robberies, whole);
+
+  // The grid only changes when a badge does, so it is only rebuilt then.
+  const key = JSON.stringify(achievements);
+  if (key === badgesShown) return;
+  badgesShown = key;
+  const earned = achievements.filter(a => a.earned_at).length;
+  $("badges-title").textContent = `Achievements · ${earned} of ${achievements.length}`;
+  $("badges").replaceChildren(...achievements.map(a => {
+    const li = document.createElement("li");
+    li.className = "badge" + (a.earned_at ? " earned" : "");
+    const glyph = document.createElement("div");
+    glyph.className = "glyph";
+    glyph.textContent = a.emoji;
+    glyph.setAttribute("aria-hidden", "true");
+    const name = document.createElement("b");
+    name.textContent = a.name;
+    const what = document.createElement("span");
+    what.textContent = a.description;
+    li.append(glyph, name, what);
+    if (a.earned_at) {
+      const when = document.createElement("span");
+      when.textContent = "Earned " + new Date(a.earned_at * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
+      li.append(when);
+    } else {
+      const meter = document.createElement("div");
+      meter.className = "meter";
+      const bar = document.createElement("i");
+      bar.style.width = a.progress ? share(a.progress / a.goal) : "0%";
+      meter.append(bar);
+      meter.title = a.goal > 1 ? `${whole(a.progress)} of ${whole(a.goal)}` : "Not yet";
+      li.append(meter);
+    }
+    li.setAttribute("aria-label", `${a.name}: ${a.description} ${a.earned_at ? "Earned." : "Locked."}`);
+    return li;
+  }));
+}
+
+function renderEvent() {
+  const pill = $("event-pill");
+  const event = overview.event;
+  pill.hidden = !event;
+  if (!event) return;
+  const minutes = Math.max(0, Math.ceil((event.ends * 1000 - Date.now()) / 60_000));
+  pill.textContent = `${event.emoji} ${event.name} · ${minutes}m left`;
+  pill.title = event.blurb.replaceAll("`", "");
+}
+
 // ----------------------------------------------------------------- refresh
 //
 // The overview is a handful of small reads, so it is polled every few
@@ -1422,6 +1540,7 @@ async function poll() {
     // Everything that ends on a live value redraws every poll; only the
     // price trace waits for a tick, because only a tick can move it.
     showViewer();
+    renderMe(); renderEvent();
     renderGauge(); renderLedger(); renderEconomy();
     if (overview.viewer.admin) { renderOverride(); renderGames(); }
     renderBounties(); renderTournament(); observe();

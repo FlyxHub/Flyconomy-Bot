@@ -17,7 +17,7 @@ from collections.abc import Callable
 import discord
 from discord.ext import tasks
 
-from flyconomy import blackjack, crash, embeds, jackpot, mines, tictactoe
+from flyconomy import blackjack, crash, embeds, events, jackpot, mines, tictactoe
 from flyconomy.database import Database, JackpotState
 from flyconomy.errors import InsufficientFundsError
 from flyconomy.ratelimit import SlidingWindowLimiter
@@ -59,11 +59,28 @@ async def split_house_take(
             db.creator_fees += cut
 
 
+async def announce_achievements(
+    db: Database, user: discord.abc.User, channel: discord.abc.Messageable
+) -> None:
+    """Award whatever ``user`` has newly reached, and say so in ``channel``.
+
+    Best effort: a badge is worth nothing, so failing to award or announce one
+    is logged and never allowed to fail the command or round that earned it.
+    """
+    try:
+        unlocked = await db.claim_achievements(user.id, time.time())
+        if unlocked:
+            await channel.send(embeds.unlocked_text(user, unlocked))
+    except Exception:
+        log.exception("Could not award achievements to %s", user.id)
+
+
 class _PlayerView(discord.ui.View):
     """A view only its own player may press, which every one-player game is."""
 
     player: discord.abc.User
     db: Database
+    message: discord.Message | None
     rake: float
     creator_tax_rate: float
     creator_tax_user_id: int | None
@@ -96,7 +113,7 @@ class _PlayerView(discord.ui.View):
                 amount = 0
         elif self.wager_id is not None:
             await self.db.release_wager(self.wager_id)
-        await self.db.record_tournament_play(self.player.id, stake, amount)
+        await self.db.record_house_play(self.player.id, stake, amount)
         await split_house_take(
             self.db,
             stake - amount,
@@ -104,6 +121,10 @@ class _PlayerView(discord.ui.View):
             creator_tax_rate=self.creator_tax_rate,
             creator_tax_user_id=self.creator_tax_user_id,
         )
+        # A round decided on the deal has no message yet; the member's next
+        # command announces what it earned instead.
+        if self.message is not None:
+            await announce_achievements(self.db, self.player, self.message.channel)
 
     def _mark(self, embed: discord.Embed) -> discord.Embed:
         """Say so on the embed when the round was voided by a reset."""
@@ -1742,3 +1763,71 @@ class MatchChallengeView(discord.ui.View):
             )
             return
         await interaction.response.edit_message(embed=self.embed(), view=self)
+
+
+class SupplyDropView(discord.ui.View):
+    """A supply drop: one button, and the first member to press it keeps the cash.
+
+    Presses can arrive together, and the drop can time out while one is being
+    paid, so grabbing and expiring share a lock: exactly one of them wins, and
+    the cash is paid at most once.
+    """
+
+    def __init__(self, *, db: Database, amount: int, timezone: str) -> None:
+        """Hold ``amount`` until someone grabs it or :data:`events.DROP_TIMEOUT_SECONDS` pass."""
+        super().__init__(timeout=events.DROP_TIMEOUT_SECONDS)
+        self.db = db
+        self.amount = amount
+        self.timezone = timezone
+        self.winner: discord.abc.User | None = None
+        self.expired = False
+        self.message: discord.Message | None = None
+        self._lock = asyncio.Lock()
+
+    def embed(self) -> discord.Embed:
+        """Draw the drop as it stands."""
+        return embeds.drop_embed(
+            self.amount, self.winner, expired=self.expired, timezone=self.timezone
+        )
+
+    async def apply_grab(self, user: discord.abc.User) -> bool:
+        """Pay the drop to ``user`` if nobody has it yet.
+
+        Returns:
+            Whether they got it.
+        """
+        async with self._lock:
+            if self.winner is not None or self.expired:
+                return False
+            await self.db.grab_drop(user.id, self.amount)
+            self.winner = user
+        self.clear_items()
+        self.stop()
+        return True
+
+    async def on_timeout(self) -> None:
+        """Take the drop away, unless a grab got there first."""
+        async with self._lock:
+            if self.winner is not None:
+                return
+            self.expired = True
+        self.clear_items()
+        if self.message is not None:
+            try:
+                await self.message.edit(embed=self.embed(), view=None)
+            except discord.HTTPException:
+                log.warning("Could not mark supply drop %s as gone", self.message.id)
+
+    @discord.ui.button(label="Grab it", emoji="📦", style=discord.ButtonStyle.success)
+    async def grab(
+        self, interaction: discord.Interaction, _button: discord.ui.Button[SupplyDropView]
+    ) -> None:
+        """Try to grab the drop."""
+        if not await self.apply_grab(interaction.user):
+            await interaction.response.send_message(
+                embed=embeds.error_embed("Someone beat you to it."), ephemeral=True
+            )
+            return
+        await interaction.response.edit_message(embed=self.embed(), view=None)
+        if interaction.channel is not None:
+            await announce_achievements(self.db, interaction.user, interaction.channel)  # type: ignore[arg-type]

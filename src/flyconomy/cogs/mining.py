@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from flyconomy import economy, embeds
+from flyconomy import economy, embeds, events
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 
@@ -36,9 +36,12 @@ class Mining(BaseCog, name="Flyxcoin"):
             await ctx.send("You mined nothing.")
             return
 
+        event = self.event
+        mined = events.mine_yield(mined, event)
         await self.db.add_crypto(ctx.author.id, mined)
         suffix = "" if mined == 1 else "s"
-        await ctx.send(f"You mined {mined} Flyxcoin{suffix}!")
+        boosted = f" {event.emoji} {event.name}!" if event is events.GOLD_RUSH else ""
+        await ctx.send(f"You mined {mined} Flyxcoin{suffix}!{boosted}")
 
     @commands.hybrid_command(name="upgrade")  # type: ignore[arg-type]
     async def upgrade(self, ctx: commands.Context[FlyconomyBot]) -> None:

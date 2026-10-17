@@ -26,7 +26,7 @@ from flyconomy.errors import InsufficientFundsError
 from flyconomy.views import BlackjackView, CrashView, MinesView
 from tests.conftest import ALICE, BOB
 from tests.test_blackjack import ACE, KING, hand
-from tests.test_cog_behavior import FakeBot, FakeContext, FakeUser, _FakeResponse
+from tests.test_cog_behavior import FakeBot, FakeChannel, FakeContext, FakeUser, _FakeResponse
 
 
 @dataclass
@@ -552,6 +552,7 @@ class TestARestartMidRound:
 @dataclass
 class _FakeMessage:
     edits: int = 0
+    channel: FakeChannel = field(default_factory=lambda: FakeChannel())
 
     async def edit(self, *, embed: Any = None, view: Any = None) -> None:
         self.edits += 1

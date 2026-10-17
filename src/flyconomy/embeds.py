@@ -13,7 +13,17 @@ from zoneinfo import ZoneInfo
 
 import discord
 
-from flyconomy import blackjack, crash, economy, jackpot, mines, tictactoe, tournament
+from flyconomy import (
+    achievements,
+    blackjack,
+    crash,
+    economy,
+    events,
+    jackpot,
+    mines,
+    tictactoe,
+    tournament,
+)
 from flyconomy.database import (
     Account,
     DailyPayout,
@@ -52,13 +62,19 @@ def coins(amount: int) -> str:
     return f"{amount:,}"
 
 
-def balance_embed(user: discord.abc.User, account: Account, timezone: str) -> discord.Embed:
+def balance_embed(
+    user: discord.abc.User,
+    account: Account,
+    timezone: str,
+    earned: Sequence[str] = (),
+) -> discord.Embed:
     """Build the embed for the ``balance`` command.
 
     Args:
         user: The member whose balance is shown.
         account: Their current balances.
         timezone: IANA timezone for the embed timestamp.
+        earned: Keys of the achievements they hold, shown as their emoji.
 
     Returns:
         A populated embed.
@@ -75,7 +91,50 @@ def balance_embed(user: discord.abc.User, account: Account, timezone: str) -> di
     embed.add_field(name="Miner Level:", value=f"Level {account.miner}", inline=True)
     embed.add_field(name="Wallet Security:", value=f"Level {account.security}", inline=True)
     embed.add_field(name="Total Net Worth", value=money(account.net_worth), inline=False)
+    held = [a.emoji for a in achievements.ALL if a.key in earned]
+    embed.add_field(
+        name=f"Achievements ({len(held)}/{len(achievements.ALL)})",
+        value=" ".join(held) or "None yet. Details on the dashboard.",
+        inline=False,
+    )
     return embed
+
+
+def event_embed(event: events.Event, ends_at: float, timezone: str) -> discord.Embed:
+    """Announce a timed server event, or show the one running."""
+    embed = discord.Embed(
+        title=f"{event.emoji} {event.name}",
+        description=event.blurb,
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+    embed.add_field(name="Ends", value=f"<t:{int(ends_at)}:R>")
+    return embed
+
+
+def drop_embed(
+    amount: int, winner: discord.abc.User | None, *, expired: bool, timezone: str
+) -> discord.Embed:
+    """Draw a supply drop: waiting, grabbed, or gone."""
+    if winner is not None:
+        text = f"{winner.mention} grabbed **{money(amount)}**. It's in their wallet, so watch out."
+    elif expired:
+        text = f"Nobody grabbed the {money(amount)} in time. It's gone."
+    else:
+        text = f"A briefcase holding **{money(amount)}** just landed. First to grab it keeps it."
+    return discord.Embed(
+        title=f"{events.SUPPLY_DROP.emoji} {events.SUPPLY_DROP.name}",
+        description=text,
+        color=BRAND_COLOR,
+        timestamp=now(timezone),
+    )
+
+
+def unlocked_text(user: discord.abc.User, unlocked: Sequence[achievements.Achievement]) -> str:
+    """Announce achievements a member just earned, one line each."""
+    return "\n".join(
+        f"🏆 {user.mention} unlocked **{a.emoji} {a.name}**: {a.description}" for a in unlocked
+    )
 
 
 def leaderboard_embed(

@@ -20,6 +20,7 @@ from flyconomy.errors import (
     RateLimitedError,
 )
 from flyconomy.ratelimit import SlidingWindowLimiter
+from flyconomy.views import announce_achievements
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ EXTENSIONS: Final[tuple[str, ...]] = (
     "flyconomy.cogs.gambling",
     "flyconomy.cogs.lottery",
     "flyconomy.cogs.tournament",
+    "flyconomy.cogs.events",
     "flyconomy.cogs.guide",
     "flyconomy.cogs.admin",
     "flyconomy.cogs.api",
@@ -124,8 +126,14 @@ class FlyconomyBot(commands.Bot):
         self.after_invoke(self._report_command_duration)
 
     async def _report_command_duration(self, ctx: commands.Context[FlyconomyBot]) -> None:
-        """after_invoke hook: log a command that took a while to finish."""
+        """after_invoke hook: log a command that took a while to finish, then award badges.
+
+        Every command is a chance to have reached a milestone -- a win, a
+        robbery, a balance that crossed a line -- so checking here covers them
+        all from one place, the same way errors are translated in one place.
+        """
         _log_if_slow(ctx)
+        await announce_achievements(self.db, ctx.author, ctx)
 
     # ------------------------------------------------------------ lifecycle --
 

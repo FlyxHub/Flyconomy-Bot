@@ -11,7 +11,7 @@ order, not by the numbers, so renumbering by hand is never required.
 Every number here comes from `README.md`. If you retune the economy, retune
 this too — a guide that lies about the odds is worse than no guide.
 
-════════════════════════════════════ 1 of 8 ════════════════════════════════════
+════════════════════════════════════ 1 of 9 ════════════════════════════════════
 
 # 💵 The Flyconomy
 
@@ -39,7 +39,7 @@ bank is where it grows.
 
 -# Stuck? `$help` lists every command. `/resetme` starts you over from nothing — read the house rules before you reach for it.
 
-════════════════════════════════════ 2 of 8 ════════════════════════════════════
+════════════════════════════════════ 2 of 9 ════════════════════════════════════
 
 # 🏦 Wallet vs. bank
 
@@ -79,7 +79,7 @@ Four things worth knowing:
 
 Your level shows on `/balance`, right next to your miner.
 
-════════════════════════════════════ 3 of 8 ════════════════════════════════════
+════════════════════════════════════ 3 of 9 ════════════════════════════════════
 
 # ⛏️ Flyxcoin
 
@@ -130,7 +130,7 @@ sending are unlimited.
 
 -# Flyxcoin can't be robbed — only cash can. Coins are the safest place to park a fortune, if you can stomach the price moving.
 
-════════════════════════════════════ 4 of 8 ════════════════════════════════════
+════════════════════════════════════ 4 of 9 ════════════════════════════════════
 
 # 💸 Sending money to people
 
@@ -154,7 +154,7 @@ cash. Bounties stack, never expire, and survive a `/resetme`. $100 minimum.
 A bounty only pays out on a robbery that works, so a target who banks
 everything and buys `/secure` is a hard collect. `/bounties` lists the biggest.
 
-════════════════════════════════════ 5 of 8 ════════════════════════════════════
+════════════════════════════════════ 5 of 9 ════════════════════════════════════
 
 # 🎰 The casino
 
@@ -170,7 +170,7 @@ Every game stakes from your wallet. Maximum bet is **$100,000** a wager.
 - `/crash 500` — a multiplier climbs from 1.00x. Cash out before it crashes.
 - `/mines 500` — turn over tiles on a 4x4 board. Every safe one pays more; one mine takes the lot.
 
-════════════════════════════════════ 6 of 8 ════════════════════════════════════
+════════════════════════════════════ 6 of 9 ════════════════════════════════════
 
 # 🎲 What each game actually costs you
 
@@ -212,7 +212,7 @@ same 3% too. The mine count buys a different *shape* of gamble, never a better
 one. The multiplier is capped at **100x**, and a board reaching it cashes itself
 out — past that point the tiles can only lose.
 
-════════════════════════════════════ 7 of 8 ════════════════════════════════════
+════════════════════════════════════ 7 of 9 ════════════════════════════════════
 
 # 🏆 Playing against each other
 
@@ -258,7 +258,39 @@ The pot is fed by ticket sales *and* by a quarter of everything the casino
 wins. Nobody enters, nobody wins, and the pot rolls over — so a quiet week
 builds something worth showing up for.
 
-════════════════════════════════════ 8 of 8 ════════════════════════════════════
+════════════════════════════════════ 8 of 9 ════════════════════════════════════
+
+# 🎪 Events & achievements
+
+## Server events
+
+Every few hours, without warning, the bot announces an event in the
+announcements channel. `/event` shows the one running right now and when it
+ends. Timed events last an hour:
+
+- ⛏️ **Gold Rush** — every `/mine` yields 3x the Flyxcoin.
+- 🙏 **Charity Drive** — `/beg` never comes up empty, and pays 2x.
+- 🚨 **Crime Wave** — every `/rob` is 20 points more likely to land, even against a secured wallet. Bank your cash.
+
+And one doesn't wait:
+
+- 📦 **Supply Drop** — a briefcase of $2,500 to $10,000 lands with a **Grab it** button. The first press keeps it, straight into their wallet, where it can be robbed like any other cash. Nobody grabs it in 15 minutes and it's gone.
+
+Events never touch the casino's odds. There is no lucky hour at the tables.
+
+## Achievements
+
+There are 23 badges to earn: your first bet, a 10x win, a $1,000,000 score,
+robbing a top-security wallet, winning the lottery, a max-level miner,
+your first billion, and more. They unlock on their own the moment you hit
+the milestone, and the bot says so in the channel.
+
+They show as emoji at the bottom of `/balance`. The dashboard lists every
+badge with what earns it and how close you are.
+
+Badges are bragging rights and pay nothing. `/resetme` doesn't take them away.
+
+════════════════════════════════════ 9 of 9 ════════════════════════════════════
 
 # 📋 House rules & cheat sheet
 
@@ -273,7 +305,7 @@ builds something worth showing up for.
 
 ```
 BANKING     /balance  /deposit  /withdraw  /pay  /leaderboard  /wallets
-INCOME      /beg  /mine  /upgrade  (bank interest is automatic)
+INCOME      /beg  /mine  /upgrade  /event  (interest is automatic)
 DEFENCE     /secure
 ROBBERY     /rob @member  /bounty  /bounties
 FLYXCOIN    /flx info  /flx buy  /flx sell  /flx send

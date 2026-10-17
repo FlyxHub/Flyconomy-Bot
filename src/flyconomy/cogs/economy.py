@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from flyconomy import economy, embeds
+from flyconomy import economy, embeds, events
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.database import DailyPayout, ResetOutcome
@@ -177,7 +177,8 @@ class Economy(BaseCog, name="Economy"):
                 await ctx.send(f"{member.display_name} does not have an account yet.")
                 return
             account = found
-        await ctx.send(embed=embeds.balance_embed(target, account, self.timezone))
+        earned = await self.db.earned_achievements(target.id)
+        await ctx.send(embed=embeds.balance_embed(target, account, self.timezone, list(earned)))
 
     @commands.hybrid_command(name="deposit", aliases=["dep"])  # type: ignore[arg-type]
     @app_commands.describe(amount="Dollars to deposit. Defaults to your whole wallet.")
@@ -248,13 +249,15 @@ class Economy(BaseCog, name="Economy"):
     @commands.cooldown(1, economy.BEG_COOLDOWN_SECONDS, commands.BucketType.user)
     async def beg(self, ctx: commands.Context[FlyconomyBot]) -> None:
         """Beg the economy gods for a small amount of money."""
-        if self.rng.randint(1, economy.BEG_SUCCESS_ODDS) == 1:
+        event = self.event
+        amount = events.roll_beg(self.rng, event)
+        if not amount:
             await ctx.send("You got nothing.")
             return
 
-        amount = self.rng.randint(economy.BEG_MIN, economy.BEG_MAX)
         await self.db.add_wallet(ctx.author.id, amount)
-        await ctx.send(f"You got {embeds.money(amount)}")
+        boosted = f" {event.emoji} {event.name}!" if event is events.CHARITY_DRIVE else ""
+        await ctx.send(f"You got {embeds.money(amount)}{boosted}")
 
     # Cooldowns after parsing, so a mistyped member costs nothing.
     @commands.hybrid_command(name="rob", cooldown_after_parsing=True)  # type: ignore[arg-type]
@@ -274,7 +277,7 @@ class Economy(BaseCog, name="Economy"):
             ctx.command.reset_cooldown(ctx)  # type: ignore[union-attr]
             return
 
-        if not economy.roll_rob(victim.security, self.rng):
+        if not events.roll_rob(victim.security, self.event, self.rng):
             defended = (
                 f" Their wallet security is at level {victim.security}." if victim.security else ""
             )

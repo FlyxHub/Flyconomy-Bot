@@ -19,7 +19,7 @@ from flyconomy.cogs.api import SESSION_COOKIE, Api, is_local_host, top_share
 from flyconomy.config import Settings
 from flyconomy.database import Database
 from tests.conftest import ALICE, BOB
-from tests.test_cog_behavior import FakeUser
+from tests.test_cog_behavior import FakeChannel, FakeUser
 from tests.test_mines import make_view
 
 HOUR = 3600
@@ -277,7 +277,7 @@ class TestApi:
         week = tournament.week_of(datetime.datetime.now(ZoneInfo("America/Chicago")))
         await db.add_bank(ALICE, tournament.ENTRY_FEE)
         await db.join_tournament(ALICE, week, now=0.0)
-        await db.record_tournament_play(ALICE, 500, 800)
+        await db.record_house_play(ALICE, 500, 800)
 
         body = (await (await client.get("/api/overview")).json())["tournament"]
 
@@ -291,10 +291,10 @@ class TestApi:
     async def test_live_mines_boards_are_served_face_up_until_settled(self, client, bot, db):
         game = mines.Game(stake=500, mine_tiles=frozenset({3, 9}))
         live = make_view(db, game, FakeUser(ALICE))
-        live.message = SimpleNamespace(id=2)  # type: ignore[assignment]
+        live.message = SimpleNamespace(id=2, channel=FakeChannel())  # type: ignore[assignment]
         await live.apply_reveal(0)
         done = make_view(db, mines.Game(stake=1, mine_tiles=frozenset({0})), FakeUser(BOB))
-        done.message = SimpleNamespace(id=1)  # type: ignore[assignment]
+        done.message = SimpleNamespace(id=1, channel=FakeChannel())  # type: ignore[assignment]
         await done.apply_reveal(0)
         bot.cogs["Casino"] = SimpleNamespace(live_mines={live, done})
 
@@ -514,12 +514,26 @@ class TestMemberView:
 
     async def test_a_member_is_never_sent_a_live_mines_board(self, member, bot, db):
         live = make_view(db, mines.Game(stake=500, mine_tiles=frozenset({3})), FakeUser(ALICE))
-        live.message = SimpleNamespace(id=1)  # type: ignore[assignment]
+        live.message = SimpleNamespace(id=1, channel=FakeChannel())  # type: ignore[assignment]
         bot.cogs["Casino"] = SimpleNamespace(live_mines={live})
 
         body = await (await member.get("/api/overview")).json()
 
         assert "mines" not in body
+
+    async def test_a_member_sees_their_own_profile(self, member, db):
+        await db.add_bank(MEMBER, 1_000_000)
+        await db.record_house_play(MEMBER, 100, 1_500)
+        await db.claim_achievements(MEMBER, time.time())
+
+        me = (await (await member.get("/api/overview")).json())["me"]
+
+        assert me["account"]["bank"] == economy.STARTING_BANK + 1_000_000
+        assert me["account"]["rank"] == 1
+        assert me["career"]["best_multiple"] == 15
+        badges = {a["name"]: a for a in me["achievements"]}
+        assert badges["Big Win"]["earned_at"] is not None
+        assert badges["Regular"] == badges["Regular"] | {"earned_at": None, "progress": 1}
 
     async def test_a_member_cannot_steer_the_market(self, member, db):
         response = await member.post("/api/market", json={"direction": "bull"})

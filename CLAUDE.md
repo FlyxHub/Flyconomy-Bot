@@ -47,8 +47,8 @@ migration 6, wallet security one in migration 7, the published guide one in migr
 self-reset history one in migration 9, the daily interest ledger one in migration 10, and the
 market's regime plus the daily Flyxcoin buying ledger one in migration 11, and the
 dashboard's price and balance history two in migration 12, and held one-player board stakes
-one in migration 13, bounties one in migration 14, and the weekly tournament two in
-migration 15; the
+one in migration 13, bounties one in migration 14, the weekly tournament two in
+migration 15, and achievements two (`career`, `achievements`) in migration 16; the
 `bank` table is still untouched. A
 member with no `security` row is level 0, so that migration writes no rows at all — a per-member
 level that defaults to zero needs a table and a `LEFT JOIN`, not a sixth column on `bank`.
@@ -514,6 +514,27 @@ Three further layers, all in place because they cover different failure modes:
 `RateLimitedError` subclasses `commands.CheckFailure` on purpose. discord.py's `Bot.invoke` only
 dispatches `CommandError` subclasses to an error handler, so a plain exception raised from a cog
 check reaches the member as silence plus a logged traceback.
+
+## Events and achievements
+
+**Server events may never touch a game's payout.** `events.py` boosts only the linear
+faucets (`beg`, `mine`, a supply drop) or tilts `rob`, which redistributes. A "lucky hour"
+at the casino would be a positive-EV game for an hour, which the invariant under
+Anti-abuse forbids. With no event running, `events.roll_beg` and `events.roll_rob` draw
+the same random numbers the plain rules do, and `tests/test_events.py` pins that, so a
+quiet server is unchanged. The running event is in memory on the Events cog; commands
+ask `BaseCog.event`.
+
+**Achievements pay nothing, and that is what makes them safe.** Several are farmable
+with an alt; a badge that paid would be a faucet priced by how easy its milestone is.
+Every one is a stat reaching a goal (`achievements.earned`), read from the `career`
+counters beside the account as it stands. Counters are bumped inside the transaction
+that earns them (`steal`, `award_lottery`, `settle_escrow`, `record_house_play`, ...),
+so a refused move counts nothing. Awarding happens in one place,
+`views.announce_achievements`, called from the bot's `after_invoke` hook and from
+`_PlayerView._pay_out` for button games -- a new achievement needs a catalogue row and,
+if no counter exists for it, one `_add_career` call. Like the `resets` row, both tables
+survive `reset_account` and are cleared by `purge_user`.
 
 ## Preserved quirks
 

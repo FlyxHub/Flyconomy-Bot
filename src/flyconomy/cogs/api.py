@@ -31,10 +31,11 @@ import aiohttp
 from aiohttp import web
 from aiohttp.typedefs import Handler
 
-from flyconomy import economy, mines, tournament
+from flyconomy import achievements, economy, mines, tournament
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.admin import steer_market
 from flyconomy.cogs.base import BaseCog
+from flyconomy.cogs.events import Events
 from flyconomy.database import LeaderboardEntry
 
 log = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ STATE_COOKIE: Final = "flyconomy_oauth_state"
 class Viewer:
     """Who is looking at the dashboard, as of this request."""
 
+    user_id: int
     name: str
     admin: bool
 
@@ -215,9 +217,9 @@ class Api(BaseCog, name="Api"):
         if user is None:
             return None
         if await self.bot.is_owner(user):
-            return Viewer(user.display_name, admin=True)
+            return Viewer(user_id, user.display_name, admin=True)
         if user.mutual_guilds:
-            return Viewer(user.display_name, admin=False)
+            return Viewer(user_id, user.display_name, admin=False)
         return None
 
     async def login(self, _request: web.Request) -> web.StreamResponse:
@@ -380,6 +382,56 @@ class Api(BaseCog, name="Api"):
             return None
         return tournament.week_ends(datetime.datetime.now(ZoneInfo(self.timezone))).timestamp()
 
+    async def _me(self, user_id: int, worths: Sequence[int]) -> dict[str, object]:
+        """The viewer's own profile: balances, career, and every achievement with progress.
+
+        Locked achievements are listed too, with how far along the viewer is,
+        because a goal you can see is the point of having them.
+        """
+        account = await self.db.find_account(user_id)
+        values = await self.db.achievement_values(user_id) or {}
+        held = await self.db.earned_achievements(user_id)
+        body: dict[str, object] = {
+            "account": None,
+            "career": {
+                stat: values.get(stat, 0)
+                for stat in ("plays", "wagered", "best_multiple", "best_profit", "robberies")
+            },
+            "achievements": [
+                {
+                    "emoji": a.emoji,
+                    "name": a.name,
+                    "description": a.description,
+                    "goal": a.goal,
+                    "progress": min(values.get(a.stat, 0), a.goal),
+                    "earned_at": held.get(a.key),
+                }
+                for a in achievements.ALL
+            ],
+        }
+        if account is not None:
+            body["account"] = {
+                "wallet": account.wallet,
+                "bank": account.bank,
+                "crypto": account.crypto,
+                "coin_value": account.crypto * account.flx_price,
+                "net_worth": account.net_worth,
+                "miner": account.miner,
+                "security": account.security,
+                "rob_chance": economy.rob_success_percent(account.security),
+                "rank": 1 + sum(w > account.net_worth for w in worths),
+                "accounts": len(worths),
+            }
+        return body
+
+    def _event(self) -> dict[str, object] | None:
+        """The server event running now, which every member may see."""
+        cog = self.bot.get_cog("Events")
+        if not isinstance(cog, Events) or cog.current() is None or cog.active is None:
+            return None
+        event, ends = cog.active
+        return {"emoji": event.emoji, "name": event.name, "blurb": event.blurb, "ends": ends}
+
     def _board(self, entries: list[LeaderboardEntry]) -> list[dict[str, object]]:
         # Ids as strings: snowflakes are past JavaScript's safe integers.
         return [
@@ -417,6 +469,8 @@ class Api(BaseCog, name="Api"):
             market_body |= {"regime": market.regime, "ticks_left": market.ticks_left}
         body: dict[str, object] = {
             "viewer": {"name": viewer.name, "admin": viewer.admin},
+            "me": await self._me(viewer.user_id, worths),
+            "event": self._event(),
             "market": market_body,
             "lottery_pot": lottery.pot,
             "economy": {

@@ -22,7 +22,7 @@ import pytest
 from flyconomy import economy, mines
 from flyconomy.views import MinesView
 from tests.conftest import ALICE, BOB
-from tests.test_cog_behavior import FakeUser
+from tests.test_cog_behavior import FakeChannel, FakeUser
 
 #: Every playable mine count, so a property is checked over the whole range a
 #: member can actually ask for rather than one convenient board.
@@ -283,6 +283,7 @@ class FakeInteraction:
 
 class FakeMessage:
     edits: int = 0
+    channel = FakeChannel()
 
     async def edit(self, *, embed: Any = None, view: Any = None) -> None:
         self.edits += 1

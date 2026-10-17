@@ -159,7 +159,7 @@ class Gambling(BaseCog, name="Casino"):
                 the fresh account. Raised after the rake, which keeps it all.
         """
         paid = bet * multiplier
-        await self.db.record_tournament_play(ctx.author.id, bet, paid)
+        await self.db.record_house_play(ctx.author.id, bet, paid)
         if paid and not await self.db.pay_winnings(ctx.author.id, paid, reset_marker):
             await self.rake(bet)
             raise FlyconomyError(embeds.VOIDED_LINE)

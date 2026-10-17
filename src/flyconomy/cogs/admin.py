@@ -13,7 +13,7 @@ import re
 import discord
 from discord.ext import commands
 
-from flyconomy import economy, embeds
+from flyconomy import economy, embeds, events
 from flyconomy.bot import FlyconomyBot
 from flyconomy.cogs.base import BaseCog
 from flyconomy.database import Database
@@ -60,6 +60,28 @@ class Admin(BaseCog, name="Admin"):
         """
         await self.db.add_crypto(ctx.author.id, amount)
         await ctx.send(f"Adjusted your Flyxcoin by {amount:,}.")
+
+    @commands.command(name="startevent")
+    async def start_event(self, ctx: commands.Context[FlyconomyBot], name: str) -> None:
+        """Start a server event now: goldrush, charity, crimewave, or drop.
+
+        It is announced where the scheduler would announce it, or here when no
+        announcement channel is set. A timed event replaces any running one.
+
+        Args:
+            ctx: Invocation context.
+            name: Which event.
+        """
+        event = events.BY_KEY.get(name.lower())
+        cog = self.bot.get_cog("Events")
+        if event is None or cog is None:
+            await ctx.send(f"Unknown event. Try one of: {', '.join(events.BY_KEY)}.")
+            return
+        channel_id = self.settings.lottery_announce_channel_id
+        channel = await self.resolve_channel(channel_id) if channel_id is not None else None
+        await cog.start(event, channel or ctx)  # type: ignore[attr-defined]
+        if channel is not None:
+            await ctx.send(f"Started {event.emoji} {event.name}.")
 
     @commands.command(name="reset")
     async def reset(self, ctx: commands.Context[FlyconomyBot], member: discord.Member) -> None:

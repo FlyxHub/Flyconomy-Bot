@@ -24,6 +24,9 @@ classic prefix command, such as `$balance`.
   - [Tic-tac-toe](#tic-tac-toe)
   - [Jackpot](#jackpot)
   - [Lottery](#lottery)
+  - [Weekly tournament](#weekly-tournament)
+  - [Server events](#server-events)
+  - [Achievements](#achievements)
   - [Owner commands](#owner-commands)
 - [The member guide](#the-member-guide)
 - [Economy reference](#economy-reference)
@@ -77,6 +80,11 @@ classic prefix command, such as `$balance`.
   games over the week takes the pot. Player-funded, so it only redistributes.
 - **Bounties.** Pay to have someone robbed: the next successful `rob` against
   them collects the bounty on top of the cash.
+- **Server events.** Every few hours the bot announces an hour of Gold Rush,
+  Charity Drive, or Crime Wave, or drops a briefcase of cash for the first
+  member to grab.
+- **Achievements.** 23 badges for milestones across the whole economy, shown
+  as emoji on `balance` and in full, with progress, on the dashboard.
 - **Leaderboards.** Rankings by total net worth and by undeposited wallet cash.
 
 ## Before you begin
@@ -262,6 +270,10 @@ wallets, and Flyxcoin, which shows whether the economy is inflating; and the
 share of all money held by the richest 10% of members, which shows whether a
 few players are pulling away. It also has buttons that do what
 `$market bull|bear|neutral` does.
+
+Every visitor gets a profile panel at the top: their own balances, rank,
+career stats, and every achievement, earned or with a progress bar toward it.
+A running server event shows as a pill in the top bar.
 
 Visitors sign in with Discord. You, the bot's owner, see everything. A member
 of any server the bot is in sees the same page without the market override,
@@ -553,6 +565,45 @@ is safe here, unlike for the interest, because the pot is only its own fees.
 
 As a slash command, the bare `tournament` form is `/tournament info`.
 
+### Server events
+
+| Command | Description |
+| --- | --- |
+| `event` | Shows the server event running right now and when it ends. |
+
+Every 20 minutes, while no event is running, the bot has a one-in-nine chance
+of starting one in `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` -- about one every
+three quiet hours. Without that channel set, only `$startevent` starts them.
+
+| Event | Lasts | Effect |
+| --- | --- | --- |
+| Gold Rush | 1 hour | `mine` yields 3x the Flyxcoin. |
+| Charity Drive | 1 hour | `beg` never comes up empty and pays 2x. |
+| Crime Wave | 1 hour | Every `rob` is 20 points more likely to land. The top security level still stops 70%. |
+| Supply Drop | Up to 15 minutes | A button paying $2,500 to $10,000 into the wallet of the first member to press it. |
+
+- **No event touches a game's payout.** A lucky hour at the casino would be a
+  positive expected value for an hour. Events only boost the linear faucets or
+  tilt robbery, which moves money between members rather than creating it.
+- **A restart ends a running event.** It lives in memory; nothing is owed when
+  one ends, so losing it costs nothing.
+
+### Achievements
+
+Members earn badges for milestones: bets settled, total staked, a 10x or 50x
+win, a $1,000,000 score, robberies, a bounty, beating a top-security wallet,
+winning the lottery, a jackpot, the tournament, or a tic-tac-toe match,
+grabbing a supply drop, a top-level miner or wallet security, holding 100
+Flyxcoin, and reaching $1,000,000 and $1,000,000,000 in net worth.
+
+- **They unlock on their own.** The bot checks after every command and every
+  button round, and announces a new badge in that channel.
+- **`balance` shows them as emoji.** The dashboard's profile panel lists every
+  badge with what earns it and how close the viewer is.
+- **They pay nothing.** Several can be farmed with a second account, which is
+  harmless only because a badge is worth nothing.
+- **`resetme` keeps them,** and the career stats behind them. `$purge` clears both.
+
 ### Owner commands
 
 These are prefix-only. A slash command appears in every member's command picker,
@@ -568,6 +619,7 @@ which is the wrong place to advertise a command nobody else can run.
 | `$draw` | Runs a lottery draw immediately instead of waiting for the schedule. |
 | `$pot <amount>` | Sets the lottery pot to an exact amount, and reports what it was. For cutting back a pot inflated by abuse. |
 | `$guide [repost]` | Publishes the member guide now instead of at the next restart. `repost` re-sends it, moving it to the bottom of the channel. |
+| `$startevent <goldrush\|charity\|crimewave\|drop>` | Starts a server event now, in the announcement channel, or where you ran it when none is set. A timed event replaces any running one. |
 | `$market <bull\|bear\|neutral>` | Starts a Flyxcoin run on demand, or calls a running one off. Hidden from `$help` as well as owner-only; see [Steering the market](#steering-the-market). |
 
 Every prefix command works in a DM with the bot as well as in a channel, which

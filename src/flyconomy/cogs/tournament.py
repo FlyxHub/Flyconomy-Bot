@@ -2,7 +2,7 @@
 
 The rules are in :mod:`flyconomy.tournament`. The score is kept by the casino
 itself -- every house wager reports its result through
-``Database.record_tournament_play`` as it settles -- so this cog only takes
+``Database.record_house_play`` as it settles -- so this cog only takes
 entries and settles finished weeks.
 """
 

@@ -133,6 +133,8 @@ module = [
     "tests.test_matches",
     "tests.test_tictactoe",
     "tests.test_tournament",
+    "tests.test_achievements",
+    "tests.test_events",
 ]
 disable_error_code = [
     "arg-type",

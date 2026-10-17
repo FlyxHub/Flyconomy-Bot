@@ -46,7 +46,7 @@ async def enter(
     """Fund a member, enter them, and give them a score."""
     await db.add_bank(user, FEE)
     assert await db.join_tournament(user, week, now=float(user % 1000))
-    await db.record_tournament_play(user, wagered, wagered + net)
+    await db.record_house_play(user, wagered, wagered + net)
 
 
 async def bank(db: Database, user: int) -> int:
@@ -105,13 +105,13 @@ class TestJoining:
 
 class TestScoring:
     async def test_play_counts_only_for_entrants(self, db):
-        await db.record_tournament_play(ALICE, 500, 1_000)
+        await db.record_house_play(ALICE, 500, 1_000)
         assert await db.open_tournament_weeks() == []
 
     async def test_play_adds_net_and_stake(self, db):
         await enter(db, ALICE, wagered=0)
-        await db.record_tournament_play(ALICE, 500, 1_000)
-        await db.record_tournament_play(ALICE, 300, 0)
+        await db.record_house_play(ALICE, 500, 1_000)
+        await db.record_house_play(ALICE, 300, 0)
 
         entry = await db.tournament_entry(THIS_WEEK, ALICE)
         assert entry is not None
@@ -121,7 +121,7 @@ class TestScoring:
         await enter(db, ALICE, LAST_WEEK, wagered=0)
         await enter(db, ALICE, THIS_WEEK, wagered=0)
 
-        await db.record_tournament_play(ALICE, 100, 300)
+        await db.record_house_play(ALICE, 100, 300)
 
         assert (await db.tournament_entry(LAST_WEEK, ALICE)).net == 0
         assert (await db.tournament_entry(THIS_WEEK, ALICE)).net == 200

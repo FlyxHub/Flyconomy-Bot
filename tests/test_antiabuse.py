@@ -657,7 +657,7 @@ class TestTheTournamentOnlyMovesMoney:
         before = sum([(await db.get_account(user)).bank for user in users])
         for net, user in enumerate(users):
             await db.join_tournament(user, self.WEEK, now=0.0)
-            await db.record_tournament_play(user, tournament.MIN_WAGERED, net)
+            await db.record_house_play(user, tournament.MIN_WAGERED, net)
 
         result = await db.settle_tournament(self.WEEK, now=0.0)
 

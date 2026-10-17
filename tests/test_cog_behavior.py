@@ -63,6 +63,7 @@ class FakeMessage:
     embed: Any = None
     view: Any = None
     edits: int = 0
+    channel: Any = field(default_factory=lambda: FakeChannel())
 
     async def edit(self, *, embed: Any = None, view: Any = None) -> None:
         self.embed = embed
@@ -125,6 +126,10 @@ class FakeBot:
         self._channels = channels or {}
         self._users = users or {}
         self.presence: Any = None
+        self.cogs: dict[str, Any] = {}
+
+    def get_cog(self, name: str) -> Any:
+        return self.cogs.get(name)
 
     def get_channel(self, channel_id: int) -> Any:
         return self._channels.get(channel_id)
@@ -164,9 +169,14 @@ class FakeChannel(discord.abc.Messageable):
 
     def __init__(self) -> None:
         self.embeds: list[object] = []
+        # Text a view posts on its own, such as an achievement it awarded.
+        self.sent: list[str] = []
 
-    async def send(self, *, embed: object) -> None:  # type: ignore[override]
-        self.embeds.append(embed)
+    async def send(self, content: str | None = None, *, embed: object = None, **_: Any) -> Any:
+        if content is not None:
+            self.sent.append(content)
+        if embed is not None:
+            self.embeds.append(embed)
 
 
 class FakeRecipient:

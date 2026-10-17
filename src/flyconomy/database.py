@@ -26,13 +26,13 @@ from typing import Final, Self
 
 import aiosqlite
 
-from flyconomy import economy, jackpot, tournament
+from flyconomy import achievements, economy, jackpot, tournament
 from flyconomy.errors import DailyBuyLimitError, InsufficientFundsError
 
 log = logging.getLogger(__name__)
 
 #: Schema version this build expects. Bump it and add a migration below.
-SCHEMA_VERSION: Final = 15
+SCHEMA_VERSION: Final = 16
 
 #: Balance columns that may be adjusted. Values are interpolated into SQL, so
 #: every caller is checked against this set first.
@@ -949,12 +949,13 @@ class Database:
             )
             return True
 
-    async def record_tournament_play(self, user_id: int, staked: int, returned: int) -> None:
-        """Count one settled house wager towards the member's tournament score.
+    async def record_house_play(self, user_id: int, staked: int, returned: int) -> None:
+        """Count one settled house wager towards the member's tournament score and career.
 
-        It lands on the newest week they entered, which is the only one still
-        open: a week's entries are deleted when it settles. A member who has
-        not entered has no row, so this does nothing for them.
+        The tournament score lands on the newest week they entered, which is
+        the only one still open: a week's entries are deleted when it settles.
+        A member who has not entered has no row there, so only their career
+        counts it.
 
         Args:
             user_id: The member's Discord snowflake.
@@ -968,6 +969,88 @@ class Database:
                 "(SELECT MAX(week) FROM tournament_entries WHERE user = ?)",
                 (returned - staked, staked, user_id, user_id),
             )
+            await _add_career(db, user_id, plays=1, wagered=staked)
+            await _raise_career(
+                db,
+                user_id,
+                best_multiple=achievements.best_multiple(staked, returned),
+                best_profit=returned - staked,
+            )
+
+    # --------------------------------------------------------- achievements --
+
+    async def career(self, user_id: int) -> dict[str, int]:
+        """Return a member's lifetime career stats. A stat never counted is absent."""
+        async with self._reader.execute(
+            "SELECT stat, value FROM career WHERE user = ?", (user_id,)
+        ) as cursor:
+            return {row["stat"]: int(row["value"]) for row in await cursor.fetchall()}
+
+    async def earned_achievements(self, user_id: int) -> dict[str, float]:
+        """Return the achievements a member has been awarded, as key to Unix time."""
+        async with self._reader.execute(
+            "SELECT key, earned FROM achievements WHERE user = ?", (user_id,)
+        ) as cursor:
+            return {row["key"]: float(row["earned"]) for row in await cursor.fetchall()}
+
+    async def achievement_values(self, user_id: int) -> dict[str, int] | None:
+        """Return everything :func:`achievements.earned` reads, or ``None`` with no account.
+
+        That is the career stats beside the account as it stands now, valued
+        at the live price.
+        """
+        account = await self.find_account(user_id)
+        if account is None:
+            return None
+        return await self.career(user_id) | {
+            "miner": account.miner,
+            "security": account.security,
+            "crypto": account.crypto,
+            "net_worth": account.net_worth,
+        }
+
+    async def claim_achievements(self, user_id: int, now: float) -> list[achievements.Achievement]:
+        """Award every achievement a member has reached and not yet been given.
+
+        Cheap when there is nothing new, which is almost every call: the check
+        reads on the reader connection and only takes the writer for an award.
+        The primary key is what stops a badge being awarded twice, so two
+        commands finishing together cannot both announce one.
+
+        Args:
+            user_id: The member's Discord snowflake.
+            now: Unix time, recorded against each award.
+
+        Returns:
+            The achievements awarded by this call, in catalogue order.
+        """
+        values = await self.achievement_values(user_id)
+        if values is None:
+            return []
+        held = await self.earned_achievements(user_id)
+        due = [a for a in achievements.earned(values) if a.key not in held]
+        if not due:
+            return []
+        awarded = []
+        async with self._transaction() as db:
+            for achievement in due:
+                cursor = await db.execute(
+                    "INSERT INTO achievements (user, key, earned) VALUES (?, ?, ?) "
+                    "ON CONFLICT (user, key) DO NOTHING",
+                    (user_id, achievement.key, now),
+                )
+                if cursor.rowcount:
+                    awarded.append(achievement)
+        return awarded
+
+    async def grab_drop(self, user_id: int, amount: int) -> None:
+        """Credit a supply drop to the member who grabbed it, and count it."""
+        async with self._transaction() as db:
+            await self.ensure_account(user_id)
+            await db.execute(
+                "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (amount, user_id)
+            )
+            await _add_career(db, user_id, drops=1)
 
     async def tournament_standings(
         self, week: str, limit: int = tournament.STANDINGS_SHOWN
@@ -1058,6 +1141,7 @@ class Database:
                 paid = pot - cut
                 await self.ensure_account(winner)
                 await db.execute("UPDATE bank SET bank = bank + ? WHERE user = ?", (paid, winner))
+                await _add_career(db, winner, tournament_wins=1)
             else:
                 for row in rows:
                     await db.execute(
@@ -1293,6 +1377,10 @@ class Database:
                 "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (amount + bounty, thief_id)
             )
             await db.execute("DELETE FROM bounties WHERE target = ?", (victim_id,))
+            await _add_career(db, thief_id, robberies=1, bounties=1 if bounty else 0)
+            await _raise_career(
+                db, thief_id, cracked=await self._read_security_level(db, victim_id)
+            )
             return bounty
 
     async def post_bounty(self, poster_id: int, target_id: int, amount: int) -> int:
@@ -1802,6 +1890,7 @@ class Database:
             await self.ensure_account(winner_id)
             if pot:
                 await db.execute("UPDATE bank SET bank = bank + ? WHERE user = ?", (pot, winner_id))
+            await _add_career(db, winner_id, lottery_wins=1)
             await db.execute("DELETE FROM lottery_entries WHERE draw = ?", (draw,))
             await db.execute("UPDATE lottery SET pot = 0, draw = draw + 1 WHERE id = 1")
             return pot
@@ -1922,6 +2011,7 @@ class Database:
                 await db.execute(
                     "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (paid, winner_id)
                 )
+            await _add_career(db, winner_id, jackpot_wins=1)
             await db.execute("DELETE FROM jackpot_entries WHERE round = ?", (round_number,))
             await db.execute("UPDATE jackpot SET round = round + 1 WHERE id = 1")
             return paid
@@ -2069,6 +2159,7 @@ class Database:
                 await db.execute(
                     "UPDATE bank SET wallet = wallet + ? WHERE user = ?", (paid, winner_id)
                 )
+            await _add_career(db, winner_id, match_wins=1)
             await db.execute("DELETE FROM escrow WHERE id = ?", (hold_id,))
             return paid
 
@@ -2270,6 +2361,8 @@ class Database:
             await db.execute("DELETE FROM resets WHERE user = ?", (user_id,))
             await db.execute("DELETE FROM flx_purchases WHERE user = ?", (user_id,))
             await db.execute("DELETE FROM balance_history WHERE user = ?", (user_id,))
+            await db.execute("DELETE FROM career WHERE user = ?", (user_id,))
+            await db.execute("DELETE FROM achievements WHERE user = ?", (user_id,))
             return await self._purge_on(db, user_id)
 
     async def _purge_on(self, db: aiosqlite.Connection, user_id: int) -> PurgeResult:
@@ -2314,6 +2407,28 @@ class Database:
             jackpot_entries=max(antes.rowcount, 0),
             escrow_holds=len(held),
         )
+
+
+async def _add_career(db: aiosqlite.Connection, user_id: int, **amounts: int) -> None:
+    """Add to a member's career counters on an open transaction. Zeroes are skipped."""
+    for stat, amount in amounts.items():
+        if amount:
+            await db.execute(
+                "INSERT INTO career (user, stat, value) VALUES (?, ?, ?) "
+                "ON CONFLICT (user, stat) DO UPDATE SET value = value + excluded.value",
+                (user_id, stat, amount),
+            )
+
+
+async def _raise_career(db: aiosqlite.Connection, user_id: int, **values: int) -> None:
+    """Raise a member's career bests on an open transaction. Anything not above zero is skipped."""
+    for stat, value in values.items():
+        if value > 0:
+            await db.execute(
+                "INSERT INTO career (user, stat, value) VALUES (?, ?, ?) "
+                "ON CONFLICT (user, stat) DO UPDATE SET value = MAX(value, excluded.value)",
+                (user_id, stat, value),
+            )
 
 
 def _escrow_from_row(row: aiosqlite.Row) -> EscrowHold:
@@ -2682,6 +2797,31 @@ async def _migration_15_tournament(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_16_achievements(db: aiosqlite.Connection) -> None:
+    """Add lifetime career stats and the achievements they earn.
+
+    The ``bank`` table is untouched. ``career`` is one row per member per
+    stat rather than a column per stat, so a new counter needs no migration;
+    a member with no row for a stat has a zero there.
+    """
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS career ("
+        "  user INTEGER NOT NULL,"
+        "  stat TEXT NOT NULL,"
+        "  value INTEGER NOT NULL,"
+        "  PRIMARY KEY (user, stat)"
+        ") WITHOUT ROWID"
+    )
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS achievements ("
+        "  user INTEGER NOT NULL,"
+        "  key TEXT NOT NULL,"
+        "  earned REAL NOT NULL,"
+        "  PRIMARY KEY (user, key)"
+        ") WITHOUT ROWID"
+    )
+
+
 _MIGRATIONS: Final = {
     1: _migration_1_base_schema,
     2: _migration_2_unique_user,
@@ -2698,4 +2838,5 @@ _MIGRATIONS: Final = {
     13: _migration_13_wagers,
     14: _migration_14_bounties,
     15: _migration_15_tournament,
+    16: _migration_16_achievements,
 }
