@@ -396,9 +396,13 @@
     position: fixed; left: 50%; bottom: 24px; z-index: 45;
     padding: 12px 20px; border-radius: 10px;
     background: #1d060c; box-shadow: var(--rail);
-    transform: translate(-50%, 160%); transition: transform .4s cubic-bezier(.3, 1.4, .5, 1);
+    /* Parked below the window and hidden outright: an empty toast is small
+       enough that sliding it by its own height left its top edge showing. */
+    transform: translate(-50%, calc(100% + 40px));
+    visibility: hidden;
+    transition: transform .4s cubic-bezier(.3, 1.4, .5, 1), visibility 0s .4s;
   }
-  .toast.show { transform: translate(-50%, 0); }
+  .toast.show { transform: translate(-50%, 0); visibility: visible; transition: transform .4s cubic-bezier(.3, 1.4, .5, 1); }
 
   @media (max-width: 980px) {
     .w8, .w7, .w6, .w5, .w4 { grid-column: span 12; }
