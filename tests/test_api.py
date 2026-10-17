@@ -922,6 +922,36 @@ class TestCageAnnouncements:
 
         assert channel.sent == []
 
+    @pytest.mark.parametrize(
+        ("bet", "pick", "announced"),
+        [(10_000, "heads", True), (100, "heads", False), (10_000, "tails", False)],
+        ids=["a big win", "a small win", "a loss"],
+    )
+    async def test_only_big_wins_on_the_page_are_announced(
+        self, member, casino, channel, db, bet, pick, announced
+    ):
+        await db.add_wallet(MEMBER, 10_000)
+        # The coin always lands heads.
+        casino.rng = SimpleNamespace(choice=lambda options: options[0])
+
+        await member.post("/api/casino/bet", json={"game": "coinflip", "bet": bet, "pick": pick})
+
+        expected = [f"🎰 <@{MEMBER}> won $20,000 on a $10,000 coinflip bet at the casino."]
+        assert channel.sent == (expected if announced else [])
+
+    async def test_a_table_win_is_announced_once(self, member, bot, cog, casino, channel):
+        bot.settings = bot.settings.model_copy(update={"casino_win_announce_min": 1})
+        await member.post("/api/casino/deal", json={"game": "mines", "bet": 1_000})
+        table = cog._tables[MEMBER]
+        safe = next(t for t in range(mines.TILES) if not table.game.is_mine(t))
+        await member.post("/api/casino/move", json={"move": "reveal", "tile": safe})
+
+        await member.post("/api/casino/move", json={"move": "cashout"})
+        await cog._announce_table(MEMBER, table)
+
+        assert len(channel.sent) == 1
+        assert "on a $1,000 mines bet" in channel.sent[0]
+
     async def test_without_a_channel_the_money_still_moves(self, member, casino, db):
         before = (await db.get_account(MEMBER)).wallet
 

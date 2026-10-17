@@ -27,6 +27,7 @@ import logging
 import math
 import secrets
 import time
+import weakref
 from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import resources
@@ -153,6 +154,9 @@ class Api(BaseCog, name="Api"):
         # stake twice; per-member locks if dealing is ever a bottleneck.
         self._dealing = asyncio.Lock()
         self._expiring: set[asyncio.Task[None]] = set()
+        # Tables whose win has been announced, so a move and the idle timeout
+        # finishing one together cannot announce it twice.
+        self._announced: weakref.WeakSet[Table] = weakref.WeakSet()
 
     async def cog_load(self) -> None:
         """Start listening, unless the dashboard is switched off.
@@ -828,20 +832,53 @@ class Api(BaseCog, name="Api"):
         bot makes on its own: the money has moved by now, so an unreachable
         channel is logged rather than undoing it.
         """
+        verb = "deposited" if move == "deposit" else "withdrew"
+        where = "into" if move == "deposit" else "from"
+        await self._announce(
+            f"<@{user_id}> {verb} {embeds.money(amount)} {where} the bank at the casino."
+        )
+
+    async def _announce_win(self, user_id: int, game: str, stake: int, paid: int) -> None:
+        """Say in Discord that someone won big on the page, as a command's reply would.
+
+        A win in Discord is posted where it is played, so everyone sees whose
+        wallet just filled up. Only wins worth ``casino_win_announce_min`` in
+        profit are posted, so a busy page cannot flood the channel; the small
+        ones were never what a robber was waiting for.
+        """
+        if paid - stake < max(1, self.settings.casino_win_announce_min):
+            return
+        name = _GAME_NAMES.get(game, game)
+        await self._announce(
+            f"\N{SLOT MACHINE} <@{user_id}> won {embeds.money(paid)} on a "
+            f"{embeds.money(stake)} {name} bet at the casino."
+        )
+
+    async def _announce_table(self, user_id: int, table: Table) -> None:
+        """Announce a settled table's win, once, however it came to settle."""
+        if not table.is_finished() or table in self._announced:
+            return
+        self._announced.add(table)
+        await self._announce_win(
+            user_id, str(table_state(table)["game"]), table.game.stake, _paid(table)
+        )
+
+    async def _announce(self, text: str) -> None:
+        """Post a line to the announcement channel, best effort.
+
+        The money has always moved by the time this runs, so an unreachable
+        channel is logged rather than undoing it -- the same contract as every
+        post the bot makes on its own.
+        """
         channel_id = self.settings.lottery_announce_channel_id
         channel = await self.resolve_channel(channel_id) if channel_id else None
         if channel is None:
             return
-        verb = "deposited" if move == "deposit" else "withdrew"
-        where = "into" if move == "deposit" else "from"
         try:
-            # A mention so a robber can click through, without pinging them.
-            await channel.send(
-                f"<@{user_id}> {verb} {embeds.money(amount)} {where} the bank at the casino.",
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
+            # A mention so a robber can click through, without pinging anyone.
+            await channel.send(text, allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException:
-            log.warning("Could not announce a casino %s for %s", move, user_id)
+            log.warning("Could not post to the announcement channel: %s", text)
 
     async def bet(self, request: web.Request) -> web.Response:
         """Play one instant game through the casino's own ``play_*``."""
@@ -895,6 +932,7 @@ class Api(BaseCog, name="Api"):
                     played, outcome = landed, str(landed.outcome)
         except (FlyconomyError, commands.CommandError) as exc:
             raise _refused(exc) from exc
+        await self._announce_win(user_id, str(game), played.stake, played.paid)
         return await self._casino_state(
             user_id,
             claim=True,
@@ -947,6 +985,7 @@ class Api(BaseCog, name="Api"):
             task = asyncio.create_task(self._expire(user_id, table))
             self._expiring.add(task)
             task.add_done_callback(self._expiring.discard)
+        await self._announce_table(user_id, table)
         return await self._casino_state(user_id, claim=True)
 
     async def move(self, request: web.Request) -> web.Response:
@@ -976,6 +1015,7 @@ class Api(BaseCog, name="Api"):
                 raise web.HTTPBadRequest(text="that move is not part of this game")
         if problem is not None:
             raise web.HTTPConflict(text=problem)
+        await self._announce_table(user_id, table)
         return await self._casino_state(user_id, claim=table.is_finished())
 
     async def jackpot_ante(self, request: web.Request) -> web.Response:
@@ -1023,9 +1063,13 @@ class Api(BaseCog, name="Api"):
             idle = time.monotonic() - self._touched[user_id]
             if idle >= timeout:
                 await table.on_timeout()
+                await self._announce_table(user_id, table)
                 return
             await asyncio.sleep(timeout - idle)
 
+
+#: How each game is named in an announcement, where its key would not read.
+_GAME_NAMES: Final = {"rps": "rock paper scissors"}
 
 #: The two banking moves, as the columns each one moves money between.
 _BANK_MOVES: Final = {"deposit": ("wallet", "bank"), "withdraw": ("bank", "wallet")}

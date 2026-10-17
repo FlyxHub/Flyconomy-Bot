@@ -141,6 +141,15 @@ class Settings(BaseSettings):
             "mispriced game can do before it is noticed."
         ),
     )
+    casino_win_announce_min: Annotated[int, Field(ge=0)] = Field(
+        default=10_000,
+        description=(
+            "Smallest profit from a game played on the dashboard's casino page "
+            "that is announced in the announcement channel. A win in Discord is "
+            "seen where it is played; one on the page is not, and robbers should "
+            "hear about a wallet that just filled up either way."
+        ),
+    )
     rate_limit_actions: Annotated[int, Field(gt=0)] = Field(
         default=6,
         description="Game commands a member may run per rate_limit_seconds.",
