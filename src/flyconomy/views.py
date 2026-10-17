@@ -56,6 +56,7 @@ async def split_house_take(
         cut = int(house_take * creator_tax_rate)
         if cut > 0:
             await db.add_bank(creator_tax_user_id, cut)
+            db.creator_fees += cut
 
 
 class _PlayerView(discord.ui.View):

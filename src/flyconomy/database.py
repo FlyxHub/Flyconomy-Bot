@@ -348,6 +348,9 @@ class Database:
         # A single connection cannot interleave transactions, so multi-statement
         # operations take this lock to serialize themselves.
         self._lock = asyncio.Lock()
+        # Every creator tax paid since startup, so the dashboard's live feed
+        # can tell the creator's own play from the fees landing in their bank.
+        self.creator_fees = 0
 
     # ------------------------------------------------------------ lifecycle --
 
@@ -1400,6 +1403,7 @@ class Database:
                     "UPDATE bank SET bank = bank + ? WHERE user = ?",
                     (split.creator_share, creator_id),
                 )
+                self.creator_fees += split.creator_share
 
     # --------------------------------------------------------------- guide --
 

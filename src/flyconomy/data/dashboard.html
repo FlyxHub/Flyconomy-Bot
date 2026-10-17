@@ -1606,17 +1606,22 @@ function fitCanvas(canvas) {
 
 const signedMoney = d => (d > 0 ? "+" : "−") + money(Math.abs(d));
 const seen = new Map(); // id -> { cash, coins }, as of the last poll
-let observed = false, lastPrice = null, lastPot = null;
+let observed = false, lastPrice = null, lastPot = null, lastFees = null;
 let lastBounties = new Map(), lastBountyTotal = 0, lastTourneyPot = null;
 
 function observe() {
   const price = overview.market.price;
+  // The creator's fees are not the creator playing, so they never reach the
+  // feed. The count restarts with the bot, which reads as no fees that poll.
+  const [creatorId, fees] = overview.creator_fees ?? [null, 0];
+  const feeDelta = lastFees !== null && fees >= lastFees ? fees - lastFees : 0;
+  lastFees = fees;
   const changes = [];
   for (const [id, name, cash, coins] of overview.members) {
     const before = seen.get(id);
-    if (before && (cash !== before.cash || coins !== before.coins)) {
-      changes.push({ id, name, dCash: cash - before.cash, dCoins: coins - before.coins });
-    }
+    if (!before) continue;
+    const dCash = cash - before.cash - (id === creatorId ? feeDelta : 0), dCoins = coins - before.coins;
+    if (dCash || dCoins) changes.push({ id, name, dCash, dCoins });
   }
   seen.clear();
   for (const [id, , cash, coins] of overview.members) seen.set(id, { cash, coins });

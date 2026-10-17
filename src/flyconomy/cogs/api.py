@@ -402,6 +402,8 @@ class Api(BaseCog, name="Api"):
         supply = await self.db.current_supply(int(time.time()), market.price)
         worths = await self.db.net_worths(market.price)
         members = await self.db.member_balances(market.price, MEMBERS_SHOWN)
+        # Read beside the balances, so a fee lands in both or in neither.
+        creator_fees = self.db.creator_fees
         market_body: dict[str, object] = {
             "price": market.price,
             # The band the walk lives in, so the dashboard draws the bot's
@@ -429,6 +431,11 @@ class Api(BaseCog, name="Api"):
             # [id, name, cash, coins]: cash and coins apart, so the page
             # can tell members acting from the price moving under them.
             "members": [[str(m.user_id), self._name(m.user_id), m.cash, m.coins] for m in members],
+            # [creator id, fees paid since startup], so the live feed can take
+            # the fees out of the creator's moves rather than announce them.
+            "creator_fees": [str(self.settings.creator_tax_user_id), creator_fees]
+            if self.settings.creator_tax_user_id is not None
+            else None,
             "schedule": {
                 "tick": {
                     "at": self._next_run("Market", "tick_loop"),
