@@ -109,42 +109,7 @@
   .purse div { display: grid; line-height: 1.15; }
   .purse span { font-size: 13px; color: var(--dim); }
   .purse b { font: 700 22px var(--body); font-stretch: 72%; color: var(--text); }
-  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
-  .chips label { font-size: 13px; color: var(--dim); }
-  .chips input {
-    width: 112px; padding: 4px 2px;
-    border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
-    background: transparent; font: 700 21px var(--body); font-stretch: 72%; color: var(--text);
-  }
-  .chips input:focus { outline: none; border-bottom-color: var(--neon); }
-  /* Clay chips with six edge inserts; the top denomination is a plaque. */
-  .chip {
-    --c: #141014; --spot: var(--neon); --text: var(--text);
-    width: 42px; height: 42px; border-radius: 50%; border: 0; padding: 0;
-    font: 700 11px var(--body); color: var(--text);
-    background:
-      radial-gradient(circle, var(--c) 0 56%, rgba(255, 255, 255, .35) 57% 58%, var(--c) 59% 68%, transparent 69%),
-      repeating-conic-gradient(from -6deg, var(--spot) 0 12deg, var(--c) 12deg 60deg);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, .6), 0 3px 6px rgba(0, 0, 0, .6);
-    transition: transform .15s var(--ease), box-shadow .2s;
-  }
-  .chip:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgba(0, 0, 0, .6), 0 0 16px var(--haze); }
-  .chip:active { transform: none; }
-  .chip[data-v="1000"] { --c: #b8102b; --spot: var(--card); }
-  .chip[data-v="10000"] { --c: var(--card); --spot: #b8102b; color: var(--ink); }
-  .chip[data-v="100000"] {
-    width: 58px; height: 34px; border-radius: 3px;
-    background: linear-gradient(135deg, #24161c, #0b0609 60%, #1c1015);
-    box-shadow: inset 0 0 0 1px var(--neon), inset 0 0 8px rgba(255, 40, 70, .4), 0 3px 6px rgba(0, 0, 0, .6);
-    color: var(--tube);
-  }
-  .chip.tweak, .chip.max {
-    width: auto; height: 34px; padding: 0 10px; border-radius: 3px;
-    background: none; box-shadow: inset 0 0 0 1px var(--line);
-    font: 500 14px var(--body); color: var(--text);
-  }
-  .chip.tweak:hover, .chip.max:hover { box-shadow: inset 0 0 0 1px var(--neon); transform: none; }
-  .back { font-size: 14px; }
+  .back { margin-left: auto; font-size: 14px; }
 
   /* The cashier: one tap from any game to move money between wallet and bank. */
   .cashier-open { padding: 6px 12px; border: 1px solid var(--line); border-radius: 3px; background: none; font-size: 14px; }
@@ -204,8 +169,28 @@
     background: linear-gradient(170deg, #1a0b12, var(--glass) 50%);
   }
   .table h3 { margin: 0; font: 400 clamp(36px, 5vw, 52px)/1.05 var(--sign); color: var(--tube); text-shadow: var(--glow); }
-  .table .odds { margin: -4px 0 0; max-width: 60ch; font-size: 15px; color: var(--dim); }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .table .odds { margin: -4px auto 0; max-width: 60ch; font-size: 15px; color: var(--dim); }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+  /* Each game sits on the stage's centre line. A block with a width of its own
+     is centred by its margins, so it keeps that width rather than shrinking. */
+  .stage .table { text-align: center; }
+
+  /* The bet is placed at the table, in dollars, and follows you between
+     games: one amount, moved into whichever game is on the stage. */
+  .betbox { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 14px; }
+  .betbox[hidden] { display: none; }
+  .betbox label { font-size: 14px; color: var(--dim); }
+  .amount {
+    display: flex; align-items: baseline; padding: 5px 12px;
+    border: 1px solid var(--line); border-radius: 3px; background: rgba(0, 0, 0, .35);
+    font: 700 24px var(--body); font-stretch: 72%; color: var(--dim);
+  }
+  .amount:focus-within { border-color: var(--neon); box-shadow: 0 0 12px var(--haze); }
+  .amount input { width: 8ch; padding: 0 0 0 2px; border: 0; background: none; font: inherit; color: var(--text); appearance: textfield; }
+  .amount input::-webkit-inner-spin-button, .amount input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+  .amount input:focus { outline: none; }
+  .presets { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .presets .btn { padding: 7px 12px; font-size: 14px; }
   .btn {
     padding: 10px 20px;
     border: 1px solid var(--tube); border-radius: 3px;
@@ -252,7 +237,7 @@
   #t-cage .verdict { text-align: center; }
 
   /* ---------------------------------------------------------------- cards */
-  .hand { display: flex; min-height: 108px; gap: 8px; flex-wrap: wrap; perspective: 600px; }
+  .hand { display: flex; justify-content: center; min-height: 108px; gap: 8px; flex-wrap: wrap; perspective: 600px; }
   .card {
     position: relative; width: 72px; height: 104px;
     transform-style: preserve-3d;
@@ -274,18 +259,14 @@
       #0d0609;
     border: 4px solid var(--card);
   }
-  .seat { display: grid; gap: 8px; }
+  .seat { display: grid; justify-items: center; gap: 8px; }
   .seat span { font-size: 14px; color: var(--dim); }
   .seat b { font: 700 19px var(--body); font-stretch: 72%; color: var(--text); }
 
   /* Blackjack's table is the half moon it is in every casino, with the
      house rule printed along the arc. */
   #t-blackjack { border-radius: 6px 6px 50% 50% / 6px 6px 36% 36%; padding-bottom: 64px; }
-  #t-blackjack .arc { margin: 0; text-align: center; font: 400 20px var(--sign); color: rgba(255, 211, 218, .5); }
-  /* Everything sits on the table's centre line, as on a real half moon, so
-     nothing reaches the curve where the sides narrow toward the bottom. */
-  #t-blackjack { align-items: center; text-align: center; }
-  #t-blackjack .seat, #t-blackjack .hand, #t-blackjack .controls { justify-content: center; justify-items: center; }
+  #t-blackjack .arc { margin: 0; font: 400 20px var(--sign); color: rgba(255, 211, 218, .5); }
 
   /* ------------------------------------------------------------ roulette */
   .wheel-box { position: relative; width: min(300px, 100%); margin: 4px auto; aspect-ratio: 1; filter: drop-shadow(0 0 24px rgba(255, 40, 70, .3)); }
@@ -293,7 +274,7 @@
   .pointer { position: absolute; left: 50%; top: -8px; z-index: 1; width: 0; height: 0; transform: translateX(-50%); border: 7px solid transparent; border-top: 14px solid var(--tube); filter: drop-shadow(0 0 4px var(--neon)); }
 
   /* --------------------------------------------------------------- slots */
-  .cabinet { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; max-width: 560px; }
+  .cabinet { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; width: 100%; max-width: 560px; margin: 0 auto; }
   .reels {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px;
     border-radius: 3px; background: #000;
@@ -309,7 +290,7 @@
   .lever.pulled::before { transform: scaleY(-.6); }
   .lever.pulled::after { transform: translateY(78px); }
   .lever:disabled { opacity: .4; }
-  .paytable { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--dim); }
+  .paytable { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--dim); }
 
   /* ---------------------------------------------------------- quick bets */
   .coin-box, .die-box, .rps-box { display: grid; place-items: center; height: 140px; perspective: 600px; }
@@ -330,7 +311,7 @@
   .die i { width: 11px; height: 11px; margin: auto; border-radius: 50%; background: var(--card); }
   .rps-box { grid-template-columns: 1fr auto 1fr; gap: 18px; font: 400 40px var(--sign); color: var(--tube); text-shadow: var(--glow); }
   .rps-box small { font: 400 14px var(--body); color: var(--dim); text-shadow: none; }
-  .die-picks { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .die-picks { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; max-width: 420px; margin: 0 auto; }
   .die-picks .btn { padding: 10px 0; font: 700 20px var(--body); font-stretch: 72%; }
 
   /* -------------------------------------------------------------- crash */
@@ -360,22 +341,24 @@
   @keyframes shake { 25%, 75% { transform: translateX(-5px); } 50% { transform: translateX(5px); } }
   .mines-side { display: grid; gap: 10px; align-content: start; }
   .mines-side > span, .mines-side label { font-size: 14px; color: var(--dim); }
-  .mines-wrap { display: grid; grid-template-columns: minmax(0, 340px) 1fr; gap: 24px; }
+  .mines-wrap { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 300px); justify-content: center; gap: 28px; text-align: left; }
+  .mines-side .controls, .mines-side .betbox { justify-content: flex-start; }
+  .mines-side .presets { display: grid; grid-template-columns: 1fr 1fr; }
   .big { font: 400 48px/1 var(--sign); color: var(--tube); text-shadow: var(--glow); }
 
   /* ---------------------------------------------------------------- pots */
-  .pot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+  .pot { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 6px 16px; }
   .pot span { color: var(--dim); font-size: 15px; }
-  .entrants { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; max-height: 210px; overflow: auto; }
+  .entrants { display: grid; gap: 8px; width: 100%; max-width: 520px; margin: 0 auto; padding: 0; list-style: none; max-height: 210px; overflow: auto; text-align: left; }
   .entrants li { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 14px; }
   .entrants li.me { color: var(--tube); font-weight: 600; }
   .entrants .bar { grid-column: 1 / -1; height: 2px; background: rgba(255, 255, 255, .06); overflow: hidden; }
   .entrants .bar i { display: block; height: 100%; background: var(--neon); box-shadow: 0 0 6px var(--neon); transition: width .6s; }
-  .fuse { height: 2px; background: rgba(255, 255, 255, .06); overflow: hidden; }
+  .fuse { width: 100%; max-width: 520px; margin: 0 auto; height: 2px; background: rgba(255, 255, 255, .06); overflow: hidden; }
   .fuse i { display: block; height: 100%; background: var(--tube); box-shadow: 0 0 8px var(--neon); }
 
   .ticket {
-    position: relative; align-self: start;
+    position: relative; align-self: center; text-align: left;
     display: grid; gap: 2px; padding: 16px 28px; min-width: 240px;
     color: var(--ink); background: var(--card);
     --notch: radial-gradient(circle at 0 50%, transparent 10px, #000 11px) left / 51% 100% no-repeat,
@@ -387,7 +370,7 @@
   .stamp { position: absolute; right: 14px; top: 12px; padding: 1px 10px; border: 2px solid var(--card-red); border-radius: 3px; color: var(--card-red); font: 700 16px var(--body); transform: rotate(-9deg); opacity: 0; }
   .stamp.on { opacity: .85; animation: stamp .35s var(--ease); }
   @keyframes stamp { from { transform: rotate(-9deg) scale(1.6); opacity: 0; } }
-  .facts { display: flex; flex-wrap: wrap; gap: 6px 26px; font-size: 14px; color: var(--dim); }
+  .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 26px; font-size: 14px; color: var(--dim); }
   .facts b { font: 700 18px var(--body); font-stretch: 72%; color: var(--text); }
 
   .ttt { display: grid; grid-template-columns: repeat(3, 40px); gap: 1px; background: var(--line); }
@@ -409,10 +392,10 @@
   .toast.show { transform: translate(-50%, 0); visibility: visible; transition: transform .45s var(--ease); }
 
   @media (max-width: 980px) {
-    .mines-wrap { grid-template-columns: 1fr; }
+    .mines-wrap { grid-template-columns: minmax(0, 340px); }
     /* The directory folds into a strip of games above the stage. */
     .salon { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 24px; }
-    .directory { position: static; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
+    .directory { position: relative; top: 0; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
     .directory section, .directory ul { display: flex; flex: none; }
     .directory h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .directory button, .directory button[aria-current="true"] { padding: 10px 14px; border-left: 0; border-bottom: 2px solid transparent; box-shadow: none; white-space: nowrap; }
@@ -422,7 +405,6 @@
   }
   @media (max-width: 640px) {
     .cage { grid-template-columns: 1fr; padding: 20px 0; }
-    .chips { margin-left: 0; }
     .purse b { font-size: 19px; }
     .table { padding: 24px 22px; }
     #cashier { inset: 64px 16px auto auto; }
@@ -447,17 +429,6 @@
     <div><span>Wallet</span><b id="rail-wallet">–</b></div>
     <div><span>Bank</span><b id="rail-bank">–</b></div>
     <button class="cashier-open" popovertarget="cashier">Cashier</button>
-  </div>
-  <div class="chips" role="group" aria-label="Your bet">
-    <label for="bet">Bet</label>
-    <input id="bet" type="number" min="1" step="1" value="100" inputmode="numeric">
-    <button class="chip" data-v="100" aria-label="Bet $100">100</button>
-    <button class="chip" data-v="1000" aria-label="Bet $1,000">1K</button>
-    <button class="chip" data-v="10000" aria-label="Bet $10,000">10K</button>
-    <button class="chip" data-v="100000" aria-label="Bet $100,000">100K</button>
-    <button class="chip tweak" data-x="0.5" aria-label="Halve the bet">½</button>
-    <button class="chip tweak" data-x="2" aria-label="Double the bet">2×</button>
-    <button class="chip max" data-max aria-label="Bet your whole wallet, up to the table limit">Max</button>
   </div>
   <a class="back" href="/">Dashboard</a>
 </header>
@@ -503,6 +474,17 @@
   </nav>
 
   <div class="stage">
+    <div class="betbox" id="betbox" role="group" aria-label="Your bet" hidden>
+      <label for="bet">Bet</label>
+      <span class="amount">$<input id="bet" type="number" min="1" step="1" value="1000" inputmode="numeric"></span>
+      <div class="presets">
+        <button class="btn quiet" data-v="1000">$1,000</button>
+        <button class="btn quiet" data-v="10000">$10,000</button>
+        <button class="btn quiet" data-v="100000">$100,000</button>
+        <button class="btn quiet" data-max aria-label="Max: your whole wallet, up to the table limit">Max</button>
+      </div>
+    </div>
+
     <article class="table" id="t-cage" aria-labelledby="h-cage" data-cashier hidden>
       <h3 id="h-cage">The cage</h3>
       <p class="odds">Your wallet is what you play with. Your bank is safe from robbers.</p>
@@ -531,6 +513,7 @@
       <p class="odds">Beat the dealer without going over 21. A natural pays 3:2.</p>
       <div class="seat"><span>Dealer <b id="bj-dv"></b></span><div class="hand" id="bj-dealer"></div></div>
       <div class="seat"><span>You <b id="bj-pv"></b></span><div class="hand" id="bj-player"></div></div>
+      <div class="bet-slot"></div>
       <div class="controls">
         <button class="btn" id="bj-deal">Deal</button>
         <button class="btn quiet" data-bj="hit" disabled>Hit</button>
@@ -545,6 +528,7 @@
       <h3 id="h-rl">Roulette</h3>
       <p class="odds">American wheel. A colour pays 2x, a single pocket 35x.</p>
       <div class="wheel-box"><span class="pointer"></span><svg id="wheel" viewBox="-112 -112 224 224" role="img" aria-label="Roulette wheel"></svg></div>
+      <div class="bet-slot"></div>
       <div class="controls">
         <button class="btn quiet" data-rl="red" aria-pressed="true">Red</button>
         <button class="btn quiet" data-rl="black" aria-pressed="false">Black</button>
@@ -561,6 +545,7 @@
         <div class="seat"><span>You</span><div class="hand" id="war-you"></div></div>
         <div class="seat"><span>Dealer</span><div class="hand" id="war-dealer"></div></div>
       </div>
+      <div class="bet-slot"></div>
       <div class="controls"><button class="btn" id="war-draw">Draw</button></div>
       <p class="verdict" role="status"></p>
     </article>
@@ -578,6 +563,7 @@
       <h3 id="h-crash">Crash</h3>
       <p class="odds">The multiplier climbs until it crashes. Cash out first, up to 20x.</p>
       <div class="screen"><canvas id="crash-canvas"></canvas><div class="readout" id="crash-readout">1.00x</div></div>
+      <div class="bet-slot"></div>
       <div class="controls">
         <button class="btn" id="crash-go">Launch</button>
         <button class="btn quiet" id="crash-out" disabled>Cash out</button>
@@ -593,6 +579,7 @@
         <div class="mines-side">
           <span>Cash out at</span><b class="big" id="mines-mult">–</b>
           <span id="mines-next"></span>
+          <div class="bet-slot"></div>
           <label>Mines <select class="pick" id="mines-count"></select></label>
           <div class="controls">
             <button class="btn" id="mines-deal">Deal</button>
@@ -610,6 +597,7 @@
         <div class="reels"><div class="reel"><div class="strip"></div></div><div class="reel"><div class="strip"></div></div><div class="reel"><div class="strip"></div></div></div>
         <button class="lever" id="slots-pull" aria-label="Pull the lever to spin"></button>
       </div>
+      <div class="bet-slot"></div>
       <ul class="paytable" id="paytable"></ul>
       <p class="odds" id="slots-wait" style="margin: 0"></p>
       <p class="verdict" role="status"></p>
@@ -619,6 +607,7 @@
       <h3 id="h-coin">Coinflip</h3>
       <p class="odds">Call it. A correct call pays 2x.</p>
       <div class="coin-box"><div class="coin" id="coin"><div class="heads">Heads</div><div class="tails">Tails</div></div></div>
+      <div class="bet-slot"></div>
       <div class="controls"><button class="btn" data-coin="heads">Call heads</button><button class="btn" data-coin="tails">Call tails</button></div>
       <p class="verdict" role="status"></p>
     </article>
@@ -627,6 +616,7 @@
       <h3 id="h-dice">Dice</h3>
       <p class="odds">Pick the face before it lands. A correct call pays 6x.</p>
       <div class="die-box"><div class="die" id="die"></div></div>
+      <div class="bet-slot"></div>
       <div class="die-picks" id="die-picks"></div>
       <p class="verdict" role="status"></p>
     </article>
@@ -635,6 +625,7 @@
       <h3 id="h-rps">Rock paper scissors</h3>
       <p class="odds">A win pays 3x. The house takes ties.</p>
       <div class="rps-box"><span id="rps-you">Rock</span><small>against</small><span id="rps-house">Rock</span></div>
+      <div class="bet-slot"></div>
       <div class="controls">
         <button class="btn" data-rps="rock">Rock</button>
         <button class="btn" data-rps="paper">Paper</button>
@@ -649,6 +640,7 @@
       <div class="pot"><b class="big" id="jp-pot">$0</b><span id="jp-status">No round open.</span></div>
       <div class="fuse" aria-hidden="true"><i id="jp-fuse" style="width: 0"></i></div>
       <ul class="entrants" id="jp-entrants"></ul>
+      <div class="bet-slot"></div>
       <div class="controls"><button class="btn" id="jp-ante">Ante</button></div>
       <p class="verdict" role="status"></p>
     </article>
@@ -728,6 +720,7 @@ function apply(body) {
   roll($("rail-wallet"), wallet); roll($("cage-wallet"), wallet);
   roll($("rail-bank"), bank); roll($("cage-bank"), bank);
   $("bet").max = S.state.max_bet;
+  markPreset();
   S.slotsReadyAt = Date.now() + (S.state.slots_wait ?? 0) * 1000;
   renderJackpot(S.state.jackpot);
   renderLottery(S.state.lottery);
@@ -777,19 +770,23 @@ function toast(text) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 4200);
 }
 
-// -------------------------------------------------------------- the chips
-document.querySelector(".chips").addEventListener("click", e => {
-  const chip = e.target.closest(".chip");
-  if (!chip) return;
-  const input = $("bet");
-  const max = S.state?.max_bet ?? Infinity;
-  // Max is the whole wallet, or the table limit if the wallet holds more.
-  const next = "max" in chip.dataset ? S.state?.wallet ?? 0
-    : chip.dataset.v ? Number(chip.dataset.v)
-    : Math.round(Number(input.value || 1) * Number(chip.dataset.x));
-  input.value = Math.max(1, Math.min(next, max));
-  input.animate?.([{ transform: "scale(1.08)" }, { transform: "none" }], { duration: ms(200) });
+// ---------------------------------------------------------------- the bet
+// One amount in dollars, carried to whichever game is on the stage. A preset
+// sets it outright; Max is the whole wallet, or the table limit if the wallet
+// holds more. The preset that matches the amount shows as pressed.
+const maxBet = () => Math.max(1, Math.min(S.state?.wallet ?? 0, S.state?.max_bet ?? Infinity));
+function markPreset() {
+  for (const b of $("betbox").querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", bet() === ("max" in b.dataset ? maxBet() : Number(b.dataset.v)));
+  }
+}
+$("betbox").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  $("bet").value = "max" in b.dataset ? maxBet() : Math.min(Number(b.dataset.v), S.state?.max_bet ?? Infinity);
+  markPreset();
 });
+$("bet").addEventListener("input", markPreset);
 
 // --------------------------------------------------------------- the cage
 // The cage and the cashier on the rail are the same form, an amount and four
@@ -1320,6 +1317,9 @@ function focusGame(name) {
     b.setAttribute("aria-current", on);
     $("t-" + b.dataset.game).hidden = !on;
   }
+  const slot = $("t-" + next).querySelector(".bet-slot");
+  $("betbox").hidden = !slot;
+  slot?.append($("betbox"));
 }
 function tidy(name) {
   if (!S.rules || S.live === name) return;
