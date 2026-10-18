@@ -6,33 +6,35 @@
 <title>Flyconomy Casino</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Jost:wght@300..600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tilt+Neon&family=Archivo:wdth,wght@62..125,300..800&display=swap" rel="stylesheet">
 <style>
-  /* A high-limit salon rather than a lobby: lacquered green walls, baize on
-     the tables, black lacquer on the machines, champagne inlay, and quiet.
-     Three materials and one metal; nothing flashes unless you won. The page
-     draws only what /api/casino sends, which never holds an unturned mine, a
-     face-down card, or a crash point before the round is over. */
+  /* The Strip at three in the morning: a black night washed red from below,
+     film grain, and red neon tubes for signs. Every game's name is a sign and
+     the one on the stage is outlined in tube; everything else stays dark so
+     the neon has something to glow against. The page draws only what
+     /api/casino sends, which never holds an unturned mine, a face-down card,
+     or a crash point before the round is over. */
   :root {
     color-scheme: dark;
-    --salon: #11221c;
-    --salon-deep: #0b1713;
-    --felt: #1d5944;
-    --felt-edge: #103a2c;
-    --lacquer: #0d0f0e;
-    --lacquer-hi: #1b1f1d;
-    --oxblood: #6e1823;
-    --champagne: #c6a96c;
-    --champagne-light: #e8d6a6;
-    --hairline: rgba(198, 169, 108, .32);
-    --ivory: #efe7d6;
-    --ivory-dim: #a8a290;
-    --card: #f4eee0;
-    --card-red: #9e1f2e;
-    --ink: #15120d;
-    --error: #e3917f;
-    --display: "Bodoni Moda", "Didot", Georgia, serif;
-    --body: "Jost", "Futura", system-ui, sans-serif;
+    --night: #09040a;
+    --night-hi: #170811;
+    --glass: #0f070c;
+    --felt: #3d0915;
+    --felt-edge: #1a030a;
+    --neon: #ff2846;
+    --tube: #ffd3da;
+    --haze: rgba(255, 40, 70, .4);
+    --line: rgba(255, 120, 140, .22);
+    --text: #f4e4e8;
+    --dim: #a98d98;
+    --card: #f7ede8;
+    --card-red: #c4122f;
+    --ink: #160a0e;
+    --error: #ffb45e;
+    --glow: 0 0 2px var(--tube), 0 0 8px var(--neon), 0 0 22px var(--haze);
+    --tube-box: 0 0 0 1px var(--tube), 0 0 10px var(--neon), 0 0 36px rgba(255, 40, 70, .35), inset 0 0 14px rgba(255, 40, 70, .35);
+    --sign: "Tilt Neon", "Archivo", sans-serif;
+    --body: "Archivo", system-ui, sans-serif;
     --ease: cubic-bezier(.2, .7, .2, 1);
   }
   * { box-sizing: border-box; }
@@ -40,193 +42,214 @@
   body {
     margin: 0;
     min-height: 100vh;
-    color: var(--ivory);
+    color: var(--text);
     font: 400 16px/1.55 var(--body);
     font-variant-numeric: tabular-nums;
-    background-color: var(--salon);
-    /* Chandelier light falling on lacquered walls. */
+    background-color: var(--night);
+    /* The city's red glow coming up off the street. */
     background-image:
-      radial-gradient(ellipse 70% 40% at 50% 0, rgba(232, 214, 166, .09), transparent),
-      linear-gradient(var(--salon), var(--salon-deep));
+      radial-gradient(ellipse 90% 45% at 50% 105%, rgba(255, 40, 70, .22), transparent 70%),
+      radial-gradient(ellipse 60% 30% at 15% 0, rgba(255, 40, 120, .08), transparent),
+      linear-gradient(var(--night), var(--night-hi));
     background-attachment: fixed;
+  }
+  /* Film grain over everything, so the night reads as a frame of film. */
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: 60; pointer-events: none;
+    opacity: .07; mix-blend-mode: overlay;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
   button, input, select { font: inherit; color: inherit; }
   button { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
-  :focus-visible { outline: 1px solid var(--champagne-light); outline-offset: 3px; }
-  a { color: var(--champagne-light); text-underline-offset: 3px; text-decoration-thickness: 1px; }
-  ::selection { background: var(--champagne); color: var(--ink); }
+  :focus-visible { outline: 1px solid var(--tube); outline-offset: 3px; }
+  a { color: var(--tube); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  ::selection { background: var(--neon); color: var(--night); }
 
   /* ------------------------------------------------------------ entrance */
-  /* One moment: the name, a line of gold drawn under it, and the room. */
+  /* One moment: the sign buzzes on in the dark, and the street comes up. */
   .entrance {
     position: fixed; inset: 0; z-index: 50;
-    display: grid; place-items: center; align-content: center; gap: 18px;
-    background: var(--lacquer);
+    display: grid; place-items: center; align-content: center; gap: 14px;
+    background: #050205;
     cursor: pointer;
-    transition: opacity .9s ease .1s, visibility 0s 1s;
+    transition: opacity .8s ease .1s, visibility 0s .9s;
   }
   .entrance[hidden] { display: none; }
   .entrance.inside { opacity: 0; visibility: hidden; }
   .entrance h1 {
     margin: 0;
-    font: italic 400 clamp(48px, 10vw, 96px)/1 var(--display);
-    font-optical-sizing: auto;
-    color: var(--ivory);
-    letter-spacing: -.01em;
-    animation: settle 1.4s var(--ease) both;
+    font: 400 clamp(56px, 12vw, 128px)/1 var(--sign);
+    color: var(--tube); text-shadow: var(--glow);
+    animation: buzz 1.3s steps(1) both;
   }
-  .entrance .line { width: min(320px, 60vw); height: 1px; background: var(--champagne); animation: draw 1.2s .3s var(--ease) both; }
-  .entrance p { margin: 0; font: 400 18px var(--body); letter-spacing: .04em; color: var(--champagne); animation: settle 1.2s .5s var(--ease) both; }
-  .skip { position: absolute; bottom: 24px; font-size: 14px; color: var(--ivory-dim); }
-  @keyframes settle { from { opacity: 0; transform: translateY(8px); } }
-  @keyframes draw { from { transform: scaleX(0); } }
+  .entrance p { margin: 0; font: 500 18px var(--body); font-stretch: 80%; letter-spacing: .06em; color: var(--dim); animation: rise 1s .9s var(--ease) both; }
+  .skip { position: absolute; bottom: 24px; font-size: 14px; color: var(--dim); }
+  @keyframes buzz {
+    0% { opacity: 0; } 8% { opacity: .9; } 12% { opacity: .1; } 20% { opacity: 1; }
+    26% { opacity: .25; } 30%, 100% { opacity: 1; }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 
-  .floor { transition: opacity .9s ease; }
+  .floor { transition: opacity .8s ease; }
   body.arriving .floor { opacity: 0; }
 
   /* ---------------------------------------------------------------- rail */
   .rail {
     position: sticky; top: 0; z-index: 20;
-    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 32px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px;
     padding: 12px max(16px, calc((100% - 1200px) / 2));
-    background: rgba(13, 15, 14, .94);
-    border-bottom: 1px solid var(--hairline);
-    backdrop-filter: blur(8px);
+    background: rgba(9, 4, 10, .9);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(10px);
   }
-  .brand { margin: 0; font: italic 400 24px/1 var(--display); }
-  .brand a { color: var(--ivory); text-decoration: none; }
-  .purse { display: flex; gap: 28px; }
+  .brand { margin: 0; font: 400 26px/1 var(--sign); }
+  .brand a { color: var(--tube); text-shadow: var(--glow); text-decoration: none; }
+  .purse { display: flex; align-items: center; gap: 24px; }
   .purse div { display: grid; line-height: 1.15; }
-  .purse span { font-size: 13px; color: var(--ivory-dim); }
-  .purse b { font: 500 21px var(--display); color: var(--champagne-light); }
+  .purse span { font-size: 13px; color: var(--dim); }
+  .purse b { font: 700 22px var(--body); font-stretch: 72%; color: var(--text); }
   .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
-  .chips label { font-size: 13px; color: var(--ivory-dim); }
+  .chips label { font-size: 13px; color: var(--dim); }
   .chips input {
     width: 112px; padding: 4px 2px;
-    border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
-    background: transparent; font: 500 19px var(--display); color: var(--ivory);
+    border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
+    background: transparent; font: 700 21px var(--body); font-stretch: 72%; color: var(--text);
   }
-  .chips input:focus { outline: none; border-bottom-color: var(--champagne-light); }
-  /* Ceramic chips: six edge inserts, a gold inlay ring, the value in the
-     middle. The top denomination is a plaque, as it is in a high-limit room. */
+  .chips input:focus { outline: none; border-bottom-color: var(--neon); }
+  /* Clay chips with six edge inserts; the top denomination is a plaque. */
   .chip {
-    --c: #1a1a1a; --spot: var(--ivory); --text: var(--ivory);
+    --c: #141014; --spot: var(--neon); --text: var(--text);
     width: 42px; height: 42px; border-radius: 50%; border: 0; padding: 0;
-    font: 600 11px var(--body); letter-spacing: .02em; color: var(--text);
+    font: 700 11px var(--body); color: var(--text);
     background:
-      radial-gradient(circle, var(--c) 0 56%, var(--champagne) 57% 59%, var(--c) 60% 68%, transparent 69%),
+      radial-gradient(circle, var(--c) 0 56%, rgba(255, 255, 255, .35) 57% 58%, var(--c) 59% 68%, transparent 69%),
       repeating-conic-gradient(from -6deg, var(--spot) 0 12deg, var(--c) 12deg 60deg);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 2px 4px rgba(0, 0, 0, .5);
-    transition: transform .15s var(--ease);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .6), 0 3px 6px rgba(0, 0, 0, .6);
+    transition: transform .15s var(--ease), box-shadow .2s;
   }
-  .chip:hover { transform: translateY(-2px); }
+  .chip:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgba(0, 0, 0, .6), 0 0 16px var(--haze); }
   .chip:active { transform: none; }
-  .chip[data-v="1000"] { --c: #c9b98d; --spot: #5b1520; --text: var(--ink); }
-  .chip[data-v="10000"] { --c: #5b1520; --spot: var(--champagne-light); }
+  .chip[data-v="1000"] { --c: #b8102b; --spot: var(--card); }
+  .chip[data-v="10000"] { --c: var(--card); --spot: #b8102b; color: var(--ink); }
   .chip[data-v="100000"] {
     width: 58px; height: 34px; border-radius: 3px;
-    background: linear-gradient(135deg, #2b2f2d, #121413 60%, #23201a);
-    box-shadow: inset 0 0 0 1px var(--champagne), inset 0 0 0 3px #121413, inset 0 0 0 4px var(--hairline), 0 2px 4px rgba(0, 0, 0, .5);
-    color: var(--champagne-light);
+    background: linear-gradient(135deg, #24161c, #0b0609 60%, #1c1015);
+    box-shadow: inset 0 0 0 1px var(--neon), inset 0 0 8px rgba(255, 40, 70, .4), 0 3px 6px rgba(0, 0, 0, .6);
+    color: var(--tube);
   }
   .chip.tweak, .chip.max {
-    width: auto; height: 34px; padding: 0 10px; border-radius: 2px;
-    background: none; box-shadow: inset 0 0 0 1px var(--hairline);
-    font: 500 14px var(--body); color: var(--ivory);
+    width: auto; height: 34px; padding: 0 10px; border-radius: 3px;
+    background: none; box-shadow: inset 0 0 0 1px var(--line);
+    font: 500 14px var(--body); color: var(--text);
   }
-  .chip.tweak:hover, .chip.max:hover { box-shadow: inset 0 0 0 1px var(--champagne); transform: none; }
+  .chip.tweak:hover, .chip.max:hover { box-shadow: inset 0 0 0 1px var(--neon); transform: none; }
   .back { font-size: 14px; }
 
+  /* The cashier: one tap from any game to move money between wallet and bank. */
+  .cashier-open { padding: 6px 12px; border: 1px solid var(--line); border-radius: 3px; background: none; font-size: 14px; }
+  .cashier-open:hover { border-color: var(--neon); }
+  #cashier {
+    inset: 70px max(16px, calc((100% - 1200px) / 2)) auto auto; margin: 0;
+    width: min(320px, calc(100% - 32px));
+    padding: 20px; border: 0; border-radius: 4px;
+    color: var(--text); background: var(--glass);
+    box-shadow: var(--tube-box), 0 24px 60px rgba(0, 0, 0, .7);
+  }
+  #cashier::backdrop { background: rgba(5, 2, 5, .45); }
+  #cashier h2 { margin: 0 0 12px; font: 400 26px var(--sign); color: var(--tube); text-shadow: var(--glow); }
+  #cashier input { width: 100%; margin-bottom: 10px; }
+  #cashier .controls { display: grid; grid-template-columns: 1fr 1fr; }
+  #cashier .verdict { margin-top: 10px; font-size: 14px; }
+
   /* --------------------------------------------------------------- floor */
-  /* A hotel directory down the left, one game on the stage beside it. */
+  /* A directory down the left, one game on the stage beside it. */
   .salon {
     display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 56px; align-items: start;
     width: min(1200px, 100% - 32px); margin: 0 auto; padding: 48px 0 96px;
   }
-  .directory { position: sticky; top: 104px; display: grid; gap: 26px; }
-  .directory h2 { margin: 0 0 6px; font: italic 400 19px/1.2 var(--display); color: var(--ivory-dim); }
+  .directory { position: sticky; top: 104px; display: grid; gap: 24px; }
+  .directory h2 { margin: 0 0 6px; font: 600 14px/1.2 var(--body); font-stretch: 80%; letter-spacing: .04em; color: var(--dim); }
   .directory ul { display: grid; margin: 0; padding: 0; list-style: none; }
   .directory button {
     display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
-    padding: 6px 0 6px 16px; border: 0; border-left: 1px solid var(--hairline);
-    background: none; text-align: left; font-size: 16px; color: var(--ivory);
-    transition: color .2s, border-color .2s;
+    padding: 6px 0 6px 16px; border: 0; border-left: 1px solid var(--line);
+    background: none; text-align: left; font-size: 16px; color: var(--text);
+    transition: color .2s, border-color .2s, text-shadow .2s;
   }
-  .directory button:hover { color: var(--champagne-light); border-left-color: var(--champagne); }
-  .directory button[aria-current="true"] { color: var(--champagne-light); border-left: 2px solid var(--champagne-light); padding-left: 15px; }
+  .directory button:hover { color: var(--tube); border-left-color: var(--neon); }
+  .directory button[aria-current="true"] {
+    color: var(--tube); text-shadow: var(--glow);
+    border-left: 2px solid var(--tube); padding-left: 15px;
+    box-shadow: -6px 0 12px -6px var(--neon);
+  }
   /* A dot beside a game whose hand is still in play. */
-  .live { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--champagne-light); }
+  .live { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--neon); box-shadow: 0 0 8px var(--neon); }
   .live[hidden] { display: none; }
   .stage { max-width: 820px; }
-  .stage .table { min-height: 540px; animation: settle .4s var(--ease); }
+  .stage .table { min-height: 540px; animation: rise .4s var(--ease); }
 
-  /* Every table is baize with the printed gold line a real layout carries. */
+  /* The game on the stage is outlined in red tube. Card and dice tables are
+     crimson felt; the machines are black glass. */
   .table {
     position: relative;
     display: flex; flex-direction: column; gap: 14px;
-    padding: 30px;
+    padding: 32px;
     border-radius: 6px;
-    background: radial-gradient(ellipse at 50% 35%, var(--felt), var(--felt-edge));
-    outline: 1px solid var(--hairline); outline-offset: -12px;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 24px 48px -16px rgba(0, 0, 0, .6);
+    background: radial-gradient(ellipse at 50% 30%, var(--felt), var(--felt-edge) 75%);
+    box-shadow: var(--tube-box);
   }
   .table[hidden] { display: none; }
-  /* The machines and the cage are cabinets, not tables. */
-  #t-cage, #t-slots, #t-crash, #t-mines, #t-lottery {
-    background: linear-gradient(160deg, var(--lacquer-hi), var(--lacquer) 55%);
+  #t-cage, #t-slots, #t-crash, #t-mines, #t-lottery, #t-jackpot {
+    background: linear-gradient(170deg, #1a0b12, var(--glass) 50%);
   }
-  #t-jackpot { background: radial-gradient(ellipse at 50% 25%, #5d1621, #330a11); }
-  .table h3 { margin: 0; font: 500 clamp(30px, 4vw, 40px)/1.1 var(--display); color: var(--champagne-light); }
-  .table .odds { margin: -6px 0 0; max-width: 60ch; font-size: 15px; color: var(--ivory-dim); }
+  .table h3 { margin: 0; font: 400 clamp(36px, 5vw, 52px)/1.05 var(--sign); color: var(--tube); text-shadow: var(--glow); }
+  .table .odds { margin: -4px 0 0; max-width: 60ch; font-size: 15px; color: var(--dim); }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .btn {
     padding: 10px 20px;
-    border: 1px solid var(--champagne); border-radius: 2px;
-    background: var(--champagne);
-    color: var(--ink); font-weight: 500; letter-spacing: .03em;
-    transition: background-color .2s, border-color .2s, color .2s;
+    border: 1px solid var(--tube); border-radius: 3px;
+    background: rgba(255, 40, 70, .12);
+    color: var(--tube); font-weight: 600; letter-spacing: .02em;
+    text-shadow: 0 0 8px var(--neon);
+    box-shadow: 0 0 10px rgba(255, 40, 70, .45), inset 0 0 8px rgba(255, 40, 70, .3);
+    transition: background-color .2s, box-shadow .2s;
   }
-  .btn:hover:not(:disabled) { background: var(--champagne-light); border-color: var(--champagne-light); }
-  .btn:disabled { opacity: .35; }
-  .btn.quiet { background: transparent; color: var(--ivory); border-color: var(--hairline); }
-  .btn.quiet:hover:not(:disabled) { background: transparent; border-color: var(--champagne); }
-  .btn.quiet[aria-pressed="true"] { background: rgba(198, 169, 108, .16); border-color: var(--champagne); color: var(--champagne-light); }
-  .verdict { min-height: 1.55em; margin: 0; font-weight: 500; }
-  .verdict.win { color: var(--champagne-light); }
-  .verdict.lose { color: var(--ivory-dim); }
+  .btn:hover:not(:disabled) { background: rgba(255, 40, 70, .26); box-shadow: 0 0 18px rgba(255, 40, 70, .7), inset 0 0 10px rgba(255, 40, 70, .4); }
+  .btn:disabled { opacity: .3; box-shadow: none; text-shadow: none; }
+  .btn.quiet { background: transparent; color: var(--text); border-color: var(--line); box-shadow: none; text-shadow: none; }
+  .btn.quiet:hover:not(:disabled) { background: transparent; border-color: var(--neon); box-shadow: none; }
+  .btn.quiet[aria-pressed="true"] { border-color: var(--tube); color: var(--tube); box-shadow: 0 0 10px rgba(255, 40, 70, .45); }
+  .verdict { min-height: 1.55em; margin: 0; font-weight: 600; }
+  .verdict.win { color: var(--tube); text-shadow: 0 0 10px var(--neon); }
+  .verdict.lose { color: var(--dim); }
   .verdict.error { color: var(--error); }
-  select.pick { padding: 9px 10px; border-radius: 2px; border: 1px solid var(--hairline); background: rgba(0, 0, 0, .3); }
-  select.pick option { background: var(--lacquer); }
-  /* A win lights the table's inlay for a moment. That is the whole fanfare. */
-  .table.won { animation: won 1.8s ease-out; }
+  input.field, select.pick {
+    padding: 9px 10px; border-radius: 3px; border: 1px solid var(--line); background: rgba(0, 0, 0, .35);
+  }
+  input.field { font: 700 20px var(--body); font-stretch: 72%; }
+  input.field:focus, select.pick:focus { outline: none; border-color: var(--neon); }
+  select.pick option { background: var(--glass); }
+  /* A win surges the tube. That is the whole fanfare. */
+  .table.won { animation: won 1.6s ease-out; }
   @keyframes won {
-    20% { outline-color: var(--champagne-light); box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 0 48px -4px rgba(232, 214, 166, .45), 0 24px 48px -16px rgba(0, 0, 0, .6); }
+    15% { box-shadow: 0 0 0 1px #fff, 0 0 22px var(--neon), 0 0 90px rgba(255, 40, 70, .7), inset 0 0 30px rgba(255, 40, 70, .5); }
   }
 
   /* ---------------------------------------------------------------- cage */
-  .cage {
-    display: grid; grid-template-columns: 1fr auto 1fr; gap: 24px; align-items: center;
-    padding: 40px 8px;
-    background: repeating-linear-gradient(90deg, transparent 0 46px, rgba(198, 169, 108, .06) 46px 47px);
-  }
+  .cage { display: grid; grid-template-columns: 1fr auto 1fr; gap: 24px; align-items: center; padding: 32px 0; }
   .vault { text-align: center; }
-  .vault span { display: block; font-size: 14px; color: var(--ivory-dim); }
-  .vault b { display: block; font: 400 clamp(36px, 5vw, 60px)/1.15 var(--display); font-optical-sizing: auto; color: var(--ivory); }
+  .vault span { display: block; font-size: 14px; color: var(--dim); }
+  .vault b { display: block; font: 400 clamp(38px, 5vw, 60px)/1.15 var(--sign); color: var(--tube); text-shadow: var(--glow); }
   .window {
-    display: grid; gap: 12px; justify-items: center; padding: 22px 26px;
-    background: var(--lacquer); border: 1px solid var(--hairline); border-radius: 2px;
+    display: grid; gap: 12px; justify-items: center; padding: 22px 24px;
+    border: 1px solid var(--line); border-radius: 4px; background: rgba(0, 0, 0, .35);
   }
-  .window label { font-size: 13px; color: var(--ivory-dim); }
-  .window input {
-    width: 180px; padding: 4px 2px; text-align: center;
-    border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
-    background: transparent; font: 500 22px var(--display);
-  }
-  .window input:focus { outline: none; border-bottom-color: var(--champagne-light); }
+  .window label { font-size: 13px; color: var(--dim); }
+  .window input { width: 180px; text-align: center; }
   .window .controls { justify-content: center; }
-  #cage-verdict { margin-top: 16px; text-align: center; }
-  .cage-note { margin: 0; text-align: center; font-size: 14px; color: var(--ivory-dim); }
+  .cage-note { margin: 0; text-align: center; font-size: 14px; color: var(--dim); }
+  #t-cage .verdict { text-align: center; }
 
   /* ---------------------------------------------------------------- cards */
   .hand { display: flex; min-height: 108px; gap: 8px; flex-wrap: wrap; perspective: 600px; }
@@ -238,120 +261,118 @@
   .card.down { transform: rotateY(180deg); }
   .face, .reverse {
     position: absolute; inset: 0; border-radius: 5px; backface-visibility: hidden;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, .2), 0 6px 14px rgba(0, 0, 0, .4);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, .55), 0 0 14px rgba(255, 40, 70, .18);
   }
-  .face { display: grid; place-items: center; background: var(--card); color: var(--ink); font: 400 36px var(--display); }
+  .face { display: grid; place-items: center; background: var(--card); color: var(--ink); font: 600 34px var(--body); font-stretch: 80%; }
   .face.red { color: var(--card-red); }
-  .face small { position: absolute; top: 5px; left: 8px; font: 600 17px/1 var(--display); }
+  .face small { position: absolute; top: 5px; left: 8px; font: 700 17px/1 var(--body); font-stretch: 72%; }
   .reverse {
     transform: rotateY(180deg);
     background:
-      repeating-linear-gradient(45deg, rgba(198, 169, 108, .3) 0 1px, transparent 1px 7px),
-      repeating-linear-gradient(-45deg, rgba(198, 169, 108, .3) 0 1px, transparent 1px 7px),
-      var(--oxblood);
+      repeating-linear-gradient(45deg, rgba(255, 40, 70, .55) 0 1px, transparent 1px 7px),
+      repeating-linear-gradient(-45deg, rgba(255, 40, 70, .55) 0 1px, transparent 1px 7px),
+      #0d0609;
     border: 4px solid var(--card);
-    outline: 1px solid rgba(198, 169, 108, .6); outline-offset: -8px;
   }
   .seat { display: grid; gap: 8px; }
-  .seat span { font-size: 14px; color: var(--ivory-dim); }
-  .seat b { font: 500 18px var(--display); color: var(--ivory); }
+  .seat span { font-size: 14px; color: var(--dim); }
+  .seat b { font: 700 19px var(--body); font-stretch: 72%; color: var(--text); }
 
   /* Blackjack's table is the half moon it is in every casino, with the
      house rule printed along the arc. */
   #t-blackjack { border-radius: 6px 6px 50% 50% / 6px 6px 36% 36%; padding-bottom: 64px; }
-  #t-blackjack .arc { margin: 0; text-align: center; font: italic 400 18px var(--display); color: rgba(232, 214, 166, .6); }
+  #t-blackjack .arc { margin: 0; text-align: center; font: 400 20px var(--sign); color: rgba(255, 211, 218, .5); }
   /* Everything sits on the table's centre line, as on a real half moon, so
      nothing reaches the curve where the sides narrow toward the bottom. */
   #t-blackjack { align-items: center; text-align: center; }
   #t-blackjack .seat, #t-blackjack .hand, #t-blackjack .controls { justify-content: center; justify-items: center; }
 
   /* ------------------------------------------------------------ roulette */
-  .wheel-box { position: relative; width: min(300px, 100%); margin: 4px auto; aspect-ratio: 1; filter: drop-shadow(0 14px 22px rgba(0, 0, 0, .5)); }
+  .wheel-box { position: relative; width: min(300px, 100%); margin: 4px auto; aspect-ratio: 1; filter: drop-shadow(0 0 24px rgba(255, 40, 70, .3)); }
   .wheel-box svg { width: 100%; height: 100%; overflow: visible; }
-  .pointer { position: absolute; left: 50%; top: -8px; z-index: 1; width: 0; height: 0; transform: translateX(-50%); border: 7px solid transparent; border-top: 14px solid var(--champagne-light); }
+  .pointer { position: absolute; left: 50%; top: -8px; z-index: 1; width: 0; height: 0; transform: translateX(-50%); border: 7px solid transparent; border-top: 14px solid var(--tube); filter: drop-shadow(0 0 4px var(--neon)); }
 
   /* --------------------------------------------------------------- slots */
   .cabinet { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; max-width: 560px; }
   .reels {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px;
-    border-radius: 3px; background: var(--champagne);
-    box-shadow: 0 0 0 6px var(--lacquer), 0 0 0 7px var(--hairline);
+    border-radius: 3px; background: #000;
+    box-shadow: var(--tube-box);
   }
-  .reel { position: relative; height: 76px; overflow: hidden; background: linear-gradient(#b9b2a1, var(--card) 28%, var(--card) 72%, #b9b2a1); }
-  .reel::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 10px 14px -8px rgba(0, 0, 0, .55), inset 0 -10px 14px -8px rgba(0, 0, 0, .55); }
+  .reel { position: relative; height: 76px; overflow: hidden; background: linear-gradient(#a99a96, var(--card) 28%, var(--card) 72%, #a99a96); }
+  .reel::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 10px 14px -8px rgba(0, 0, 0, .6), inset 0 -10px 14px -8px rgba(0, 0, 0, .6); }
   .strip { position: absolute; left: 0; right: 0; top: 0; }
   .strip div { height: 76px; display: grid; place-items: center; font-size: 38px; }
   .lever { position: relative; width: 22px; height: 120px; border: 0; background: none; padding: 0; }
-  .lever::before { content: ""; position: absolute; left: 9px; bottom: 0; width: 4px; height: 100px; background: linear-gradient(90deg, #7a6a45, var(--champagne-light), #7a6a45); transform-origin: 50% 100%; transition: transform .25s; }
-  .lever::after { content: ""; position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #8a2635, var(--oxblood) 55%, #2c0910); box-shadow: 0 0 0 1px var(--champagne); transition: transform .25s; }
+  .lever::before { content: ""; position: absolute; left: 9px; bottom: 0; width: 4px; height: 100px; background: linear-gradient(90deg, #5a5560, #e6e2ea, #5a5560); transform-origin: 50% 100%; transition: transform .25s; }
+  .lever::after { content: ""; position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ff8a9a, var(--neon) 45%, #5a0716); box-shadow: 0 0 14px var(--neon); transition: transform .25s; }
   .lever.pulled::before { transform: scaleY(-.6); }
   .lever.pulled::after { transform: translateY(78px); }
   .lever:disabled { opacity: .4; }
-  .paytable { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--ivory-dim); }
+  .paytable { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--dim); }
 
   /* ---------------------------------------------------------- quick bets */
   .coin-box, .die-box, .rps-box { display: grid; place-items: center; height: 140px; perspective: 600px; }
   .coin { position: relative; width: 88px; height: 88px; transform-style: preserve-3d; }
   .coin div {
     position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center;
-    font: italic 500 17px var(--display); color: #3d2d10; backface-visibility: hidden;
-    background: radial-gradient(circle at 35% 30%, #f6e9c4, var(--champagne) 55%, #7f6838);
-    box-shadow: inset 0 0 0 4px rgba(127, 104, 56, .7), inset 0 0 0 5px rgba(246, 233, 196, .6), 0 8px 16px rgba(0, 0, 0, .45);
+    font: 700 16px var(--body); font-stretch: 80%; color: #2a2530; backface-visibility: hidden;
+    background: radial-gradient(circle at 35% 30%, #ffffff, #c9c4cf 50%, #6d6774);
+    box-shadow: inset 0 0 0 4px rgba(90, 84, 98, .7), 0 0 20px rgba(255, 40, 70, .35);
   }
   .coin .tails { transform: rotateY(180deg); }
   /* Casino dice: translucent red with white pips. */
   .die { position: relative; width: 70px; height: 70px; transform-style: preserve-3d; }
   .die div {
     position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 10px;
-    border-radius: 6px; background: rgba(150, 24, 38, .9); box-shadow: inset 0 0 14px rgba(40, 0, 6, .6), inset 0 0 0 1px rgba(255, 180, 180, .25);
+    border-radius: 6px; background: rgba(214, 22, 48, .85); box-shadow: inset 0 0 14px rgba(60, 0, 10, .6), inset 0 0 0 1px rgba(255, 190, 200, .35);
   }
   .die i { width: 11px; height: 11px; margin: auto; border-radius: 50%; background: var(--card); }
-  .rps-box { grid-template-columns: 1fr auto 1fr; gap: 18px; font: italic 400 34px var(--display); color: var(--ivory); }
-  .rps-box small { font: 400 14px var(--body); color: var(--ivory-dim); }
+  .rps-box { grid-template-columns: 1fr auto 1fr; gap: 18px; font: 400 40px var(--sign); color: var(--tube); text-shadow: var(--glow); }
+  .rps-box small { font: 400 14px var(--body); color: var(--dim); text-shadow: none; }
   .die-picks { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-  .die-picks .btn { padding: 10px 0; font: 500 18px var(--display); }
+  .die-picks .btn { padding: 10px 0; font: 700 20px var(--body); font-stretch: 72%; }
 
   /* -------------------------------------------------------------- crash */
-  .screen { position: relative; height: 240px; border-radius: 2px; background: #060807; box-shadow: inset 0 0 0 1px var(--hairline); overflow: hidden; }
+  .screen { position: relative; height: 260px; border-radius: 3px; background: #050205; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
   .screen canvas { width: 100%; height: 100%; display: block; }
-  .readout { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; font: 400 clamp(40px, 7vw, 64px) var(--display); color: var(--ivory); }
-  .readout.bust { color: var(--error); }
-  .readout.out { color: var(--champagne-light); }
+  .readout { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; font: 400 clamp(48px, 8vw, 76px) var(--sign); color: var(--tube); text-shadow: var(--glow); }
+  .readout.bust { color: var(--error); text-shadow: 0 0 10px rgba(255, 140, 40, .8); }
+  .readout.out { color: #fff; }
 
   /* --------------------------------------------------------------- mines */
   .vault-grid { display: grid; gap: 6px; max-width: 340px; perspective: 700px; }
   .tile {
-    aspect-ratio: 1; border-radius: 2px; border: 0; padding: 0;
+    aspect-ratio: 1; border-radius: 3px; border: 0; padding: 0;
     position: relative; transform-style: preserve-3d; transition: transform .45s var(--ease);
     background: none;
   }
-  .tile span { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 2px; backface-visibility: hidden; font: 400 24px var(--display); }
-  .tile .lid { background: linear-gradient(150deg, #262b29, #141716); box-shadow: inset 0 0 0 1px var(--hairline); }
-  .tile:hover:not(:disabled) .lid { box-shadow: inset 0 0 0 1px var(--champagne); }
-  .tile .under { transform: rotateY(180deg); background: #090b0a; }
+  .tile span { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 3px; backface-visibility: hidden; font: 400 26px var(--sign); }
+  .tile .lid { background: linear-gradient(150deg, #22121a, #0c0609); box-shadow: inset 0 0 0 1px var(--line); }
+  .tile:hover:not(:disabled) .lid { box-shadow: inset 0 0 0 1px var(--neon), 0 0 12px rgba(255, 40, 70, .4); }
+  .tile .under { transform: rotateY(180deg); background: #050205; }
   .tile.open { transform: rotateY(180deg); }
-  .tile.safe .under { background: radial-gradient(circle, var(--felt), var(--felt-edge)); color: var(--champagne-light); }
-  .tile.busted .under { background: radial-gradient(circle, #a3202f, var(--oxblood)); color: var(--card); }
-  .tile.mine .under { background: #2a0b10; color: rgba(239, 231, 214, .55); }
+  .tile.safe .under { background: radial-gradient(circle, #3a0a16, #12040a); color: var(--tube); text-shadow: var(--glow); box-shadow: inset 0 0 0 1px var(--neon); }
+  .tile.busted .under { background: radial-gradient(circle, #ffb45e, #a3410c); color: var(--ink); }
+  .tile.mine .under { background: #1c0a0d; color: rgba(255, 180, 94, .55); }
   .tile:disabled { cursor: default; }
   .shake { animation: shake .4s; }
   @keyframes shake { 25%, 75% { transform: translateX(-5px); } 50% { transform: translateX(5px); } }
   .mines-side { display: grid; gap: 10px; align-content: start; }
-  .mines-side > span { font-size: 14px; color: var(--ivory-dim); }
-  .mines-side label { font-size: 14px; color: var(--ivory-dim); }
+  .mines-side > span, .mines-side label { font-size: 14px; color: var(--dim); }
   .mines-wrap { display: grid; grid-template-columns: minmax(0, 340px) 1fr; gap: 24px; }
-  .big { font: 400 44px/1 var(--display); color: var(--ivory); }
+  .big { font: 400 48px/1 var(--sign); color: var(--tube); text-shadow: var(--glow); }
 
   /* ---------------------------------------------------------------- pots */
   .pot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
-  .pot span { color: var(--ivory-dim); font-size: 15px; }
+  .pot span { color: var(--dim); font-size: 15px; }
   .entrants { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; max-height: 210px; overflow: auto; }
   .entrants li { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 14px; }
-  .entrants li.me { color: var(--champagne-light); font-weight: 500; }
-  .entrants .bar { grid-column: 1 / -1; height: 2px; background: rgba(0, 0, 0, .35); overflow: hidden; }
-  .entrants .bar i { display: block; height: 100%; background: var(--champagne); transition: width .6s; }
-  .fuse { height: 1px; background: rgba(0, 0, 0, .4); overflow: hidden; }
-  .fuse i { display: block; height: 100%; background: var(--champagne-light); }
+  .entrants li.me { color: var(--tube); font-weight: 600; }
+  .entrants .bar { grid-column: 1 / -1; height: 2px; background: rgba(255, 255, 255, .06); overflow: hidden; }
+  .entrants .bar i { display: block; height: 100%; background: var(--neon); box-shadow: 0 0 6px var(--neon); transition: width .6s; }
+  .fuse { height: 2px; background: rgba(255, 255, 255, .06); overflow: hidden; }
+  .fuse i { display: block; height: 100%; background: var(--tube); box-shadow: 0 0 8px var(--neon); }
 
   .ticket {
     position: relative; align-self: start;
@@ -361,25 +382,24 @@
              radial-gradient(circle at 100% 50%, transparent 10px, #000 11px) right / 51% 100% no-repeat;
     -webkit-mask: var(--notch); mask: var(--notch);
   }
-  .ticket b { font: italic 500 24px var(--display); }
+  .ticket b { font: 800 24px var(--body); font-stretch: 72%; }
   .ticket span { font-size: 14px; }
-  .stamp { position: absolute; right: 14px; top: 12px; padding: 1px 10px; border: 2px solid var(--card-red); border-radius: 2px; color: var(--card-red); font: italic 500 17px var(--display); transform: rotate(-9deg); opacity: 0; }
+  .stamp { position: absolute; right: 14px; top: 12px; padding: 1px 10px; border: 2px solid var(--card-red); border-radius: 3px; color: var(--card-red); font: 700 16px var(--body); transform: rotate(-9deg); opacity: 0; }
   .stamp.on { opacity: .85; animation: stamp .35s var(--ease); }
   @keyframes stamp { from { transform: rotate(-9deg) scale(1.6); opacity: 0; } }
-  .facts { display: flex; flex-wrap: wrap; gap: 6px 26px; font-size: 14px; color: var(--ivory-dim); }
-  .facts b { font: 500 17px var(--display); color: var(--ivory); }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 26px; font-size: 14px; color: var(--dim); }
+  .facts b { font: 700 18px var(--body); font-stretch: 72%; color: var(--text); }
 
-  .ttt { display: grid; grid-template-columns: repeat(3, 40px); gap: 1px; background: var(--hairline); }
-  .ttt span { display: grid; place-items: center; height: 40px; background: var(--felt); font: italic 400 22px var(--display); color: var(--champagne-light); }
-  code { padding: 1px 6px; border-radius: 2px; background: rgba(0, 0, 0, .3); font-size: 14px; }
+  .ttt { display: grid; grid-template-columns: repeat(3, 40px); gap: 1px; background: var(--line); }
+  .ttt span { display: grid; place-items: center; height: 40px; background: var(--felt-edge); font: 400 24px var(--sign); color: var(--tube); text-shadow: var(--glow); }
+  code { padding: 1px 6px; border-radius: 3px; background: rgba(0, 0, 0, .4); font-size: 14px; }
 
   /* ---------------------------------------------------------------- toast */
   .toast {
     position: fixed; left: 50%; bottom: 24px; z-index: 45;
     max-width: min(560px, calc(100% - 32px));
-    padding: 14px 22px; border-radius: 2px;
-    background: var(--lacquer); border: 1px solid var(--champagne);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, .55);
+    padding: 14px 22px; border-radius: 4px;
+    background: var(--glass); box-shadow: var(--tube-box), 0 18px 40px rgba(0, 0, 0, .6);
     /* Parked below the window and hidden outright: an empty toast is small
        enough that sliding it by its own height left its top edge showing. */
     transform: translate(-50%, calc(100% + 40px));
@@ -392,19 +412,20 @@
     .mines-wrap { grid-template-columns: 1fr; }
     /* The directory folds into a strip of games above the stage. */
     .salon { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 24px; }
-    .directory { position: static; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--hairline); }
+    .directory { position: static; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
     .directory section, .directory ul { display: flex; flex: none; }
     .directory h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-    .directory button, .directory button[aria-current="true"] { padding: 10px 14px; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
-    .directory button[aria-current="true"] { border-bottom-color: var(--champagne-light); }
+    .directory button, .directory button[aria-current="true"] { padding: 10px 14px; border-left: 0; border-bottom: 2px solid transparent; box-shadow: none; white-space: nowrap; }
+    .directory button[aria-current="true"] { border-bottom-color: var(--tube); }
     .stage { max-width: none; }
     .stage .table { min-height: 0; }
   }
   @media (max-width: 640px) {
-    .cage { grid-template-columns: 1fr; padding: 28px 0; }
+    .cage { grid-template-columns: 1fr; padding: 20px 0; }
     .chips { margin-left: 0; }
-    .purse b { font-size: 18px; }
+    .purse b { font-size: 19px; }
     .table { padding: 24px 22px; }
+    #cashier { inset: 64px 16px auto auto; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -415,8 +436,7 @@
 
 <div class="entrance" id="entrance" aria-hidden="true">
   <h1>Flyconomy</h1>
-  <span class="line"></span>
-  <p>Casino</p>
+  <p>Open all night</p>
   <span class="skip">Click to walk straight in</span>
 </div>
 
@@ -426,6 +446,7 @@
   <div class="purse" aria-live="polite">
     <div><span>Wallet</span><b id="rail-wallet">–</b></div>
     <div><span>Bank</span><b id="rail-bank">–</b></div>
+    <button class="cashier-open" popovertarget="cashier">Cashier</button>
   </div>
   <div class="chips" role="group" aria-label="Your bet">
     <label for="bet">Bet</label>
@@ -482,26 +503,26 @@
   </nav>
 
   <div class="stage">
-    <article class="table" id="t-cage" aria-labelledby="h-cage" hidden>
+    <article class="table" id="t-cage" aria-labelledby="h-cage" data-cashier hidden>
       <h3 id="h-cage">The cage</h3>
       <p class="odds">Your wallet is what you play with. Your bank is safe from robbers.</p>
       <div class="cage">
         <div class="vault" id="v-wallet"><span>Wallet</span><b id="cage-wallet">–</b></div>
         <div class="window">
           <label for="cash">Amount</label>
-          <input id="cash" type="number" min="1" step="1" inputmode="numeric" placeholder="Dollars">
+          <input class="field" id="cash" type="number" min="1" step="1" inputmode="numeric" placeholder="Dollars">
           <div class="controls">
-            <button class="btn" id="deposit">Deposit</button>
-            <button class="btn" id="withdraw">Withdraw</button>
+            <button class="btn" data-bank="deposit">Deposit</button>
+            <button class="btn" data-bank="withdraw">Withdraw</button>
           </div>
           <div class="controls">
-            <button class="btn quiet" id="deposit-all">Deposit all</button>
-            <button class="btn quiet" id="withdraw-all">Withdraw all</button>
+            <button class="btn quiet" data-bank="deposit-all">Deposit all</button>
+            <button class="btn quiet" data-bank="withdraw-all">Withdraw all</button>
           </div>
         </div>
         <div class="vault" id="v-bank"><span>Bank</span><b id="cage-bank">–</b></div>
       </div>
-      <p class="verdict" id="cage-verdict" role="status"></p>
+      <p class="verdict" role="status"></p>
       <p class="cage-note">Deposits, withdrawals, and big wins made here are announced in Discord, the same as ones made there.</p>
     </article>
 
@@ -648,6 +669,18 @@
 </main>
 </div>
 
+<div id="cashier" popover data-cashier aria-labelledby="h-cashier">
+  <h2 id="h-cashier">Cashier</h2>
+  <input class="field" type="number" min="1" step="1" inputmode="numeric" placeholder="Amount" aria-label="Amount" autofocus>
+  <div class="controls">
+    <button class="btn" data-bank="deposit">Deposit</button>
+    <button class="btn" data-bank="withdraw">Withdraw</button>
+    <button class="btn quiet" data-bank="deposit-all">Deposit all</button>
+    <button class="btn quiet" data-bank="withdraw-all">Withdraw all</button>
+  </div>
+  <p class="verdict" role="status"></p>
+</div>
+
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -759,24 +792,31 @@ document.querySelector(".chips").addEventListener("click", e => {
 });
 
 // --------------------------------------------------------------- the cage
-async function bank(move, amount) {
-  const table = $("cage-verdict").closest("section");
-  if (!amount) { $("cage-verdict").textContent = move === "deposit" ? "Your wallet is empty." : "Your bank is empty."; return; }
+// The cage and the cashier on the rail are the same form, an amount and four
+// buttons, so money moves the same way from the cage or from inside any game.
+document.addEventListener("click", async e => {
+  const button = e.target.closest("[data-bank]");
+  if (!button) return;
+  const box = button.closest("[data-cashier]");
+  const input = box.querySelector("input"), said = box.querySelector(".verdict");
+  const say = (text, kind = "") => { said.textContent = text; said.className = "verdict " + kind; };
+  const [move, all] = button.dataset.bank.split("-");
+  const amount = all ? S.state[move === "deposit" ? "wallet" : "bank"] : Number(input.value);
+  if (!amount) return say(!all ? "Enter an amount first." : move === "deposit" ? "Your wallet is empty." : "Your bank is empty.", "error");
   try {
-    const body = await post("/api/casino/bank", { move, amount });
-    apply(body);
-    $("cage-verdict").className = "verdict";
-    $("cage-verdict").textContent = `${move === "deposit" ? "Deposited" : "Withdrew"} ${money(amount)}.`;
-    $("cash").value = "";
+    apply(await post("/api/casino/bank", { move, amount }));
+    say(`${move === "deposit" ? "Deposited" : "Withdrew"} ${money(amount)}.`);
+    input.value = "";
   } catch (error) {
-    $("cage-verdict").className = "verdict error";
-    $("cage-verdict").textContent = error.message;
+    say(error.message, "error");
   }
-}
-$("deposit").addEventListener("click", () => bank("deposit", Number($("cash").value)));
-$("withdraw").addEventListener("click", () => bank("withdraw", Number($("cash").value)));
-$("deposit-all").addEventListener("click", () => bank("deposit", S.state.wallet));
-$("withdraw-all").addEventListener("click", () => bank("withdraw", S.state.bank));
+});
+// A closed cashier keeps no leftovers from the last time it was open.
+$("cashier").addEventListener("toggle", e => {
+  if (e.newState !== "closed") return;
+  $("cashier").querySelector("input").value = "";
+  $("cashier").querySelector(".verdict").textContent = "";
+});
 
 // ------------------------------------------------------------------ cards
 function cardNode(text, down = false) {
@@ -917,21 +957,21 @@ function drawCrash() {
   const spanT = Math.max(8, now * 1.15), spanM = Math.max(2, mult * 1.15);
   const x = t => 16 + (t / spanT) * (w - 32);
   const y = m => h - 16 - ((m - 1) / (spanM - 1)) * (h - 40);
-  ctx.strokeStyle = "rgba(198, 169, 108, .1)"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255, 40, 70, .1)"; ctx.lineWidth = 1;
   for (let m = 1; m <= spanM; m += Math.max(.5, Math.round(spanM / 5))) { ctx.beginPath(); ctx.moveTo(0, y(m)); ctx.lineTo(w, y(m)); ctx.stroke(); }
   const grad = ctx.createLinearGradient(0, h, w, 0);
-  grad.addColorStop(0, "#7f6838"); grad.addColorStop(1, c.bust ? "#e3917f" : "#e8d6a6");
-  ctx.strokeStyle = grad; ctx.lineWidth = 2; ctx.lineCap = "round";
-  ctx.shadowColor = "rgba(232, 214, 166, .35)"; ctx.shadowBlur = 10;
+  grad.addColorStop(0, "#7a0a1e"); grad.addColorStop(1, c.bust ? "#ffb45e" : "#ffd3da");
+  ctx.strokeStyle = grad; ctx.lineWidth = 3; ctx.lineCap = "round";
+  ctx.shadowColor = "#ff2846"; ctx.shadowBlur = 16;
   ctx.beginPath();
   for (let i = 0; i <= 80; i++) { const t = (now * i) / 80; const m = Math.min(S.rules.crash_growth ** t, mult); i ? ctx.lineTo(x(t), y(m)) : ctx.moveTo(x(t), y(m)); }
   ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = c.bust ? "#e3917f" : "#efe7d6";
+  ctx.fillStyle = c.bust ? "#ffb45e" : "#ffd3da";
   ctx.beginPath(); ctx.arc(x(now), y(mult), c.bust ? 9 : 6, 0, Math.PI * 2); ctx.fill();
   if (c.cashedAt) {
     const t = Math.log(c.cashedAt) / Math.log(S.rules.crash_growth);
-    ctx.fillStyle = "#e8d6a6"; ctx.beginPath(); ctx.arc(x(t), y(c.cashedAt), 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(x(t), y(c.cashedAt), 7, 0, Math.PI * 2); ctx.fill();
   }
   const readout = $("crash-readout");
   readout.textContent = c.bust && !c.cashedAt ? `Crashed at ${mult.toFixed(2)}x` : `${(c.cashedAt && !c.live ? c.cashedAt : mult).toFixed(2)}x`;
@@ -1007,15 +1047,15 @@ function buildWheel() {
   const step = 360 / WHEEL.length;
   const rad = d => (d - 90) * Math.PI / 180;
   const pt = (r, d) => `${(r * Math.cos(rad(d))).toFixed(2)} ${(r * Math.sin(rad(d))).toFixed(2)}`;
-  let pockets = `<circle r="110" fill="#3a1d12" stroke="#c6a96c" stroke-width="1.5"/><circle r="96" fill="#1c0d07" stroke="#c6a96c" stroke-width=".5"/>`;
+  let pockets = `<circle r="110" fill="#120609" stroke="#ff2846" stroke-width="1.5"/><circle r="96" fill="#080305" stroke="#ff2846" stroke-width=".5"/>`;
   WHEEL.forEach((p, i) => {
     const a0 = i * step - step / 2, a1 = a0 + step;
-    const fill = typeof p === "string" || p === 0 ? "#1d5944" : red.has(p) ? "#8e1b29" : "#121413";
-    pockets += `<path d="M ${pt(92, a0)} A 92 92 0 0 1 ${pt(92, a1)} L ${pt(62, a1)} A 62 62 0 0 0 ${pt(62, a0)} Z" fill="${fill}" stroke="#c6a96c" stroke-width=".4"/>`;
-    pockets += `<text transform="rotate(${i * step}) translate(0 -80)" text-anchor="middle" dominant-baseline="middle" font-size="8" font-weight="500" fill="#efe7d6" font-family="Jost">${p}</text>`;
+    const fill = typeof p === "string" || p === 0 ? "#0f6b45" : red.has(p) ? "#c4122f" : "#0d0609";
+    pockets += `<path d="M ${pt(92, a0)} A 92 92 0 0 1 ${pt(92, a1)} L ${pt(62, a1)} A 62 62 0 0 0 ${pt(62, a0)} Z" fill="${fill}" stroke="#4a1420" stroke-width=".4"/>`;
+    pockets += `<text transform="rotate(${i * step}) translate(0 -80)" text-anchor="middle" dominant-baseline="middle" font-size="8" font-weight="500" fill="#f4e4e8" font-family="Archivo">${p}</text>`;
   });
-  pockets += `<circle r="60" fill="url(#cone)"/><circle r="12" fill="#c6a96c"/><path d="M -28 0 H 28 M 0 -28 V 28" stroke="#c6a96c" stroke-width="3" stroke-linecap="round"/>`;
-  svg.innerHTML = `<defs><radialGradient id="cone"><stop offset="0" stop-color="#6b3a20"/><stop offset="1" stop-color="#2a130a"/></radialGradient></defs>
+  pockets += `<circle r="60" fill="url(#cone)"/><circle r="12" fill="#d9d4dc"/><path d="M -28 0 H 28 M 0 -28 V 28" stroke="#d9d4dc" stroke-width="3" stroke-linecap="round"/>`;
+  svg.innerHTML = `<defs><radialGradient id="cone"><stop offset="0" stop-color="#2a0d16"/><stop offset="1" stop-color="#0a0306"/></radialGradient></defs>
     <g id="wheel-spin">${pockets}</g><g id="ball-orbit"><circle id="ball" cx="0" cy="-101" r="4.5" fill="#f4eee0" stroke="#a8a290" stroke-width=".5"/></g>`;
   const pick = $("rl-number");
   for (const p of ["0", "00", ...Array.from({ length: 36 }, (_, i) => String(i + 1))]) pick.add(new Option(p, p));
