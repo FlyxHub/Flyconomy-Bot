@@ -838,28 +838,32 @@ class Api(BaseCog, name="Api"):
             f"<@{user_id}> {verb} {embeds.money(amount)} {where} the bank at the casino."
         )
 
-    async def _announce_win(self, user_id: int, game: str, stake: int, paid: int) -> None:
-        """Say in Discord that someone won big on the page, as a command's reply would.
+    async def _announce_result(self, user_id: int, game: str, stake: int, paid: int) -> None:
+        """Say in Discord that someone won or lost big on the page, as a command's reply would.
 
-        A win in Discord is posted where it is played, so everyone sees whose
-        wallet just filled up. Only wins worth ``casino_win_announce_min`` in
-        profit are posted, so a busy page cannot flood the channel; the small
-        ones were never what a robber was waiting for.
+        A game in Discord is played where everyone can see it, so the whole
+        server watches a wallet fill up or empty out. Only results that move
+        ``casino_win_announce_min`` or more either way are posted, so a busy
+        page cannot flood the channel; a push or a tie moves nothing and is
+        never posted.
         """
-        if paid - stake < max(1, self.settings.casino_win_announce_min):
+        net = paid - stake
+        if abs(net) < max(1, self.settings.casino_win_announce_min):
             return
         name = _GAME_NAMES.get(game, game)
+        bet = f"on a {embeds.money(stake)} {name} bet at the casino."
         await self._announce(
-            f"\N{SLOT MACHINE} <@{user_id}> won {embeds.money(paid)} on a "
-            f"{embeds.money(stake)} {name} bet at the casino."
+            f"\N{SLOT MACHINE} <@{user_id}> won {embeds.money(paid)} {bet}"
+            if net > 0
+            else f"\N{MONEY WITH WINGS} <@{user_id}> lost {embeds.money(-net)} {bet}"
         )
 
     async def _announce_table(self, user_id: int, table: Table) -> None:
-        """Announce a settled table's win, once, however it came to settle."""
+        """Announce a settled table's result, once, however it came to settle."""
         if not table.is_finished() or table in self._announced:
             return
         self._announced.add(table)
-        await self._announce_win(
+        await self._announce_result(
             user_id, str(table_state(table)["game"]), table.game.stake, _paid(table)
         )
 
@@ -932,7 +936,7 @@ class Api(BaseCog, name="Api"):
                     played, outcome = landed, str(landed.outcome)
         except (FlyconomyError, commands.CommandError) as exc:
             raise _refused(exc) from exc
-        await self._announce_win(user_id, str(game), played.stake, played.paid)
+        await self._announce_result(user_id, str(game), played.stake, played.paid)
         return await self._casino_state(
             user_id,
             claim=True,

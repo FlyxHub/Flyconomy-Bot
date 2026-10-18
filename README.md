@@ -295,8 +295,8 @@ table at a time; an idle one ends after the same timeout as in Discord, and a
 restart refunds it like any board. Deposits and withdrawals made at the cage
 are announced in the announcement channel, the same as `$deposit` and
 `$withdraw` answer in public, so the page is no safer place to carry cash than
-Discord. So are wins on the page worth at least
-`FLYCONOMY_CASINO_WIN_ANNOUNCE_MIN` in profit ($10,000 by default); smaller
+Discord. So are wins and losses on the page worth at least
+`FLYCONOMY_CASINO_WIN_ANNOUNCE_MIN` either way ($10,000 by default); smaller
 ones are left out so a busy page cannot flood the channel. A jackpot round opened from the page goes
 up in the announcement channel so Discord can join it too, and is refused when
 none is set. Tic-tac-toe needs an opponent in Discord, so the page only
@@ -426,7 +426,7 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_TRANSFER_TAX_RATE` | No | `0.05` | Share of a `pay` transfer withheld as tax. Half feeds the lottery pot, half goes to `FLYCONOMY_CREATOR_TAX_USER_ID`. Capped at `0.5`. |
 | `FLYCONOMY_GUIDE_CHANNEL_ID` | No | None | Channel the bot posts the member guide to and keeps updated. Unset publishes nothing. |
 | `FLYCONOMY_MAX_BET` | No | `100000` | Table limit: the most a member may stake on one wager. |
-| `FLYCONOMY_CASINO_WIN_ANNOUNCE_MIN` | No | `10000` | Smallest profit from a game on the casino page that is announced in the announcement channel. |
+| `FLYCONOMY_CASINO_WIN_ANNOUNCE_MIN` | No | `10000` | Smallest profit or loss from a game on the casino page that is announced in the announcement channel. |
 | `FLYCONOMY_MAX_FLX_BUY` | No | `100` | Ceiling on the Flyxcoin one member may buy in a day. This is what bounds the market over a season. |
 | `FLYCONOMY_RATE_LIMIT_ACTIONS` | No | `6` | Game commands a member may run per window. |
 | `FLYCONOMY_RATE_LIMIT_SECONDS` | No | `10` | Length of that window, in seconds. |

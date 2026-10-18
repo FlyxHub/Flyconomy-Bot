@@ -924,10 +924,23 @@ class TestCageAnnouncements:
 
     @pytest.mark.parametrize(
         ("bet", "pick", "announced"),
-        [(10_000, "heads", True), (100, "heads", False), (10_000, "tails", False)],
-        ids=["a big win", "a small win", "a loss"],
+        [
+            (
+                10_000,
+                "heads",
+                f"🎰 <@{MEMBER}> won $20,000 on a $10,000 coinflip bet at the casino.",
+            ),
+            (
+                10_000,
+                "tails",
+                f"💸 <@{MEMBER}> lost $10,000 on a $10,000 coinflip bet at the casino.",
+            ),
+            (100, "heads", None),
+            (100, "tails", None),
+        ],
+        ids=["a big win", "a big loss", "a small win", "a small loss"],
     )
-    async def test_only_big_wins_on_the_page_are_announced(
+    async def test_only_big_results_on_the_page_are_announced(
         self, member, casino, channel, db, bet, pick, announced
     ):
         await db.add_wallet(MEMBER, 10_000)
@@ -936,8 +949,7 @@ class TestCageAnnouncements:
 
         await member.post("/api/casino/bet", json={"game": "coinflip", "bet": bet, "pick": pick})
 
-        expected = [f"🎰 <@{MEMBER}> won $20,000 on a $10,000 coinflip bet at the casino."]
-        assert channel.sent == (expected if announced else [])
+        assert channel.sent == ([announced] if announced else [])
 
     async def test_a_table_win_is_announced_once(self, member, bot, cog, casino, channel):
         bot.settings = bot.settings.model_copy(update={"casino_win_announce_min": 1})

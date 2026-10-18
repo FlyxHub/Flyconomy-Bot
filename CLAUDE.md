@@ -149,9 +149,10 @@ command does; a table move doesn't, because a button press in Discord doesn't ei
 deposit or withdrawal made on the page is posted to the announcement channel
 (`Api._announce_bank`): `$withdraw` answers in a channel everyone can see, which is how a robber
 learns a wallet just filled up, so a silent web withdrawal would make the page the safe way to
-carry cash. Wins on the page are posted for the same reason, but only above
-`casino_win_announce_min` in profit, so a busy page cannot flood the channel; every web settle
-(an instant bet, a move, a natural on the deal, the idle timeout) goes through `_announce_win`,
+carry cash. Results on the page are posted for the same reason -- a game in Discord is played
+in front of everyone, win or lose -- but only when they move `casino_win_announce_min` or more
+either way, so a busy page cannot flood the channel; every web settle (an instant bet, a move, a
+natural on the deal, the idle timeout) goes through `_announce_result`,
 and `_announced` keeps a table from being posted twice. `TestCageAnnouncements` pins both.
 
 ## The member guide
