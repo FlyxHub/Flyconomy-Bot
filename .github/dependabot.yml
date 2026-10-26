@@ -1,0 +1,25 @@
+# Security fixes arrive as PRs instead of waiting for someone to notice.
+# The bot runs on a home network, so a stale aiohttp under the dashboard is
+# the likeliest way in.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
