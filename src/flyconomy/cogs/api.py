@@ -206,7 +206,7 @@ class Api(BaseCog, name="Api"):
 
         brand = {
             name: (resources.files("flyconomy") / BRAND_DIR / name).read_bytes()
-            for name in ("logo.jpg", "banner.jpg")
+            for name in ("logo.webp", "banner.webp")
         }
 
         async def brand_image(request: web.Request) -> web.Response:
@@ -215,7 +215,7 @@ class Api(BaseCog, name="Api"):
                 raise web.HTTPNotFound
             return web.Response(
                 body=image,
-                content_type="image/jpeg",
+                content_type="image/webp",
                 headers={"Cache-Control": "private, max-age=86400"},
             )
 

@@ -69,7 +69,10 @@
   button, input, select { font: inherit; color: inherit; }
   button { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
-  :focus-visible { outline: 1px solid var(--tube); outline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--tube); outline-offset: 3px; }
+  /* Scrollbars and selections in the night's own colours, not the browser's grey. */
+  html { scrollbar-color: #4a3399 #0b0724; }
+  ::selection { background: #ffc53d; color: #2a1600; }
   a { color: var(--tube); text-underline-offset: 3px; text-decoration-thickness: 1px; }
   ::selection { background: var(--neon); color: var(--night); }
 
@@ -118,10 +121,15 @@
   .purse div { display: grid; line-height: 1.15; }
   .purse span { font-size: 13px; color: var(--dim); }
   .purse b { font: 700 22px var(--body); font-stretch: 72%; color: var(--text); }
-  .back { margin-left: auto; font-size: 14px; }
+  .back {
+    margin-left: auto; padding: 6px 16px; border: 1px solid var(--line); border-radius: 999px;
+    font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none;
+    transition: border-color .18s, box-shadow .18s, transform .12s;
+  }
+  .back:hover { border-color: var(--neon); box-shadow: 0 0 12px var(--haze); }
 
   /* The cashier: one tap from any game to move money between wallet and bank. */
-  .cashier-open { padding: 6px 16px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 14px; font-weight: 600; }
+  .cashier-open { padding: 6px 16px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 14px; font-weight: 600; transition: border-color .18s, box-shadow .18s, transform .12s; }
   .cashier-open:hover { border-color: var(--neon); box-shadow: 0 0 12px var(--haze); }
   #cashier {
     inset: 70px max(16px, calc((100% - 1200px) / 2)) auto auto; margin: 0;
@@ -155,6 +163,8 @@
   .directory button[aria-current="true"] {
     color: var(--tube); text-shadow: var(--glow);
     border-left: 2px solid var(--tube); padding-left: 15px;
+    border-radius: 0 10px 10px 0;
+    background: linear-gradient(90deg, rgba(255, 197, 61, .16), transparent 85%);
     box-shadow: -6px 0 12px -6px var(--neon);
   }
   /* A dot beside a game whose hand is still in play. */
@@ -211,8 +221,10 @@
     background: var(--gold);
     color: #2a1600; font-weight: 800; letter-spacing: .02em;
     box-shadow: inset 0 0 0 1px #ffe28a, inset 0 -3px 0 rgba(120, 60, 0, .35), 0 0 16px rgba(255, 197, 61, .4);
-    transition: filter .2s, box-shadow .2s;
+    transition: filter .2s, box-shadow .2s, transform .12s;
   }
+  /* A press sinks the coin a pixel, so the click lands before the result does. */
+  .btn:active:not(:disabled), .cashier-open:active, .back:active { transform: translateY(1px) scale(.97); }
   .btn:hover:not(:disabled) { filter: brightness(1.08); box-shadow: inset 0 0 0 1px #fff3b0, inset 0 -3px 0 rgba(120, 60, 0, .35), 0 0 26px rgba(255, 197, 61, .7); }
   .btn:disabled { opacity: .3; box-shadow: none; }
   .btn.quiet { padding: 9px 21px; background: rgba(8, 5, 26, .45); color: var(--text); border: 1px solid var(--line); font-weight: 600; box-shadow: none; }
@@ -279,7 +291,7 @@
   /* Blackjack's table is the half moon it is in every casino, with the
      house rule printed along the arc. */
   #t-blackjack { border-radius: 22px 22px 50% 50% / 22px 22px 36% 36%; padding-bottom: 64px; }
-  #t-blackjack .arc { margin: 0; font: 400 20px var(--sign); color: rgba(255, 211, 77, .5); }
+  #t-blackjack .arc { margin: 0; font: 400 20px var(--sign); color: rgba(255, 211, 77, .8); }
 
   /* ------------------------------------------------------------ roulette */
   .wheel-box { position: relative; width: min(300px, 100%); margin: 4px auto; aspect-ratio: 1; filter: drop-shadow(0 0 24px rgba(79, 184, 255, .3)); }
@@ -434,14 +446,14 @@
 <body class="arriving">
 
 <div class="entrance" id="entrance" aria-hidden="true">
-  <img src="/brand/banner.jpg" alt="">
+  <img src="/brand/banner.webp" alt="" width="1744" height="608">
   <p>Open all night</p>
   <span class="skip">Click to walk straight in</span>
 </div>
 
 <div class="floor">
 <header class="rail">
-  <p class="brand"><a href="/play"><img src="/brand/logo.jpg" alt="">Flyconomy Casino</a></p>
+  <p class="brand"><a href="/play"><img src="/brand/logo.webp" alt="" width="44" height="44" decoding="async">Flyconomy Casino</a></p>
   <div class="purse" aria-live="polite">
     <div><span>Wallet</span><b id="rail-wallet">–</b></div>
     <div><span>Bank</span><b id="rail-bank">–</b></div>

@@ -75,7 +75,10 @@
     --city: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='200'%3E%3Cg fill='%23170d42'%3E%3Crect x='0' y='96' width='40' height='104'/%3E%3Crect x='44' y='52' width='32' height='148'/%3E%3Crect x='56' y='34' width='8' height='18'/%3E%3Crect x='80' y='120' width='46' height='80'/%3E%3Crect x='130' y='28' width='28' height='172'/%3E%3Crect x='162' y='84' width='42' height='116'/%3E%3Crect x='208' y='130' width='32' height='70'/%3E%3Crect x='244' y='62' width='36' height='138'/%3E%3Crect x='284' y='108' width='48' height='92'/%3E%3Crect x='336' y='18' width='26' height='182'/%3E%3Crect x='346' y='0' width='4' height='18'/%3E%3Crect x='366' y='76' width='40' height='124'/%3E%3Crect x='410' y='124' width='44' height='76'/%3E%3Crect x='458' y='48' width='62' height='152'/%3E%3C/g%3E%3Cg fill='%23ffc53d' opacity='.55'%3E%3Crect x='52' y='70' width='4' height='6'/%3E%3Crect x='64' y='96' width='4' height='6'/%3E%3Crect x='138' y='50' width='4' height='6'/%3E%3Crect x='146' y='90' width='4' height='6'/%3E%3Crect x='252' y='84' width='4' height='6'/%3E%3Crect x='344' y='44' width='4' height='6'/%3E%3Crect x='470' y='70' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%234fb8ff' opacity='.5'%3E%3Crect x='172' y='100' width='4' height='6'/%3E%3Crect x='186' y='130' width='4' height='6'/%3E%3Crect x='296' y='126' width='4' height='6'/%3E%3Crect x='378' y='96' width='4' height='6'/%3E%3Crect x='492' y='110' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%23d36bff' opacity='.5'%3E%3Crect x='12' y='116' width='4' height='6'/%3E%3Crect x='96' y='140' width='4' height='6'/%3E%3Crect x='420' y='144' width='4' height='6'/%3E%3C/g%3E%3C/svg%3E");
   }
   button { font: inherit; color: inherit; }
-  :focus-visible { outline: 1px solid var(--amber); outline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+  /* Scrollbars and selections in the night's own colours, not the browser's grey. */
+  html { scrollbar-color: #4a3399 #0b0724; }
+  ::selection { background: #ffc53d; color: #2a1600; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   .hud {
@@ -168,7 +171,7 @@
     border: 1px solid var(--c);
     border-radius: 18px;
     background: linear-gradient(180deg, rgba(46, 26, 112, .55), var(--glass));
-    box-shadow: 0 0 24px var(--c-glow), inset 0 0 0 1px rgba(255, 255, 255, .03), 0 14px 34px rgba(5, 2, 20, .45);
+    box-shadow: 0 0 24px var(--c-glow), inset 0 1px 0 rgba(255, 255, 255, .07), 0 14px 34px rgba(5, 2, 20, .45);
     backdrop-filter: blur(8px);
   }
   .frame-title {
@@ -394,7 +397,7 @@
   th { text-align: left; font: 400 13px var(--body); color: var(--text-2); padding: 10px 10px 6px 0; }
   td { padding: 9px 10px 9px 0; border-top: 1px solid var(--grid); vertical-align: middle; }
   th.num, td.num { text-align: right; padding-right: 0; }
-  td.rank { width: 2.6em; font: 700 14px var(--display); color: var(--holo-dim); }
+  td.rank { width: 2.6em; font: 700 14px var(--display); color: var(--text-2); }
   /* The podium is paid in gold. */
   tr:nth-child(-n+3) td.rank { color: #ffd34d; text-shadow: 0 0 10px rgba(255, 197, 61, .5); }
   td.name { font-weight: 500; }
@@ -541,6 +544,17 @@
     100% { opacity: 1; clip-path: inset(0); }
   }
 
+  /* Every control answers a press: it sinks a pixel, so a click is felt
+     before the bot replies. The hold-to-arm button is left out; it fills. */
+  .who a, .who button, .range button, .tabs button, .switch button, .cancel, .present, .me .close {
+    transition-property: transform, background-color, color, border-color, box-shadow, filter, opacity;
+    transition-duration: .18s;
+  }
+  .who a:active, .who button:active, .range button:active, .tabs button:active,
+  .switch button:active:not(:disabled), .cancel:active, .present:active, .me .close:active {
+    transform: translateY(1px) scale(.97);
+  }
+
   @media (max-width: 1060px) {
     .hud { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
@@ -565,7 +579,7 @@
 <body>
 <div class="hud">
   <header class="bar">
-    <h1 class="callsign"><img src="/brand/logo.jpg" alt=""><span>FLYCONOMY<small>Economy monitor</small></span></h1>
+    <h1 class="callsign"><img src="/brand/logo.webp" alt="" width="56" height="56" decoding="async"><span>FLYCONOMY<small>Economy monitor</small></span></h1>
     <div class="bar-right">
       <div class="range" role="group" aria-label="Time range for the charts">
         <button data-hours="3" aria-pressed="false">3 h</button>
