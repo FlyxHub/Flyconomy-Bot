@@ -384,7 +384,11 @@
   .event-pill[hidden] { display: none; }
 
   /* ------------------------------------------------------------ ledger */
-  .ledger { grid-area: ledger; }
+  /* The rows sit in a box that does not size the grid row: its least height
+     is the first ten rows (set by fitLedger), and past that it only fills the
+     height the column beside it already made. */
+  .ledger { grid-area: ledger; display: flex; flex-direction: column; }
+  .ledger-fit { position: relative; flex: 1 1 0; }
   .ledger-head { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
   .ledger-head .frame-title { flex: 1; margin: 0; }
   .tabs { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--frame); border-radius: 999px; background: rgba(11, 7, 36, .5); }
@@ -708,7 +712,7 @@
         <button role="tab" data-board="crypto" aria-selected="false">Flyxcoin</button>
       </div>
     </div>
-    <table>
+    <div class="ledger-fit"><table>
       <thead>
         <tr>
           <th scope="col"><span class="visually-hidden">Rank</span></th>
@@ -720,7 +724,7 @@
         </tr>
       </thead>
       <tbody id="ledger-rows"></tbody>
-    </table>
+    </table></div>
   </section>
 
   <section class="bounties frame" aria-labelledby="bounties-title">
@@ -1077,7 +1081,8 @@ async function leave(body, staying) {
 async function rankedRows(body, rows, format, build) {
   if (!await leave(body, new Set(rows.map(row => row.id)))) return;
   const before = new Map();
-  for (const tr of body.querySelectorAll("tr[data-id]")) {
+  // A row the ledger had no room for was never seen, so it arrives as new.
+  for (const tr of body.querySelectorAll("tr[data-id]:not([hidden])")) {
     before.set(tr.dataset.id, { top: tr.getBoundingClientRect().top, ...tr._drawn });
   }
   const bars = [];
@@ -1102,10 +1107,11 @@ async function rankedRows(body, rows, format, build) {
     return tr;
   }));
   requestAnimationFrame(() => bars.forEach(([bar, width]) => { bar.style.width = width; }));
+  if (body.id === "ledger-rows") fitLedger();
 
   // A row that changed rank slides from its old place to its new one.
   if (reducedMotion) return;
-  for (const tr of body.querySelectorAll("tr[data-id]")) {
+  for (const tr of body.querySelectorAll("tr[data-id]:not([hidden])")) {
     const was = before.get(tr.dataset.id);
     if (was === undefined) continue;
     const shift = was.top - tr.getBoundingClientRect().top;
@@ -1150,6 +1156,21 @@ function renderLedger() {
   });
 }
 let ledgerBoard = null;
+
+// The owner's column stands taller than ten rows, so the ledger shows as many
+// whole rows as fit beside it. The first ten always show and set the panel's
+// least height; the rest only fill height the grid row already has. Offsets,
+// not rects, so a row mid-slide is measured where it will land.
+const ledgerFit = document.querySelector(".ledger-fit");
+function fitLedger() {
+  const rows = [...$("ledger-rows").rows];
+  rows.forEach(tr => { tr.hidden = false; });
+  const bottom = tr => tr.offsetTop + tr.offsetHeight;
+  const tenth = rows[Math.min(rows.length, 10) - 1];
+  ledgerFit.style.minHeight = tenth ? bottom(tenth) + "px" : "";
+  rows.forEach(tr => { tr.hidden = bottom(tr) > ledgerFit.clientHeight; });
+}
+new ResizeObserver(fitLedger).observe(ledgerFit);
 
 // ------------------------------------------------------------------- chart
 const hudChart = {

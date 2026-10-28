@@ -260,10 +260,13 @@
   }
 
   /* ---------------------------------------------------------------- cage */
-  .cage { display: grid; grid-template-columns: 1fr auto 1fr; gap: 24px; align-items: center; padding: 32px 0; }
-  .vault { text-align: center; }
+  .cage { display: grid; grid-template-columns: minmax(0, 1fr) min-content minmax(0, 1fr); gap: 24px; align-items: center; padding: 32px 0; }
+  /* A balance can run to eleven digits, so the figure is sized to its own
+     column and its own length (--len, set by roll), or a big bank spills out
+     of the card. */
+  .vault { text-align: center; container-type: inline-size; }
   .vault span { display: block; font-size: 14px; color: var(--dim); }
-  .vault b { display: block; font: 400 clamp(38px, 5vw, 60px)/1.15 var(--sign); color: var(--tube); text-shadow: var(--glow); }
+  .vault b { display: block; font: 400 min(60px, 160cqi / var(--len, 15))/1.15 var(--sign); color: var(--tube); text-shadow: var(--glow); white-space: nowrap; }
   .window {
     display: grid; gap: 12px; justify-items: center; padding: 22px 24px;
     border: 1px solid var(--line); border-radius: 16px; background: rgba(8, 5, 26, .45);
@@ -746,12 +749,15 @@ const bet = () => Number($("bet").value);
 function roll(node, to) {
   const from = node._v ?? to;
   node._v = to;
+  // The cage sizes a figure by its length, so a roll is sized for its longer end.
+  const fit = v => node.style.setProperty("--len", money(v).length);
+  fit(Math.max(from, to));
   if (from === to || REDUCED) { node.textContent = money(to); return; }
   const start = performance.now();
   const step = now => {
     const t = Math.min(1, (now - start) / 700);
     node.textContent = money(from + (to - from) * (1 - (1 - t) ** 3));
-    if (t < 1) requestAnimationFrame(step);
+    if (t < 1) requestAnimationFrame(step); else fit(to);
   };
   requestAnimationFrame(step);
 }
