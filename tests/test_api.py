@@ -673,6 +673,14 @@ class TestCasinoPage:
         assert response.status == 200
         assert "text/html" in response.headers["Content-Type"]
 
+    async def test_the_brand_images_ship_with_the_package(self, member):
+        for name in ("logo.jpg", "banner.jpg"):
+            response = await member.get(f"/brand/{name}")
+
+            assert response.status == 200
+            assert response.content_type == "image/jpeg"
+        assert (await member.get("/brand/missing.jpg")).status == 404
+
     async def test_walking_in_signed_out_goes_to_sign_in(self, anonymous):
         response = await anonymous.get("/play", allow_redirects=False)
 
