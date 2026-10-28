@@ -673,6 +673,13 @@ class TestCasinoPage:
         assert response.status == 200
         assert "text/html" in response.headers["Content-Type"]
 
+    async def test_the_banner_ships_with_the_package(self, member):
+        response = await member.get("/brand/banner.webp")
+
+        assert response.status == 200
+        assert response.content_type == "image/webp"
+        assert (await member.get("/brand/logo.webp")).status == 404
+
     async def test_walking_in_signed_out_goes_to_sign_in(self, anonymous):
         response = await anonymous.get("/play", allow_redirects=False)
 

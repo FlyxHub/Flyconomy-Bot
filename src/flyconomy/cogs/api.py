@@ -74,6 +74,9 @@ PAGE_RESOURCE: Final = "data/dashboard.html"
 #: The casino floor members play on, served at ``/play``.
 CASINO_RESOURCE: Final = "data/casino.html"
 
+#: The banner over the casino door, served at ``/brand/<name>``.
+BRAND_DIR: Final = "data/brand"
+
 #: The slice of members whose share of the money the dashboard tracks.
 TOP_FRACTION: Final = 0.10
 
@@ -201,6 +204,21 @@ class Api(BaseCog, name="Api"):
         async def casino_page(_request: web.Request) -> web.Response:
             return web.Response(text=floor, content_type="text/html")
 
+        brand = {
+            name: (resources.files("flyconomy") / BRAND_DIR / name).read_bytes()
+            for name in ("banner.webp",)
+        }
+
+        async def brand_image(request: web.Request) -> web.Response:
+            image = brand.get(request.match_info["name"])
+            if image is None:
+                raise web.HTTPNotFound
+            return web.Response(
+                body=image,
+                content_type="image/webp",
+                headers={"Cache-Control": "private, max-age=86400"},
+            )
+
         public_host = urlsplit(self.settings.dashboard_url).netloc.lower()
 
         @web.middleware
@@ -234,6 +252,7 @@ class Api(BaseCog, name="Api"):
         app.router.add_post("/api/market", self.market)
         app.router.add_post("/api/event", self.event_start)
         app.router.add_get("/play", casino_page)
+        app.router.add_get("/brand/{name}", brand_image)
         app.router.add_get("/api/casino", self.casino)
         app.router.add_get("/api/casino/table", self.casino_table)
         app.router.add_post("/api/casino/bank", self.bank)

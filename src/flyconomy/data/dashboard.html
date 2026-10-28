@@ -4,37 +4,40 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flyconomy</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23140810'/><filter id='g' x='-50%' y='-50%' width='200%' height='200%'><feGaussianBlur stdDeviation='1.6'/></filter><path d='M12 24V8h9M12 16h7' fill='none' stroke='%23ff2846' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' filter='url(%23g)'/><path d='M12 24V8h9M12 16h7' fill='none' stroke='%23ffd3da' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='a' x2='0' y2='1'><stop offset='0' stop-color='%23fff1a8'/><stop offset='.5' stop-color='%23ffc53d'/><stop offset='1' stop-color='%23d4801a'/></linearGradient><filter id='g' x='-50%' y='-50%' width='200%' height='200%'><feGaussianBlur stdDeviation='1.6'/></filter></defs><rect width='32' height='32' rx='8' fill='%231a0f4a'/><rect x='.75' y='.75' width='30.5' height='30.5' rx='7.5' fill='none' stroke='%234fb8ff' stroke-width='1.5'/><path d='M12 24V8h10M12 16h7' fill='none' stroke='%238b5cf6' stroke-width='6' stroke-linecap='round' stroke-linejoin='round' filter='url(%23g)'/><path d='M12 24V8h10M12 16h7' fill='none' stroke='url(%23a)' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Saira:wdth,wght@75..125,300..700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400..800&family=Russo+One&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js" integrity="sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R" crossorigin="anonymous"></script>
 <style>
-  /* A heads-up display for one operator. Cyan watches, amber acts,
-     mint and red mean a run is moving the market. */
+  /* Flyconomy after dark, from the banner: a violet night over the city, gold
+     for money and for anything that acts, electric blue for the neon that
+     frames it. Mint and pink mean a run is moving the market. */
   :root {
     color-scheme: dark;
-    --void: #04080d;
-    --deep: #071019;
-    --glass: rgba(95, 212, 255, .035);
-    --frame: rgba(95, 212, 255, .16);
-    --grid: rgba(95, 212, 255, .07);
-    --bg-grid: rgba(95, 212, 255, .05);
-    --holo: #5fd4ff;
-    --holo-dim: #2b7194;
-    --text: #d4f1ff;
-    --text-2: #86afc4;
-    --amber: #ffb547;
-    --bull: #4dffc3;
-    --bear: #ff5468;
-    /* Series colours for the money supply, validated as a set against --void:
-       mid-lightness so none glares, and apart under every colour-vision type. */
-    --banks: #1f9fd0;
-    --wallets: #7d6be8;
-    --coins: #c08a1e;
-    --display: "Chakra Petch", system-ui, sans-serif;
-    --body: "Saira", system-ui, sans-serif;
+    --void: #0b0724;
+    --deep: #150c3a;
+    --glass: rgba(24, 14, 64, .72);
+    --frame: rgba(79, 184, 255, .30);
+    --grid: rgba(150, 130, 255, .12);
+    --holo: #4fb8ff;
+    --holo-dim: #3a63c9;
+    --violet: #8b5cf6;
+    --text: #f0ecff;
+    --text-2: #aaa2d8;
+    --amber: #ffc53d;
+    --gold: linear-gradient(180deg, #fff3b0, #ffd34d 40%, #e89a1c 75%, #b8650f);
+    --bull: #3ff0b4;
+    --bear: #ff5a8a;
+    /* Series colours for the money supply: blue, violet, and gold, apart in
+       hue and lightness so they hold up under every colour-vision type. */
+    --banks: #3d8bff;
+    --wallets: #b26bff;
+    --coins: #e8a92a;
+    --brand: "Russo One", system-ui, sans-serif;
+    --display: "Montserrat", system-ui, sans-serif;
+    --body: "Montserrat", system-ui, sans-serif;
   }
 
   * { box-sizing: border-box; }
@@ -44,28 +47,47 @@
     min-height: 100vh;
     color: var(--text);
     font: 400 15px/1.5 var(--body);
-    font-variation-settings: "wdth" 92;
     font-variant-numeric: tabular-nums;
     background:
-      radial-gradient(900px 600px at 18% 8%, rgba(95, 212, 255, .10), transparent 70%),
-      radial-gradient(700px 500px at 90% 100%, rgba(43, 113, 148, .12), transparent 70%),
-      var(--void);
+      radial-gradient(1.5px 1.5px at 12% 18%, rgba(255, 255, 255, .7), transparent) 0 0 / 560px 420px,
+      radial-gradient(1px 1px at 38% 6%, rgba(255, 255, 255, .6), transparent) 0 0 / 560px 420px,
+      radial-gradient(1.5px 1.5px at 64% 26%, rgba(255, 230, 160, .8), transparent) 0 0 / 560px 420px,
+      radial-gradient(1px 1px at 86% 12%, rgba(255, 255, 255, .5), transparent) 0 0 / 560px 420px,
+      radial-gradient(1px 1px at 72% 48%, rgba(160, 210, 255, .6), transparent) 0 0 / 560px 420px,
+      radial-gradient(900px 600px at 15% 0, rgba(139, 92, 246, .28), transparent 70%),
+      radial-gradient(800px 500px at 90% 10%, rgba(79, 184, 255, .14), transparent 70%),
+      linear-gradient(#0b0724, #1d0f52 70%, #2a1366);
+    background-attachment: fixed;
   }
-  /* The backdrop grid lives on its own layer so it can be softened: dim,
-     slightly out of focus, and faded out behind the data in the middle. */
+  /* The city along the foot of the window, in two rows drifting left at
+     different speeds, so the far skyline slides behind the near one. Each row
+     is one tile wider than the window and travels exactly one tile, so the
+     loop has no seam, and it moves by transform alone, so it costs no repaint. */
+  body::before, body::after {
+    content: ""; position: fixed; left: 0; bottom: 0; z-index: -1; pointer-events: none;
+    background-repeat: repeat-x; background-position: left bottom;
+    animation: drift var(--drift) linear infinite;
+  }
   body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(var(--bg-grid) 1px, transparent 1px) 0 0 / 48px 48px,
-      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px) 0 0 / 48px 48px;
-    filter: blur(1.2px);
-    mask-image: radial-gradient(ellipse 75% 70% at 50% 45%, transparent 20%, #000 100%);
+    --tile: 740px; --drift: 160s;
+    width: calc(100% + var(--tile)); height: 280px;
+    background-image: var(--city-far); background-size: var(--tile) 280px;
+  }
+  body::after {
+    --tile: 520px; --drift: 80s;
+    width: calc(100% + var(--tile)); height: 200px;
+    background-image: var(--city); background-size: var(--tile) 200px;
+  }
+  @keyframes drift { to { transform: translateX(calc(-1 * var(--tile))); } }
+  :root {
+    --city-far: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='200'%3E%3Cg fill='%23231560'%3E%3Crect x='0' y='96' width='40' height='104'/%3E%3Crect x='44' y='52' width='32' height='148'/%3E%3Crect x='56' y='34' width='8' height='18'/%3E%3Crect x='80' y='120' width='46' height='80'/%3E%3Crect x='130' y='28' width='28' height='172'/%3E%3Crect x='162' y='84' width='42' height='116'/%3E%3Crect x='208' y='130' width='32' height='70'/%3E%3Crect x='244' y='62' width='36' height='138'/%3E%3Crect x='284' y='108' width='48' height='92'/%3E%3Crect x='336' y='18' width='26' height='182'/%3E%3Crect x='346' y='0' width='4' height='18'/%3E%3Crect x='366' y='76' width='40' height='124'/%3E%3Crect x='410' y='124' width='44' height='76'/%3E%3Crect x='458' y='48' width='62' height='152'/%3E%3C/g%3E%3Cg fill='%23ffc53d' opacity='.3'%3E%3Crect x='52' y='70' width='4' height='6'/%3E%3Crect x='64' y='96' width='4' height='6'/%3E%3Crect x='138' y='50' width='4' height='6'/%3E%3Crect x='146' y='90' width='4' height='6'/%3E%3Crect x='252' y='84' width='4' height='6'/%3E%3Crect x='344' y='44' width='4' height='6'/%3E%3Crect x='470' y='70' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%234fb8ff' opacity='.25'%3E%3Crect x='172' y='100' width='4' height='6'/%3E%3Crect x='186' y='130' width='4' height='6'/%3E%3Crect x='296' y='126' width='4' height='6'/%3E%3Crect x='378' y='96' width='4' height='6'/%3E%3Crect x='492' y='110' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%23d36bff' opacity='.25'%3E%3Crect x='12' y='116' width='4' height='6'/%3E%3Crect x='96' y='140' width='4' height='6'/%3E%3Crect x='420' y='144' width='4' height='6'/%3E%3C/g%3E%3C/svg%3E");
+    --city: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='200'%3E%3Cg fill='%23170d42'%3E%3Crect x='0' y='96' width='40' height='104'/%3E%3Crect x='44' y='52' width='32' height='148'/%3E%3Crect x='56' y='34' width='8' height='18'/%3E%3Crect x='80' y='120' width='46' height='80'/%3E%3Crect x='130' y='28' width='28' height='172'/%3E%3Crect x='162' y='84' width='42' height='116'/%3E%3Crect x='208' y='130' width='32' height='70'/%3E%3Crect x='244' y='62' width='36' height='138'/%3E%3Crect x='284' y='108' width='48' height='92'/%3E%3Crect x='336' y='18' width='26' height='182'/%3E%3Crect x='346' y='0' width='4' height='18'/%3E%3Crect x='366' y='76' width='40' height='124'/%3E%3Crect x='410' y='124' width='44' height='76'/%3E%3Crect x='458' y='48' width='62' height='152'/%3E%3C/g%3E%3Cg fill='%23ffc53d' opacity='.55'%3E%3Crect x='52' y='70' width='4' height='6'/%3E%3Crect x='64' y='96' width='4' height='6'/%3E%3Crect x='138' y='50' width='4' height='6'/%3E%3Crect x='146' y='90' width='4' height='6'/%3E%3Crect x='252' y='84' width='4' height='6'/%3E%3Crect x='344' y='44' width='4' height='6'/%3E%3Crect x='470' y='70' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%234fb8ff' opacity='.5'%3E%3Crect x='172' y='100' width='4' height='6'/%3E%3Crect x='186' y='130' width='4' height='6'/%3E%3Crect x='296' y='126' width='4' height='6'/%3E%3Crect x='378' y='96' width='4' height='6'/%3E%3Crect x='492' y='110' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%23d36bff' opacity='.5'%3E%3Crect x='12' y='116' width='4' height='6'/%3E%3Crect x='96' y='140' width='4' height='6'/%3E%3Crect x='420' y='144' width='4' height='6'/%3E%3C/g%3E%3C/svg%3E");
   }
   button { font: inherit; color: inherit; }
-  :focus-visible { outline: 1px solid var(--amber); outline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+  /* Scrollbars and selections in the night's own colours, not the browser's grey. */
+  html { scrollbar-color: #4a3399 #0b0724; }
+  ::selection { background: #ffc53d; color: #2a1600; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   .hud {
@@ -90,17 +112,30 @@
   .bar {
     grid-area: bar;
     display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--frame);
+    padding: 12px 18px;
+    border: 1px solid var(--frame);
+    border-radius: 18px;
+    background: var(--glass);
+    box-shadow: 0 0 24px rgba(79, 184, 255, .14), inset 0 0 0 1px rgba(255, 255, 255, .03);
   }
-  .callsign { margin: 0; font: 600 22px/1 var(--display); letter-spacing: .32em; color: var(--holo); }
-  .callsign small { margin-left: 14px; font: 400 14px/1 var(--body); letter-spacing: 0; color: var(--text-2); }
+  .callsign { display: flex; align-items: center; gap: 14px; margin: 0; }
+  .callsign span {
+    display: grid; gap: 4px;
+    font: 400 28px/1 var(--brand); letter-spacing: .03em;
+    background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 2px 0 #4a2a00);
+  }
+  .callsign small {
+    font: 700 11px/1 var(--body); letter-spacing: .24em; text-transform: uppercase;
+    -webkit-text-fill-color: var(--holo); filter: none;
+  }
   .bar-right { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
   .present {
     display: grid; place-items: center;
     width: 34px; height: 34px;
     cursor: pointer;
     border: 1px solid var(--frame);
+    border-radius: 50%;
     background: none;
     color: var(--holo);
     transition: opacity .3s, border-color .3s;
@@ -115,40 +150,41 @@
   /* A member never gets the controls, so there is nothing to hide. */
   body.member .present { display: none; }
   .who { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; color: var(--text-2); }
-  .who button { cursor: pointer; padding: 6px 10px; border: 1px solid var(--frame); background: none; color: var(--holo); font: inherit; }
-  .who button:hover { border-color: var(--holo); }
-  .who a { padding: 6px 10px; border: 1px solid var(--amber); color: var(--amber); text-decoration: none; }
-  .who a:hover { background: rgba(255, 181, 71, .12); }
+  .who button { cursor: pointer; padding: 6px 14px; border: 1px solid var(--frame); border-radius: 999px; background: none; color: var(--holo); font: inherit; font-weight: 600; }
+  .who button:hover { border-color: var(--holo); box-shadow: 0 0 12px rgba(79, 184, 255, .35); }
+  /* Play is a gold coin of a button: the one way out of here is to the tables. */
+  .who a {
+    padding: 6px 18px; border-radius: 999px; background: var(--gold); color: #2a1600;
+    font: 400 15px var(--brand); letter-spacing: .04em; text-decoration: none;
+    box-shadow: 0 0 0 1px #ffe28a inset, 0 0 16px rgba(255, 197, 61, .45);
+  }
+  .who a:hover { filter: brightness(1.08); box-shadow: 0 0 0 1px #fff3b0 inset, 0 0 24px rgba(255, 197, 61, .7); }
   .link { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
   .link::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bull); box-shadow: 0 0 10px var(--bull); }
   .link.lost { color: var(--bear); }
   .link.lost::before { background: var(--bear); box-shadow: 0 0 10px var(--bear); }
 
   /* ------------------------------------------------------------ frames */
-  /* Corner brackets rather than boxes: a HUD marks out a region, it does not fill one. */
+  /* Every panel is the banner's frame: a rounded pane of night glass edged
+     in electric-blue neon. An armed panel swaps its neon for gold. */
   .frame {
-    --c: var(--holo-dim);
+    --c: var(--frame);
+    --c-glow: rgba(79, 184, 255, .12);
     position: relative;
     padding: 18px 20px;
-    background:
-      linear-gradient(var(--c), var(--c)) top left / 16px 1px no-repeat,
-      linear-gradient(var(--c), var(--c)) top left / 1px 16px no-repeat,
-      linear-gradient(var(--c), var(--c)) top right / 16px 1px no-repeat,
-      linear-gradient(var(--c), var(--c)) top right / 1px 16px no-repeat,
-      linear-gradient(var(--c), var(--c)) bottom left / 16px 1px no-repeat,
-      linear-gradient(var(--c), var(--c)) bottom left / 1px 16px no-repeat,
-      linear-gradient(var(--c), var(--c)) bottom right / 16px 1px no-repeat,
-      linear-gradient(var(--c), var(--c)) bottom right / 1px 16px no-repeat,
-      var(--glass);
+    border: 1px solid var(--c);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(40, 23, 100, .9), rgba(22, 13, 60, .92));
+    box-shadow: 0 0 24px var(--c-glow), inset 0 1px 0 rgba(255, 255, 255, .07), 0 14px 34px rgba(5, 2, 20, .45);
   }
   .frame-title {
     display: flex; align-items: center; gap: 12px;
     margin: 0 0 14px;
-    font: 500 15px/1.2 var(--display);
-    letter-spacing: .06em;
-    color: var(--holo);
+    font: 400 16px/1.2 var(--brand);
+    letter-spacing: .05em;
+    color: #ffd34d;
   }
-  .frame-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--frame), transparent); }
+  .frame-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(79, 184, 255, .5), transparent); }
 
   /* ------------------------------------------------------------- gauge */
   .gauge { grid-area: gauge; position: relative; aspect-ratio: 1; align-self: start; }
@@ -156,7 +192,7 @@
   .gauge .tick { stroke: var(--holo-dim); stroke-width: 1; }
   .gauge .tick.major { stroke: var(--holo); stroke-width: 1.5; }
   .gauge .track { fill: none; stroke: var(--frame); stroke-width: 2; }
-  .gauge .band { fill: none; stroke: rgba(95, 212, 255, .22); stroke-width: 10; }
+  .gauge .band { fill: none; stroke: rgba(79, 184, 255, .22); stroke-width: 10; }
   .gauge .level { fill: none; stroke: var(--holo); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--holo)); }
   .gauge .needle { stroke: var(--text); stroke-width: 2.5; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--holo)); }
   .gauge .scale-label { fill: var(--text-2); font: 500 11px var(--display); }
@@ -178,12 +214,12 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     text-align: center; pointer-events: none;
   }
-  .readout .what { font: 500 14px/1 var(--display); letter-spacing: .14em; color: var(--text-2); }
+  .readout .what { font: 400 15px/1 var(--brand); letter-spacing: .16em; text-transform: uppercase; color: var(--holo); }
   .readout .price {
     margin: 10px 0 6px;
-    font: 600 clamp(44px, 6vw, 64px)/1 var(--display);
-    color: var(--text);
-    text-shadow: 0 0 24px rgba(95, 212, 255, .45);
+    font: 800 clamp(44px, 6vw, 64px)/1 var(--display);
+    color: #ffd34d;
+    text-shadow: 0 2px 0 #6b3d00;
   }
   .readout .price small { font-size: .42em; vertical-align: .9em; margin-right: 2px; color: var(--holo); }
   .readout .state { font: 500 15px/1.3 var(--display); color: var(--holo); transition: opacity .4s, transform .4s, filter .4s; }
@@ -198,14 +234,14 @@
   .moves b { font: 600 15px var(--display); }
   .up { color: var(--bull); }
   .down { color: var(--bear); }
-  .range { display: flex; }
+  .range { display: flex; padding: 3px; border: 1px solid var(--frame); border-radius: 999px; background: rgba(11, 7, 36, .5); }
   .range button {
-    cursor: pointer; padding: 6px 14px;
-    border: 1px solid var(--frame); background: none;
-    font: 500 13px var(--display); color: var(--text-2);
+    cursor: pointer; padding: 5px 13px;
+    border: 0; border-radius: 999px; background: none;
+    font: 600 13px var(--display); color: var(--text-2);
   }
-  .range button + button { border-left: 0; }
-  .range button[aria-pressed="true"] { color: var(--void); background: var(--holo); border-color: var(--holo); }
+  .range button:hover { color: var(--text); }
+  .range button[aria-pressed="true"] { color: #fff; background: linear-gradient(135deg, var(--holo), var(--violet)); box-shadow: 0 0 12px rgba(79, 184, 255, .45); }
   .chart-box { position: relative; flex: 1; min-height: 300px; }
 
   /* ------------------------------------------------------------ economy */
@@ -220,7 +256,7 @@
   .legend .total span::before { display: none; }
   .legend .total span { justify-content: flex-end; }
   .conc-now { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-  .conc-now > b { font: 600 40px/1 var(--display); text-shadow: 0 0 20px rgba(95, 212, 255, .35); }
+  .conc-now > b { font: 600 40px/1 var(--display); }
   .conc p { margin: 6px 0 10px; font-size: 14px; color: var(--text-2); max-width: 40ch; }
   .conc .chart-box { min-height: 200px; }
 
@@ -252,7 +288,7 @@
   }
   /* Restoring the mode on load is not a change, so it must not animate. */
   body.instant * { transition: none !important; }
-  .override[data-armed] { --c: var(--amber); }
+  .override[data-armed] { --c: var(--amber); --c-glow: rgba(255, 197, 61, .3); }
   .override[data-armed] .frame-title { color: var(--amber); }
   .override p { margin: 0 0 14px; color: var(--text-2); }
 
@@ -265,19 +301,19 @@
   .switch button {
     cursor: pointer;
     padding: 12px 0;
-    border: 0;
-    background: rgba(95, 212, 255, .07);
-    font: 600 15px var(--display);
-    letter-spacing: .08em;
+    border: 1px solid rgba(139, 92, 246, .35);
+    border-radius: 12px;
+    background: rgba(139, 92, 246, .14);
+    font: 700 15px var(--display);
+    letter-spacing: .04em;
     color: var(--text-2);
-    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
-    transition: background .2s, color .2s;
+    transition: background .2s, color .2s, box-shadow .2s;
   }
-  .switch button:hover:not(:disabled) { background: rgba(95, 212, 255, .14); color: var(--text); }
-  .switch button[aria-pressed="true"] { background: var(--holo); color: var(--void); }
+  .switch button:hover:not(:disabled) { background: rgba(139, 92, 246, .28); color: var(--text); }
+  .switch button[aria-pressed="true"] { background: var(--holo); color: var(--void); box-shadow: 0 0 16px rgba(79, 184, 255, .4); }
   .switch button[aria-pressed="true"][data-direction="bull"] { background: var(--bull); }
   .switch button[aria-pressed="true"][data-direction="bear"] { background: var(--bear); }
-  .switch button.armed { background: var(--amber) !important; color: var(--void); }
+  .switch button.armed { background: var(--gold) !important; color: #2a1600; }
   .switch button:disabled { cursor: not-allowed; opacity: .3; }
 
   .arm { display: flex; gap: 8px; margin-top: 12px; }
@@ -288,14 +324,15 @@
     cursor: pointer;
     padding: 12px 14px;
     border: 1px solid var(--amber);
+    border-radius: 12px;
     color: var(--amber);
-    background: linear-gradient(90deg, rgba(255, 181, 71, .35) var(--fill), transparent var(--fill));
+    background: linear-gradient(90deg, rgba(255, 197, 61, .35) var(--fill), transparent var(--fill));
     font: 600 15px var(--display);
     letter-spacing: .04em;
     user-select: none;
     touch-action: none;
   }
-  .cancel { cursor: pointer; padding: 12px 16px; border: 1px solid var(--frame); background: none; color: var(--text-2); }
+  .cancel { cursor: pointer; padding: 12px 16px; border: 1px solid var(--frame); border-radius: 12px; background: none; color: var(--text-2); }
   #result { min-height: 1.5em; margin: 12px 0 0; font-size: 14px; color: var(--text); }
   #result.error { color: var(--bear); }
 
@@ -316,10 +353,10 @@
     /* Fixed, because .frame makes it relative, which would undo a modal's own. */
     position: fixed; inset: 0;
     width: min(960px, calc(100% - 32px)); max-height: calc(100vh - 64px); overflow: auto;
-    margin: auto; color: var(--text); background-color: var(--deep); border: 1px solid var(--frame);
+    margin: auto; color: var(--text); background: linear-gradient(180deg, #24145a, var(--deep)); border: 1px solid var(--frame);
   }
-  .me::backdrop { background: rgba(4, 8, 13, .75); backdrop-filter: blur(4px); }
-  .me .close { cursor: pointer; padding: 4px 10px; border: 1px solid var(--frame); background: none; color: var(--text-2); font: 500 14px var(--display); }
+  .me::backdrop { background: rgba(11, 7, 36, .75); backdrop-filter: blur(4px); }
+  .me .close { cursor: pointer; padding: 4px 14px; border: 1px solid var(--frame); border-radius: 999px; background: none; color: var(--text-2); font: 500 14px var(--display); }
   .me .close:hover { border-color: var(--holo); color: var(--holo); }
   .me .career[hidden] { display: none; }
   .badges.compact { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
@@ -335,39 +372,41 @@
   .me-empty { margin: 0 0 14px; color: var(--text-2); }
   .badges-title { margin: 6px 0 10px; font: 500 14px var(--display); letter-spacing: .06em; color: var(--text-2); }
   .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
-  .badge { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--grid); }
+  .badge { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--grid); border-radius: 12px; background: rgba(11, 7, 36, .35); }
   .badge .glyph { grid-row: span 3; font-size: 26px; line-height: 1; filter: grayscale(1); opacity: .35; }
   .badge b { font: 600 14px var(--display); color: var(--text-2); }
   .badge span { font-size: 12px; line-height: 1.35; color: var(--text-2); }
   .badge .meter { margin-top: 4px; }
-  .badge.earned { border-color: rgba(255, 181, 71, .45); box-shadow: inset 0 0 18px rgba(255, 181, 71, .07); }
+  .badge.earned { border-color: rgba(255, 197, 61, .55); background: linear-gradient(160deg, rgba(255, 197, 61, .12), rgba(139, 92, 246, .1)); box-shadow: 0 0 14px rgba(255, 197, 61, .15); }
   .badge.earned .glyph { filter: none; opacity: 1; }
   .badge.earned b { color: var(--amber); }
-  .event-pill { padding: 5px 12px; border: 1px solid var(--amber); color: var(--amber); font: 500 14px var(--display); }
+  .event-pill { padding: 5px 14px; border: 1px solid var(--amber); border-radius: 999px; color: var(--amber); font: 600 14px var(--display); box-shadow: 0 0 14px rgba(255, 197, 61, .3); }
   .event-pill[hidden] { display: none; }
 
   /* ------------------------------------------------------------ ledger */
   .ledger { grid-area: ledger; }
   .ledger-head { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
   .ledger-head .frame-title { flex: 1; margin: 0; }
-  .tabs { display: flex; gap: 18px; }
+  .tabs { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--frame); border-radius: 999px; background: rgba(11, 7, 36, .5); }
   .tabs button {
-    cursor: pointer; border: 0; background: none; padding: 4px 0;
-    font: 500 14px var(--display); color: var(--text-2);
-    border-bottom: 1px solid transparent;
+    cursor: pointer; border: 0; border-radius: 999px; background: none; padding: 4px 12px;
+    font: 600 13px var(--display); color: var(--text-2);
   }
-  .tabs button[aria-selected="true"] { color: var(--holo); border-bottom-color: var(--holo); }
+  .tabs button:hover { color: var(--text); }
+  .tabs button[aria-selected="true"] { color: #fff; background: linear-gradient(135deg, var(--holo), var(--violet)); }
 
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; font: 400 13px var(--body); color: var(--text-2); padding: 10px 10px 6px 0; }
   td { padding: 9px 10px 9px 0; border-top: 1px solid var(--grid); vertical-align: middle; }
   th.num, td.num { text-align: right; padding-right: 0; }
-  td.rank { width: 2.6em; font: 600 14px var(--display); color: var(--holo-dim); }
+  td.rank { width: 2.6em; font: 700 14px var(--display); color: var(--text-2); }
+  /* The podium is paid in gold. */
+  tr:nth-child(-n+3) td.rank { color: #ffd34d; }
   td.name { font-weight: 500; }
   td.amount { font: 600 16px var(--display); }
   td.share { width: 22%; }
-  .meter { height: 3px; background: var(--grid); }
-  .meter i { display: block; height: 100%; background: var(--holo); box-shadow: 0 0 8px var(--holo); transition: width .9s cubic-bezier(.2, .8, .2, 1); }
+  .meter { height: 4px; border-radius: 2px; overflow: hidden; background: var(--grid); }
+  .meter i { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--violet), var(--holo)); box-shadow: 0 0 8px var(--holo); transition: width .9s cubic-bezier(.2, .8, .2, 1); }
 
   /* A value that just changed glows in the direction it moved, then settles. */
   .rise { animation: rise 1.6s ease-out; }
@@ -408,10 +447,11 @@
   .tile {
     display: grid; place-items: center; aspect-ratio: 1;
     font: 600 15px var(--display);
-    border: 1px solid rgba(77, 255, 195, .25); color: rgba(77, 255, 195, .45);
+    border-radius: 6px;
+    border: 1px solid rgba(63, 240, 180, .25); color: rgba(63, 240, 180, .45);
   }
-  .tile.pressed { background: rgba(77, 255, 195, .18); border-color: var(--bull); color: var(--bull); }
-  .tile.mine { background: rgba(255, 84, 104, .16); border-color: var(--bear); color: var(--bear); }
+  .tile.pressed { background: rgba(63, 240, 180, .18); border-color: var(--bull); color: var(--bull); }
+  .tile.mine { background: rgba(255, 90, 138, .16); border-color: var(--bear); color: var(--bear); }
 
   /* --------------------------------------------------------- live dot */
   /* The price trace's newest point, marked as the live edge it is. */
@@ -429,7 +469,7 @@
   /* ---------------------------------------------------------- skyline */
   .skyline { grid-area: skyline; display: flex; flex-direction: column; }
   .skyline p, .pulse p { margin: 0 0 10px; font-size: 14px; color: var(--text-2); }
-  .skyline-box { position: relative; flex: 1; min-height: 380px; overflow: hidden; }
+  .skyline-box { position: relative; flex: 1; min-height: 380px; overflow: hidden; border-radius: 12px; }
   .skyline-box canvas, .pulse-box canvas { display: block; width: 100%; height: 100%; }
   /* Dragging sideways orbits the city; scrolling the page still works. */
   .skyline-box canvas { cursor: grab; touch-action: pan-y; }
@@ -438,7 +478,7 @@
   .skyline-tip {
     position: absolute; pointer-events: none; transform: translate(-50%, calc(-100% - 12px));
     padding: 6px 10px; white-space: nowrap;
-    background: rgba(4, 8, 13, .92); border: 1px solid var(--amber);
+    background: rgba(11, 7, 36, .92); border: 1px solid var(--amber); border-radius: 10px;
     font: 600 14px var(--display);
   }
   .skyline-tip span { display: block; font: 400 12px var(--body); color: var(--text-2); }
@@ -471,14 +511,15 @@
   .ticker {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
     height: 40px; display: flex; align-items: stretch;
-    background: rgba(4, 8, 13, .9); border-top: 1px solid var(--frame);
-    backdrop-filter: blur(6px);
+    background: rgba(11, 7, 36, .96); border-top: 1px solid var(--frame);
+    box-shadow: 0 -6px 24px rgba(79, 184, 255, .12);
   }
   .ticker-label {
     flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px;
-    font: 600 14px var(--display); color: var(--void); background: var(--holo);
+    font: 400 15px var(--brand); letter-spacing: .06em; color: #2a1600; background: var(--gold);
+    box-shadow: 0 0 18px rgba(255, 197, 61, .45);
   }
-  .ticker-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--void); animation: due 1s ease-in-out infinite alternate; }
+  .ticker-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #2a1600; animation: due 1s ease-in-out infinite alternate; }
   .ticker-lane {
     position: relative; flex: 1; overflow: hidden;
     mask-image: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
@@ -504,12 +545,24 @@
     100% { opacity: 1; clip-path: inset(0); }
   }
 
+  /* Every control answers a press: it sinks a pixel, so a click is felt
+     before the bot replies. The hold-to-arm button is left out; it fills. */
+  .who a, .who button, .range button, .tabs button, .switch button, .cancel, .present, .me .close {
+    transition-property: transform, background-color, color, border-color, box-shadow, filter, opacity;
+    transition-duration: .18s;
+  }
+  .who a:active, .who button:active, .range button:active, .tabs button:active,
+  .switch button:active:not(:disabled), .cancel:active, .present:active, .me .close:active {
+    transform: translateY(1px) scale(.97);
+  }
+
   @media (max-width: 1060px) {
     .hud { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "gauge" "trace" "supply" "conc" "skyline" "pulse" "left" "ledger" "tourney" "bounties" "games"; padding: 18px 16px 48px; }
     .gauge { width: min(100%, 440px); justify-self: center; }
   }
   @media (max-width: 560px) {
     .callsign small { display: none; }
+    .callsign span { font-size: 22px; }
     td.spark, th.spark, td.share, th.share { display: none; }
     .chart-box { min-height: 240px; }
   }
@@ -520,13 +573,14 @@
     .collapsible, body.presenting .collapsible, .readout .state { transition: none; }
     .live-dot::after, .timer.due b, .ticker-label::before { animation: none; }
     body.booting .bar, body.booting .frame { animation: none; }
+    body::before, body::after { animation: none; }
   }
 </style>
 </head>
 <body>
 <div class="hud">
   <header class="bar">
-    <h1 class="callsign">FLYCONOMY<small>Economy monitor</small></h1>
+    <h1 class="callsign"><span>FLYCONOMY<small>Economy monitor</small></span></h1>
     <div class="bar-right">
       <div class="range" role="group" aria-label="Time range for the charts">
         <button data-hours="3" aria-pressed="false">3 h</button>
@@ -595,7 +649,7 @@
 
   <section class="skyline frame" aria-labelledby="skyline-title">
     <h2 class="frame-title" id="skyline-title">Wealth skyline</h2>
-    <p>Each building is a member, as tall as their net worth. Blue windows are cash, the amber tower on top is Flyxcoin. Hover a roof's dot to see whose it is. A beam rises when a balance changes. Drag to look around.</p>
+    <p>Each building is a member, as tall as their net worth. Blue windows are cash, the gold tower on top is Flyxcoin. Hover a roof's dot to see whose it is. A beam rises when a balance changes. Drag to look around.</p>
     <div class="skyline-box"><canvas id="skyline" role="img" aria-label="A city of buildings, one per member, each as tall as that member's net worth, the richest in the middle of a wider city"></canvas><p class="skyline-median" id="skyline-median"></p><div class="skyline-tip" id="skyline-tip" hidden></div></div>
   </section>
 
@@ -1108,9 +1162,9 @@ const hudChart = {
     const top = y.getPixelForValue(m.anchor + spread), bottom = y.getPixelForValue(m.anchor - spread);
     const ctx = c.ctx;
     ctx.save();
-    ctx.fillStyle = "rgba(95, 212, 255, .06)";
+    ctx.fillStyle = "rgba(79, 184, 255, .06)";
     ctx.fillRect(left, top, right - left, bottom - top);
-    ctx.strokeStyle = "rgba(95, 212, 255, .35)";
+    ctx.strokeStyle = "rgba(79, 184, 255, .35)";
     ctx.setLineDash([2, 6]);
     const anchorY = y.getPixelForValue(m.anchor);
     ctx.beginPath(); ctx.moveTo(left, anchorY); ctx.lineTo(right, anchorY); ctx.stroke();
@@ -1147,8 +1201,8 @@ function timeLabel(seconds) {
 const fade = alpha => ({ chart: { ctx, chartArea } }) => {
   if (!chartArea) return;
   const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-  gradient.addColorStop(0, `rgba(95, 212, 255, ${alpha})`);
-  gradient.addColorStop(1, "rgba(95, 212, 255, 0)");
+  gradient.addColorStop(0, `rgba(79, 184, 255, ${alpha})`);
+  gradient.addColorStop(1, "rgba(79, 184, 255, 0)");
   return gradient;
 };
 
@@ -1173,9 +1227,9 @@ function renderChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: "rgba(4, 8, 13, .92)", borderColor: css("--amber"), borderWidth: 1,
-          titleColor: css("--text-2"), bodyColor: css("--text"), cornerRadius: 0, padding: 10, displayColors: false,
-          titleFont: { family: "Saira", size: 12 }, bodyFont: { family: "Chakra Petch", size: 16, weight: "600" },
+          backgroundColor: "rgba(11, 7, 36, .92)", borderColor: css("--amber"), borderWidth: 1,
+          titleColor: css("--text-2"), bodyColor: css("--text"), cornerRadius: 8, padding: 10, displayColors: false,
+          titleFont: { family: "Montserrat", size: 12 }, bodyFont: { family: "Montserrat", size: 16, weight: "600" },
           callbacks: {
             title: items => new Date(items[0].parsed.x * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }),
             label: item => money(item.parsed.y),
@@ -1185,12 +1239,12 @@ function renderChart() {
       scales: {
         x: {
           type: "linear", min: data[0]?.x, max: data[data.length - 1]?.x,
-          ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: timeLabel, font: { family: "Chakra Petch", size: 11 } },
+          ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: timeLabel, font: { family: "Montserrat", size: 11 } },
           grid: { color: css("--grid") }, border: { color: css("--frame") },
         },
         y: {
           position: "right",
-          ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: v => money(v), font: { family: "Chakra Petch", size: 11 } },
+          ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: v => money(v), font: { family: "Montserrat", size: 11 } },
           grid: { color: css("--grid") }, border: { display: false },
         },
       },
@@ -1241,12 +1295,12 @@ function axes(formatY, extraY = {}) {
   return {
     x: {
       type: "linear",
-      ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: timeLabel, font: { family: "Chakra Petch", size: 11 } },
+      ticks: { color: css("--text-2"), maxTicksLimit: 6, callback: timeLabel, font: { family: "Montserrat", size: 11 } },
       grid: { color: css("--grid") }, border: { color: css("--frame") },
     },
     y: {
       position: "right",
-      ticks: { color: css("--text-2"), maxTicksLimit: 5, callback: formatY, font: { family: "Chakra Petch", size: 11 } },
+      ticks: { color: css("--text-2"), maxTicksLimit: 5, callback: formatY, font: { family: "Montserrat", size: 11 } },
       grid: { color: css("--grid") }, border: { display: false },
       ...extraY,
     },
@@ -1255,9 +1309,9 @@ function axes(formatY, extraY = {}) {
 
 function tooltip(callbacks) {
   return {
-    backgroundColor: "rgba(4, 8, 13, .92)", borderColor: css("--frame"), borderWidth: 1,
-    titleColor: css("--text-2"), bodyColor: css("--text"), footerColor: css("--text"), cornerRadius: 0, padding: 10,
-    titleFont: { family: "Saira", size: 12 }, bodyFont: { family: "Chakra Petch", size: 13 }, footerFont: { family: "Chakra Petch", size: 14, weight: "600" },
+    backgroundColor: "rgba(11, 7, 36, .92)", borderColor: css("--frame"), borderWidth: 1,
+    titleColor: css("--text-2"), bodyColor: css("--text"), footerColor: css("--text"), cornerRadius: 8, padding: 10,
+    titleFont: { family: "Montserrat", size: 12 }, bodyFont: { family: "Montserrat", size: 13 }, footerFont: { family: "Montserrat", size: 14, weight: "600" },
     boxWidth: 10, boxHeight: 10, boxPadding: 4,
     callbacks: { title: items => new Date(items[0].parsed.x * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }), ...callbacks },
   };
@@ -1327,7 +1381,7 @@ const evenSplit = {
     ctx.setLineDash([3, 5]);
     ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
     ctx.fillStyle = css("--text-2");
-    ctx.font = "12px Saira";
+    ctx.font = "12px Montserrat";
     ctx.fillText("Even split", left + 6, y - 6);
     ctx.restore();
   },
@@ -1915,10 +1969,10 @@ const sky = (() => {
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     const scene = new THREE.Scene(), night = new THREE.Color(css("--void"));
     renderer.setClearColor(night);
-    // Gotham's sky: black overhead, warming to a sodium haze at the horizon.
+    // Flyconomy's sky: night overhead, warming to a violet haze at the horizon.
     // The haze is also the fog's colour, so the far city dissolves into the
     // glow rather than stopping at an edge.
-    const haze = new THREE.Color(0x262123), high = new THREE.Color(0x0e1824), tone = new THREE.Color();
+    const haze = new THREE.Color(0x2b1a55), high = new THREE.Color(0x170e40), tone = new THREE.Color();
     const dome = new THREE.SphereGeometry(300, 32, 16), tones = [];
     for (let i = 0; i < dome.attributes.position.count; i++) {
       const up = Math.max(0, dome.attributes.position.getY(i) / 300);
@@ -1933,19 +1987,19 @@ const sky = (() => {
     // Searchlights sweeping the sky from the far side of town.
     const cone = new THREE.ConeGeometry(2.2, 70, 24, 1, true).rotateX(Math.PI).translate(0, 35, 0);
     const searchlights = [0.5, 2.6, 4.4].map((a, i) => {
-      const light = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({ color: 0xd8ecff, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      const light = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({ color: 0xc9b5ff, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
       light.position.set(Math.cos(a) * 40, 0, Math.sin(a) * 40);
       light.userData.phase = i * 2.1;
       return light;
     });
     scene.add(new THREE.HemisphereLight(css("--holo"), night, 0.25));
-    const moon = new THREE.DirectionalLight(0xbfe6ff, 0.35);
+    const moon = new THREE.DirectionalLight(0xc7b8ff, 0.35);
     moon.position.set(-30, 40, 20);
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x03070b }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x06031a }));
     ground.rotation.x = -Math.PI / 2;
     // Each block sits on a pavement a shade lighter than the road around it.
-    const side = 3 * LOT, pads = new THREE.InstancedMesh(new THREE.PlaneGeometry(side, side).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x0b1724 }), (2 * BLOCKS + 1) ** 2);
+    const side = 3 * LOT, pads = new THREE.InstancedMesh(new THREE.PlaneGeometry(side, side).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x140c36 }), (2 * BLOCKS + 1) ** 2);
     const place = new THREE.Matrix4();
     let n = 0;
     for (let bx = -BLOCKS; bx <= BLOCKS; bx++) for (let bz = -BLOCKS; bz <= BLOCKS; bz++) pads.setMatrixAt(n++, place.makeTranslation(lotAt(3 * bx), 0.005, lotAt(3 * bz)));
@@ -1959,7 +2013,7 @@ const sky = (() => {
     roadGeo.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
     lampGeo.setAttribute("position", new THREE.Float32BufferAttribute(lamps, 3));
     const roads = new THREE.LineSegments(roadGeo, new THREE.LineBasicMaterial({ color: css("--holo-dim"), transparent: true, opacity: 0.35 }));
-    const streetLamps = new THREE.Points(lampGeo, new THREE.PointsMaterial({ color: 0xffc27a, size: 2, sizeAttenuation: false, transparent: true, opacity: 0.8 }));
+    const streetLamps = new THREE.Points(lampGeo, new THREE.PointsMaterial({ color: 0xffc53d, size: 2, sizeAttenuation: false, transparent: true, opacity: 0.8 }));
 
     const stars = new THREE.BufferGeometry(), at = [];
     for (let i = 0; i < 500; i++) {
@@ -2009,8 +2063,8 @@ const sky = (() => {
       camera: new THREE.PerspectiveCamera(36, 1, 0.1, 500),
       box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
       beam: new THREE.CylinderGeometry(1, 1, 1, 16, 1, true).translate(0, 0.5, 0),
-      roof: new THREE.MeshLambertMaterial({ color: 0x0a1520 }),
-      town: new THREE.MeshLambertMaterial({ color: 0x16212c, emissive: 0xffd9a0, emissiveMap: windows, emissiveIntensity: 0.6 }),
+      roof: new THREE.MeshLambertMaterial({ color: 0x110a2e }),
+      town: new THREE.MeshLambertMaterial({ color: 0x1c1240, emissive: 0xffd9a0, emissiveMap: windows, emissiveIntensity: 0.6 }),
     };
   } catch (error) {
     // No WebGL (or no three.js): say so rather than leave a blank panel.
@@ -2067,7 +2121,7 @@ function addBuilding(id) {
     const map = sky.windows.clone();
     map.needsUpdate = true;
     map.offset.set(Math.random(), Math.random());
-    return new THREE.MeshLambertMaterial({ color: 0x0c1824, emissive: colour, emissiveMap: map });
+    return new THREE.MeshLambertMaterial({ color: 0x120b30, emissive: colour, emissiveMap: map });
   };
   const cashMat = facade(css("--holo")), coinMat = facade(css("--amber"));
   const base = new THREE.Mesh(sky.box, walls(cashMat));
