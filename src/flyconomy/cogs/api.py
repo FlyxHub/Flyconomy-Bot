@@ -74,7 +74,7 @@ PAGE_RESOURCE: Final = "data/dashboard.html"
 #: The casino floor members play on, served at ``/play``.
 CASINO_RESOURCE: Final = "data/casino.html"
 
-#: The logo and banner both pages show, served at ``/brand/<name>``.
+#: The banner over the casino door, served at ``/brand/<name>``.
 BRAND_DIR: Final = "data/brand"
 
 #: The slice of members whose share of the money the dashboard tracks.
@@ -206,7 +206,7 @@ class Api(BaseCog, name="Api"):
 
         brand = {
             name: (resources.files("flyconomy") / BRAND_DIR / name).read_bytes()
-            for name in ("logo.webp", "banner.webp")
+            for name in ("banner.webp",)
         }
 
         async def brand_image(request: web.Request) -> web.Response:

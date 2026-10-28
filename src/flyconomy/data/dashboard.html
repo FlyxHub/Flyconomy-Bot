@@ -11,7 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js" integrity="sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R" crossorigin="anonymous"></script>
 <style>
-  /* Flyconomy after dark, from the logo: a violet night over the city, gold
+  /* Flyconomy after dark, from the banner: a violet night over the city, gold
      for money and for anything that acts, electric blue for the neon that
      frames it. Mint and pink mean a run is moving the market. */
   :root {
@@ -112,17 +112,13 @@
   .bar {
     grid-area: bar;
     display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-    padding: 10px 18px 10px 10px;
+    padding: 12px 18px;
     border: 1px solid var(--frame);
     border-radius: 18px;
     background: var(--glass);
     box-shadow: 0 0 24px rgba(79, 184, 255, .14), inset 0 0 0 1px rgba(255, 255, 255, .03);
   }
   .callsign { display: flex; align-items: center; gap: 14px; margin: 0; }
-  .callsign img {
-    width: 56px; height: 56px; border-radius: 14px;
-    box-shadow: 0 0 0 1px rgba(255, 211, 77, .6), 0 0 18px rgba(139, 92, 246, .55);
-  }
   .callsign span {
     display: grid; gap: 4px;
     font: 400 28px/1 var(--brand); letter-spacing: .03em;
@@ -566,7 +562,6 @@
   }
   @media (max-width: 560px) {
     .callsign small { display: none; }
-    .callsign img { width: 44px; height: 44px; border-radius: 11px; }
     .callsign span { font-size: 22px; }
     td.spark, th.spark, td.share, th.share { display: none; }
     .chart-box { min-height: 240px; }
@@ -585,7 +580,7 @@
 <body>
 <div class="hud">
   <header class="bar">
-    <h1 class="callsign"><img src="/brand/logo.webp?v=3" alt="" width="56" height="56" decoding="async"><span>FLYCONOMY<small>Economy monitor</small></span></h1>
+    <h1 class="callsign"><span>FLYCONOMY<small>Economy monitor</small></span></h1>
     <div class="bar-right">
       <div class="range" role="group" aria-label="Time range for the charts">
         <button data-hours="3" aria-pressed="false">3 h</button>
