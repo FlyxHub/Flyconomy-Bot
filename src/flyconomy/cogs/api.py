@@ -84,6 +84,11 @@ TOP_FRACTION: Final = 0.10
 #: community server; the cap only stops a huge one bloating a five-second poll.
 MEMBERS_SHOWN: Final = 300
 
+#: The most rows each leaderboard sends. The page shows as many as fit the
+#: panel, never fewer than ``LEADERBOARD_SIZE``, so this only needs to cover
+#: the tallest the owner's column makes it.
+LEDGER_ROWS: Final = 25
+
 #: The longest history one request may ask for. A season of hourly snapshots
 #: across a server's worth of members is far more than a chart can show.
 _MAX_HISTORY_HOURS: Final = 24 * 31
@@ -606,9 +611,9 @@ class Api(BaseCog, name="Api"):
             "tournament": await self._tournament(),
             "circulating": await self.db.total_crypto(),
             "leaderboards": {
-                "net_worth": self._board(await self.db.top_net_worth()),
-                "wallet": self._board(await self.db.top_wallets()),
-                "crypto": self._board(await self.db.top_crypto(economy.LEADERBOARD_SIZE)),
+                "net_worth": self._board(await self.db.top_net_worth(LEDGER_ROWS)),
+                "wallet": self._board(await self.db.top_wallets(LEDGER_ROWS)),
+                "crypto": self._board(await self.db.top_crypto(LEDGER_ROWS)),
             },
         }
         if viewer.admin:
