@@ -32,9 +32,10 @@
     --card-red: #c4122f;
     --ink: #120a2e;
     --error: #ffb45e;
-    --glow: 0 2px 0 #6b3d00, 0 0 18px rgba(255, 197, 61, .45);
+    --glow: 0 2px 0 rgba(74, 42, 0, .85);
     --tube-box: 0 0 0 1px #8fd3ff, 0 0 12px var(--neon), 0 0 36px rgba(79, 184, 255, .3), inset 0 0 18px rgba(79, 184, 255, .2);
     --city: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='200'%3E%3Cg fill='%23170d42'%3E%3Crect x='0' y='96' width='40' height='104'/%3E%3Crect x='44' y='52' width='32' height='148'/%3E%3Crect x='56' y='34' width='8' height='18'/%3E%3Crect x='80' y='120' width='46' height='80'/%3E%3Crect x='130' y='28' width='28' height='172'/%3E%3Crect x='162' y='84' width='42' height='116'/%3E%3Crect x='208' y='130' width='32' height='70'/%3E%3Crect x='244' y='62' width='36' height='138'/%3E%3Crect x='284' y='108' width='48' height='92'/%3E%3Crect x='336' y='18' width='26' height='182'/%3E%3Crect x='346' y='0' width='4' height='18'/%3E%3Crect x='366' y='76' width='40' height='124'/%3E%3Crect x='410' y='124' width='44' height='76'/%3E%3Crect x='458' y='48' width='62' height='152'/%3E%3C/g%3E%3Cg fill='%23ffc53d' opacity='.55'%3E%3Crect x='52' y='70' width='4' height='6'/%3E%3Crect x='64' y='96' width='4' height='6'/%3E%3Crect x='138' y='50' width='4' height='6'/%3E%3Crect x='146' y='90' width='4' height='6'/%3E%3Crect x='252' y='84' width='4' height='6'/%3E%3Crect x='344' y='44' width='4' height='6'/%3E%3Crect x='470' y='70' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%234fb8ff' opacity='.5'%3E%3Crect x='172' y='100' width='4' height='6'/%3E%3Crect x='186' y='130' width='4' height='6'/%3E%3Crect x='296' y='126' width='4' height='6'/%3E%3Crect x='378' y='96' width='4' height='6'/%3E%3Crect x='492' y='110' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%23d36bff' opacity='.5'%3E%3Crect x='12' y='116' width='4' height='6'/%3E%3Crect x='96' y='140' width='4' height='6'/%3E%3Crect x='420' y='144' width='4' height='6'/%3E%3C/g%3E%3C/svg%3E");
+    --city-far: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='200'%3E%3Cg fill='%23231560'%3E%3Crect x='0' y='96' width='40' height='104'/%3E%3Crect x='44' y='52' width='32' height='148'/%3E%3Crect x='56' y='34' width='8' height='18'/%3E%3Crect x='80' y='120' width='46' height='80'/%3E%3Crect x='130' y='28' width='28' height='172'/%3E%3Crect x='162' y='84' width='42' height='116'/%3E%3Crect x='208' y='130' width='32' height='70'/%3E%3Crect x='244' y='62' width='36' height='138'/%3E%3Crect x='284' y='108' width='48' height='92'/%3E%3Crect x='336' y='18' width='26' height='182'/%3E%3Crect x='346' y='0' width='4' height='18'/%3E%3Crect x='366' y='76' width='40' height='124'/%3E%3Crect x='410' y='124' width='44' height='76'/%3E%3Crect x='458' y='48' width='62' height='152'/%3E%3C/g%3E%3Cg fill='%23ffc53d' opacity='.3'%3E%3Crect x='52' y='70' width='4' height='6'/%3E%3Crect x='64' y='96' width='4' height='6'/%3E%3Crect x='138' y='50' width='4' height='6'/%3E%3Crect x='146' y='90' width='4' height='6'/%3E%3Crect x='252' y='84' width='4' height='6'/%3E%3Crect x='344' y='44' width='4' height='6'/%3E%3Crect x='470' y='70' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%234fb8ff' opacity='.25'%3E%3Crect x='172' y='100' width='4' height='6'/%3E%3Crect x='186' y='130' width='4' height='6'/%3E%3Crect x='296' y='126' width='4' height='6'/%3E%3Crect x='378' y='96' width='4' height='6'/%3E%3Crect x='492' y='110' width='4' height='6'/%3E%3C/g%3E%3Cg fill='%23d36bff' opacity='.25'%3E%3Crect x='12' y='116' width='4' height='6'/%3E%3Crect x='96' y='140' width='4' height='6'/%3E%3Crect x='420' y='144' width='4' height='6'/%3E%3C/g%3E%3C/svg%3E");
     --sign: "Russo One", system-ui, sans-serif;
     --body: "Montserrat", system-ui, sans-serif;
     --ease: cubic-bezier(.2, .7, .2, 1);
@@ -60,12 +61,26 @@
     background-size: 560px 420px, 560px 420px, 560px 420px, 560px 420px, auto, auto, auto;
     background-attachment: fixed;
   }
-  /* The skyline from the logo along the foot of the window, behind the floor. */
-  body::after {
-    content: ""; position: fixed; left: 0; right: 0; bottom: 0; z-index: -1; height: 200px; pointer-events: none;
-    background: var(--city) repeat-x left bottom / 520px 200px;
-    opacity: .8;
+  /* The city along the foot of the window, in two rows drifting left at
+     different speeds, so the far skyline slides behind the near one. Each row
+     is one tile wider than the window and travels exactly one tile, so the
+     loop has no seam, and it moves by transform alone, so it costs no repaint. */
+  body::before, body::after {
+    content: ""; position: fixed; left: 0; bottom: 0; z-index: -1; pointer-events: none;
+    background-repeat: repeat-x; background-position: left bottom;
+    animation: drift var(--drift) linear infinite;
   }
+  body::before {
+    --tile: 740px; --drift: 160s;
+    width: calc(100% + var(--tile)); height: 280px;
+    background-image: var(--city-far); background-size: var(--tile) 280px;
+  }
+  body::after {
+    --tile: 520px; --drift: 80s;
+    width: calc(100% + var(--tile)); height: 200px;
+    background-image: var(--city); background-size: var(--tile) 200px;
+  }
+  @keyframes drift { to { transform: translateX(calc(-1 * var(--tile))); } }
   button, input, select { font: inherit; color: inherit; }
   button { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
@@ -109,10 +124,9 @@
     position: sticky; top: 0; z-index: 20;
     display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px;
     padding: 10px max(16px, calc((100% - 1200px) / 2));
-    background: rgba(11, 7, 36, .82);
+    background: rgba(11, 7, 36, .96);
     border-bottom: 1px solid rgba(79, 184, 255, .35);
     box-shadow: 0 6px 24px rgba(79, 184, 255, .12);
-    backdrop-filter: blur(10px);
   }
   .brand { margin: 0; font: 400 24px/1 var(--sign); }
   .brand a { display: flex; align-items: center; gap: 12px; color: var(--tube); text-shadow: var(--glow); text-decoration: none; }
@@ -190,7 +204,7 @@
   .table h3 {
     align-self: center; margin: 0; font: 400 clamp(36px, 5vw, 52px)/1.05 var(--sign); letter-spacing: .02em;
     background: var(--gold); -webkit-background-clip: text; background-clip: text; color: transparent;
-    filter: drop-shadow(0 3px 0 #4a2a00) drop-shadow(0 0 16px rgba(255, 197, 61, .35));
+    filter: drop-shadow(0 3px 0 #4a2a00);
   }
   .table .odds { margin: -4px auto 0; max-width: 60ch; font-size: 15px; color: var(--dim); }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
@@ -231,7 +245,7 @@
   .btn.quiet:hover:not(:disabled) { filter: none; border-color: var(--neon); box-shadow: 0 0 12px var(--haze); }
   .btn.quiet[aria-pressed="true"] { border-color: var(--neon); color: #fff; background: rgba(79, 184, 255, .2); box-shadow: 0 0 14px var(--haze); }
   .verdict { min-height: 1.55em; margin: 0; font-weight: 600; }
-  .verdict.win { color: var(--tube); text-shadow: 0 0 10px var(--neon); }
+  .verdict.win { color: var(--tube); }
   .verdict.lose { color: var(--dim); }
   .verdict.error { color: var(--error); }
   input.field, select.pick {
@@ -294,7 +308,7 @@
   #t-blackjack .arc { margin: 0; font: 400 20px var(--sign); color: rgba(255, 211, 77, .8); }
 
   /* ------------------------------------------------------------ roulette */
-  .wheel-box { position: relative; width: min(300px, 100%); margin: 4px auto; aspect-ratio: 1; filter: drop-shadow(0 0 24px rgba(79, 184, 255, .3)); }
+  .wheel-box { position: relative; width: min(300px, 100%); margin: 4px auto; aspect-ratio: 1; border-radius: 50%; box-shadow: 0 0 28px rgba(79, 184, 255, .3); }
   .wheel-box svg { width: 100%; height: 100%; overflow: visible; }
   .pointer { position: absolute; left: 50%; top: -8px; z-index: 1; width: 0; height: 0; transform: translateX(-50%); border: 7px solid transparent; border-top: 14px solid var(--tube); filter: drop-shadow(0 0 4px var(--neon)); }
 
