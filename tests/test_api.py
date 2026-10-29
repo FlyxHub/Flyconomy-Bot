@@ -502,6 +502,56 @@ class TestSignIn:
 
         assert (ok.status, elsewhere.status) == (200, 421)
 
+    async def test_a_plain_http_visitor_is_sent_to_https(self, db):
+        settings = Settings(
+            discord_token="placeholder",
+            dashboard_enabled=True,
+            dashboard_client_secret="hush",
+            dashboard_url="https://dash.example.com",
+        )
+        cog = Api(FakeApiBot(db, settings))  # type: ignore[arg-type]
+        host = {"Host": "dash.example.com"}
+        async with test_utils.TestClient(test_utils.TestServer(cog.make_app())) as client:
+            sign_in(cog, client, OWNER)
+            plain = await client.get(
+                "/api/history?hours=2",
+                headers=host | {"X-Forwarded-Proto": "http"},
+                allow_redirects=False,
+            )
+            tls = await client.get("/api/overview", headers=host | {"X-Forwarded-Proto": "https"})
+
+        assert plain.status == 308
+        assert plain.headers["Location"] == "https://dash.example.com/api/history?hours=2"
+        assert tls.status == 200
+        assert "max-age" in tls.headers["Strict-Transport-Security"]
+
+    @pytest.mark.parametrize(
+        ("url", "allowed"),
+        [
+            ("https://dash.example.com", True),
+            ("http://localhost:8765", True),
+            ("http://127.0.0.1:8765", True),
+            ("http://[::1]:8765", True),
+            ("http://10.0.0.64:8765", False),
+            ("http://dash.example.com", False),
+            ("http://localhost.example.com", False),
+        ],
+    )
+    def test_the_dashboard_will_not_send_its_cookie_in_the_clear(self, url, allowed):
+        def make() -> Settings:
+            return Settings(
+                discord_token="placeholder",
+                dashboard_enabled=True,
+                dashboard_client_secret="hush",
+                dashboard_url=url,
+            )
+
+        if allowed:
+            make()
+        else:
+            with pytest.raises(ValueError, match="https"):
+                make()
+
     def test_the_dashboard_will_not_start_without_a_way_to_sign_in(self):
         with pytest.raises(ValueError, match="dashboard_client_secret"):
             Settings(discord_token="placeholder", dashboard_enabled=True)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -250,6 +252,23 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def _check_dashboard_is_encrypted(self) -> Settings:
+        """Refuse a dashboard that would send its session cookie in the clear.
+
+        Plain HTTP is only allowed to this machine's own loopback address, where
+        nothing sits between the browser and the bot to read the cookie.
+        """
+        url = urlsplit(self.dashboard_url)
+        local = url.scheme == "http" and _is_loopback(url.hostname or "")
+        if self.dashboard_enabled and url.scheme != "https" and not local:
+            msg = (
+                "dashboard_url must be https:// unless it is this machine's loopback "
+                f"address, not {self.dashboard_url}"
+            )
+            raise ValueError(msg)
+        return self
+
     @field_validator("always_mine_user_ids", mode="before")
     @classmethod
     def _split_ids(cls, value: object) -> object:
@@ -296,3 +315,13 @@ def load_settings() -> Settings:
     """
     # Field values come from the environment, not from arguments.
     return Settings()
+
+
+def _is_loopback(host: str) -> bool:
+    """Whether ``host`` names this machine's loopback interface, and nothing else."""
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False

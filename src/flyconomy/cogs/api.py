@@ -225,12 +225,20 @@ class Api(BaseCog, name="Api"):
             )
 
         public_host = urlsplit(self.settings.dashboard_url).netloc.lower()
+        encrypted = self.settings.dashboard_url.startswith("https://")
 
         @web.middleware
         async def guard(request: web.Request, handler: Handler) -> web.StreamResponse:
             """Refuse a rebound hostname, demand a sign-in, and forbid framing the page."""
             if request.host.lower() != public_host and not is_local_host(request.host):
                 raise web.HTTPMisdirectedRequest(text="open the dashboard at its own address")
+            # The tunnel to the bot is plain HTTP whatever the visitor used, so
+            # the proxy in front says which it was. Sent back to dashboard_url
+            # rather than the Host header, so a forged one goes nowhere.
+            if encrypted and request.headers.get("X-Forwarded-Proto") == "http":
+                raise web.HTTPPermanentRedirect(
+                    self.settings.dashboard_url.rstrip("/") + request.path_qs
+                )
             if request.path not in _SIGN_IN_PATHS:
                 session = self._sessions.get(request.cookies.get(SESSION_COOKIE, ""))
                 if session is None or session[1] < time.time():
@@ -244,6 +252,9 @@ class Api(BaseCog, name="Api"):
             response = await handler(request)
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+            if encrypted:
+                # A browser that has seen this never tries plain HTTP again.
+                response.headers["Strict-Transport-Security"] = "max-age=31536000"
             return response
 
         app = web.Application(middlewares=[guard])
@@ -283,6 +294,7 @@ class Api(BaseCog, name="Api"):
             max_age=age,
             httponly=True,
             samesite="Lax",
+            # Settings refuse plain HTTP anywhere but loopback.
             secure=self.settings.dashboard_url.startswith("https://"),
         )
 

@@ -331,36 +331,40 @@ always get this view and have no button.
 The bot serves the dashboard itself, on port 8765, so there is nothing else
 to run. On the bot host:
 
-1. In the [Developer Portal](https://discord.com/developers/applications),
+1. Put HTTPS in front of port 8765 with a Cloudflare Tunnel or a reverse
+   proxy on the bot host, pointed at `http://localhost:8765`. The hop from the
+   tunnel to the bot stays on this machine, so it can be plain HTTP.
+2. In the [Developer Portal](https://discord.com/developers/applications),
    open the bot's application, go to **OAuth2**, copy the **Client Secret**,
-   and add a redirect of `http://192.168.1.50:8765/callback`, using the
-   host's own LAN address.
-2. Add these to `.env`:
+   and add a redirect of `https://dash.example.com/callback`, using the
+   dashboard's public address.
+3. Add these to `.env`:
 
    ```
    FLYCONOMY_DASHBOARD_ENABLED=true
    FLYCONOMY_DASHBOARD_CLIENT_SECRET=<the client secret>
-   FLYCONOMY_DASHBOARD_URL=http://192.168.1.50:8765
-   FLYCONOMY_API_BIND=192.168.1.50
+   FLYCONOMY_DASHBOARD_URL=https://dash.example.com
    ```
 
-3. Run `./scripts/deploy.sh`.
-4. Open `http://192.168.1.50:8765` and sign in with Discord.
+4. Run `./scripts/deploy.sh`.
+5. Open `https://dash.example.com` and sign in with Discord.
 
 The bot refuses to start with the dashboard on and no client secret, rather
-than serve it without a sign-in. Leave `FLYCONOMY_API_BIND` at its default of
-`127.0.0.1` and the dashboard is reachable only from the bot host itself.
+than serve it without a sign-in. It also refuses a `FLYCONOMY_DASHBOARD_URL`
+that is plain `http://` anywhere but `localhost` or `127.0.0.1`, because the
+session cookie would then cross the network unencrypted and anyone in between
+could sign in as whoever it belongs to. Leave `FLYCONOMY_API_BIND` at its
+default of `127.0.0.1`, so the tunnel is the only way in from outside.
+
+A visitor who reaches the public address over plain HTTP is redirected to
+HTTPS (the proxy's `X-Forwarded-Proto` header says which they used), and every
+page carries `Strict-Transport-Security`, so their browser never tries plain
+HTTP again.
 
 Sign-ins last a week and are kept in memory, so restarting the bot signs
 everyone out. Signing back in is one redirect, since Discord remembers that
 you agreed the first time. Whether someone is the owner or a member is checked
 on every request, so leaving the server locks them out at once.
-
-Don't publish it on an internet-facing address yet. It speaks plain HTTP, so
-anyone between a visitor and the bot could read their session cookie and use
-it. Put HTTPS in front first, with a reverse proxy or a tunnel, and set
-`FLYCONOMY_DASHBOARD_URL` to the `https://` address so the cookie is only
-ever sent encrypted.
 
 The dashboard answers to the host in `FLYCONOMY_DASHBOARD_URL`, an IP address,
 `localhost`, a bare machine name, or a `.local` name, and refuses any other
@@ -434,7 +438,7 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_ALWAYS_MINE_USER_IDS` | No | Empty | Comma-separated user IDs whose mine attempts always succeed. |
 | `FLYCONOMY_DASHBOARD_ENABLED` | No | `false` | Serves the [dashboard](#run-the-dashboard) on port 8765. Needs the two settings below. |
 | `FLYCONOMY_DASHBOARD_CLIENT_SECRET` | With the dashboard | None | The OAuth2 client secret of the bot's application, for the Discord sign-in. |
-| `FLYCONOMY_DASHBOARD_URL` | No | `http://localhost:8765` | The address the dashboard is opened at. `<this>/callback` must be a redirect in the Developer Portal. |
+| `FLYCONOMY_DASHBOARD_URL` | No | `http://localhost:8765` | The address the dashboard is opened at. Must be `https://` unless it is `localhost`. `<this>/callback` must be a redirect in the Developer Portal. |
 | `FLYCONOMY_API_HOST` | No | `127.0.0.1` | Interface the dashboard listens on. Compose sets `0.0.0.0` inside the container. |
 | `FLYCONOMY_API_BIND` | No | `127.0.0.1` | Compose only: the host interface the dashboard is published on. |
 

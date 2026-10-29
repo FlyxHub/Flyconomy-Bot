@@ -104,7 +104,9 @@ the role is worked out on every request in `Api._viewer`: `bot.is_owner` — the
 refused at the callback rather than on the next page load, which would loop through Discord.
 Sessions are an in-memory dict, so a restart signs everyone out. The `Host` allow-list
 (`dashboard_url`'s host plus `is_local_host`) and the no-framing headers stay as a second lock
-behind the session cookie. Three things are load-bearing.
+behind the session cookie. `Settings` refuses a plain-`http://` `dashboard_url` anywhere but
+loopback, since the cookie is only `Secure` over HTTPS; the tunnel in front is what speaks it, so
+the guard redirects on the proxy's `X-Forwarded-Proto` and sends HSTS. Three things are load-bearing.
 **A member's overview leaves out the regime, `ticks_left`, and the live mines boards on the
 server**; the page's presenting mode only tidies away the empty panels. The regime is what the
 rule under Anti-abuse forbids anywhere a member can see, and a face-up board is a solved one, so
