@@ -74,8 +74,8 @@ classic prefix command, such as `$balance`.
 - **Tic-tac-toe.** Played against another member for money, on a board made of
   buttons. The only game of skill here, and the only one where you are playing
   a person rather than the house.
-- **Lottery.** A pot fed by entry fees and a share of the casino's winnings,
-  drawn on a schedule. One entry each, so everyone has the same chance.
+- **Lottery.** A pot fed by entry fees, a share of the casino's winnings, and
+  half the tax on every `pay` transfer, drawn on a schedule. One entry each, so everyone has the same chance.
 - **Weekly tournament.** Members buy in, and the best net result at the house's
   games over the week takes the pot. Player-funded, so it only redistributes.
 - **Bounties.** Pay to have someone robbed: the next successful `rob` against
@@ -92,8 +92,8 @@ classic prefix command, such as `$balance`.
 You need the following:
 
 - **Python 3.13 or later.** Download it from
-  [python.org](https://www.python.org/downloads/). The bot is developed and
-  tested against Python 3.14.
+  [python.org](https://www.python.org/downloads/). The Docker image runs
+  Python 3.14.
 - **A Discord application** with a bot user. The next section walks you through
   creating one.
 - **Docker Engine 24 or later** with the Compose plugin, if you plan to deploy
@@ -424,7 +424,7 @@ working directory. Every variable is prefixed with `FLYCONOMY_`.
 | `FLYCONOMY_LOTTERY_TICKET_PRICE` | No | `10000` | Cost of one lottery entry. |
 | `FLYCONOMY_LOTTERY_RAKE` | No | `0.25` | Share of the casino's net winnings added to the pot. |
 | `FLYCONOMY_LOTTERY_DRAW_TIME` | No | `18:00` | 24-hour clock time the lottery draws each day, in `FLYCONOMY_TIMEZONE`. |
-| `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` | No | None | Channel for the bot's announcements: each draw's winner, and the daily interest run. Unset skips them. |
+| `FLYCONOMY_LOTTERY_ANNOUNCE_CHANNEL_ID` | No | None | Channel for the bot's announcements: each draw's winner, the daily interest run, server events, the tournament result, and deposits, withdrawals, big results, and jackpot rounds from the casino page. Unset skips them, and turns off spontaneous events and jackpots opened from the page. |
 | `FLYCONOMY_CREATOR_TAX_RATE` | No | `0.05` | Share of the casino's net winnings paid to `FLYCONOMY_CREATOR_TAX_USER_ID`, carved out of the share the lottery rake leaves for destruction. |
 | `FLYCONOMY_CREATOR_TAX_USER_ID` | No | None | The creator: credited with the creator tax, and DMed when a Flyxcoin run starts. Unset disables both, regardless of the rate. |
 | `FLYCONOMY_TRANSFER_TAX_RATE` | No | `0.05` | Share of a `pay` transfer withheld as tax. Half feeds the lottery pot, half goes to `FLYCONOMY_CREATOR_TAX_USER_ID`. Capped at `0.5`. |
@@ -493,7 +493,7 @@ Every game stakes money from your wallet.
 | `blackjack <bet>` | Deals a hand against the dealer, with buttons to hit, stand, or double down. Alias: `bj`. |
 | `crash <bet>` | A multiplier climbs from 1.00x. Press Cash Out before it crashes to lock in the payout. |
 | `mines <bet> [mines]` | Turn over tiles on a 4x4 board for a rising multiplier. One mine ends the round. Not to be confused with `mine`, which mines Flyxcoin. |
-| `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x. Cooldown: 5 minutes. Alias: `slot`. |
+| `slots <bet>` | Spins three reels. Three of a kind returns 9x to 55x, and exactly two stars or two gems returns 2x. Cooldown: 5 minutes, shared with the casino page. Alias: `slot`. |
 | `war <bet>` | Draws a card against the dealer. The higher card returns 2x, and a tie is returned. |
 | `jackpot <ante>` | Antes into a shared pot that anyone can join for 60 seconds. One entrant wins it all. Alias: `jp`. |
 | `tictactoe [member] <bet>` | Challenges a member to best-of-three tic-tac-toe, or leaves the offer open to anyone. Alias: `ttt`. |
@@ -592,8 +592,8 @@ cut raked like any other house take.
   qualifier stops an entrant who never plays from winning on a score of zero.
 - **A `resetme` forfeits your entry**, like anything else you have in play.
 
-A week the bot was down for is settled the next night it runs. That catch-up
-is safe here, unlike for the interest, because the pot is only its own fees.
+A week that ended while the bot was down is settled as soon as it starts
+again. That catch-up is safe here, unlike for the interest, because the pot is only its own fees.
 
 As a slash command, the bare `tournament` form is `/tournament info`.
 
@@ -629,7 +629,8 @@ grabbing a supply drop, a top-level miner or wallet security, holding 100
 Flyxcoin, and reaching $1,000,000 and $1,000,000,000 in net worth.
 
 - **They unlock on their own.** The bot checks after every command and every
-  button round, and announces a new badge in that channel.
+  button round, and announces a new badge in the channel it was earned in. A
+  badge earned on the casino page is shown on the page instead.
 - **`balance` shows them as emoji.** The dashboard's profile panel lists every
   badge with what earns it and how close the viewer is, behind the **Profile** button.
 - **They pay nothing.** Several can be farmed with a second account, which is
@@ -1058,14 +1059,15 @@ no transfer tax is the tool that fixes it.
 
 ### The lottery
 
-A pot that redistributes money rather than creating it. It is fed from two
-places, and both matter:
+A pot that redistributes money rather than creating it. It is fed from three
+places:
 
 - **Entry fees.** One entry per member per draw, at
   `FLYCONOMY_LOTTERY_TICKET_PRICE`. The money sits in the pot until it is won.
 - **A rake on the casino's net winnings**, `FLYCONOMY_LOTTERY_RAKE`, defaulting
   to a quarter. The other three quarters are still destroyed, so the casino
   stays a money sink.
+- **Half the tax on every `pay` transfer.** See [Transfers](#transfers).
 
 A draw runs daily at `FLYCONOMY_LOTTERY_DRAW_TIME` (in `FLYCONOMY_TIMEZONE`) and
 pays one entrant, picked uniformly. With nobody entered the pot rolls over
@@ -1313,6 +1315,10 @@ The suite is organized by concern:
 | `test_cog_behavior.py` | The command bodies, against a real database. |
 | `test_admin_and_startup.py` | Owner commands, logging, and process exit codes. |
 | `test_config.py`, `test_bot.py` | Settings validation and error message translation. |
+| `test_api.py` | The dashboard and casino page: sign-in, what a member is never sent, and every web game going through the casino's own code. |
+| `test_events.py` | Server events, and that a quiet server rolls exactly as it would without them. |
+| `test_achievements.py` | The badge catalogue, the career counters, and awarding. |
+| `test_tournament.py` | The weekly tournament: scoring, qualifying, and settling each week once. |
 
 ### Add a command
 
@@ -1349,14 +1355,16 @@ src/flyconomy/
 ├── jackpot.py        The jackpot ruleset, also free of any discord import
 ├── tictactoe.py      The tic-tac-toe ruleset, also free of any discord import
 ├── tournament.py     The weekly tournament's rules, also free of any discord import
+├── events.py         The server events' rules, also free of any discord import
+├── achievements.py   The badge catalogue, also free of any discord import
 ├── economy.py        Every tunable number and the pure rules that use them
 ├── guide.py          Splits the member guide into messages, free of any discord import
 ├── embeds.py         Message and embed builders
 ├── errors.py         Exceptions the bot raises deliberately
 ├── logging_config.py Logging setup
 ├── ratelimit.py      A sliding window limiter, with an injectable clock
-├── views.py          Interactive buttons: the blackjack table, the crash round, the mines board, the jackpot, and a match board
-├── data/             Package data: the member guide the bot publishes, and the dashboard page
+├── views.py          Interactive buttons: the blackjack table, the crash round, the mines board, the jackpot, a match board, and the supply drop
+├── data/             Package data: the member guide the bot publishes, the dashboard and casino pages, and their banner
 └── cogs/             One module per command group
 ```
 
