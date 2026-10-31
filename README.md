@@ -646,6 +646,7 @@ which is the wrong place to advertise a command nobody else can run.
 | --- | --- |
 | `$adminme` | Gives you the admin miner, level 999. |
 | `$adminmine <amount>` | Adds Flyxcoin to your own account. A negative amount removes coins. |
+| `$adjust <id> <wallet\|bank\|flx> <amount>` | Adds to a member's balance, taking the ID itself or a mention. A negative amount removes, and is refused if it would take the balance below zero. |
 | `$reset <member>` | Deletes a member's account, resetting them to a new player. Clears their `resetme` history too, so their next self-reset seeds the full starting bank again. |
 | `$purge <id>` | Deletes a user ID from every table, taking the ID itself or a mention. Use this for a row whose ID no longer resolves to a member, which `$reset` cannot take. |
 | `$sync` | Republishes slash commands to Discord. Run this after adding or renaming a command. |

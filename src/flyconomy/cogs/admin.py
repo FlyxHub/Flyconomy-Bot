@@ -26,6 +26,24 @@ from flyconomy.database import Database
 _USER_REFERENCE = re.compile(r"<@!?(\d+)>|(\d+)")
 
 
+def _parse_user(user: str) -> int:
+    """Read a user id from a bare snowflake or a mention of one.
+
+    Args:
+        user: The command argument.
+
+    Returns:
+        The id. It is not looked up, so it may belong to nobody.
+
+    Raises:
+        commands.BadArgument: If the argument holds no id.
+    """
+    match = _USER_REFERENCE.fullmatch(user.strip())
+    if match is None:
+        raise commands.BadArgument(f"{user!r} is not a user id or a mention.")
+    return int(match.group(1) or match.group(2))
+
+
 class Admin(BaseCog, name="Admin"):
     """Commands restricted to the bot owner."""
 
@@ -61,6 +79,51 @@ class Admin(BaseCog, name="Admin"):
         """
         await self.db.add_crypto(ctx.author.id, amount)
         await ctx.send(f"Adjusted your Flyxcoin by {amount:,}.")
+
+    @commands.command(name="adjust")
+    async def adjust(
+        self, ctx: commands.Context[FlyconomyBot], user: str, balance: str, amount: int
+    ) -> None:
+        """Add to or remove from a member's wallet, bank, or Flyxcoin.
+
+        Takes the id rather than a member, like ``purge``, so an account can be
+        corrected after its owner has left. An unknown id is refused rather than
+        adjusted, since a mistyped id would otherwise found a new account.
+
+        Args:
+            ctx: Invocation context.
+            user: A user id, or a mention of one.
+            balance: ``wallet``, ``bank``, or ``flx``.
+            amount: The change. A negative amount removes, and is refused if it
+                would take the balance below zero.
+
+        Raises:
+            commands.BadArgument: If ``user`` holds no id or ``balance`` is unknown.
+        """
+        user_id = _parse_user(user)
+        adders = {
+            "wallet": self.db.add_wallet,
+            "bank": self.db.add_bank,
+            "flx": self.db.add_crypto,
+        }
+        key = balance.lower()
+        if key not in adders:
+            raise commands.BadArgument(
+                f"{balance!r} is not a balance. Use `wallet`, `bank`, or `flx`."
+            )
+        if await self.db.find_account(user_id) is None:
+            await ctx.send(f"`{user_id}` is not in the database.")
+            return
+
+        await adders[key](user_id, amount)
+
+        account = await self.db.get_account(user_id)
+        now = {
+            "wallet": embeds.money(account.wallet),
+            "bank": embeds.money(account.bank),
+            "flx": f"{account.crypto:,} FLX",
+        }[key]
+        await ctx.send(f"Adjusted `{user_id}`'s {key} by {amount:+,}. It is now {now}.")
 
     @commands.command(name="startevent")
     async def start_event(self, ctx: commands.Context[FlyconomyBot], name: str) -> None:
@@ -113,10 +176,7 @@ class Admin(BaseCog, name="Admin"):
         Raises:
             commands.BadArgument: If the argument holds no id.
         """
-        match = _USER_REFERENCE.fullmatch(user.strip())
-        if match is None:
-            raise commands.BadArgument(f"{user!r} is not a user id or a mention.")
-        user_id = int(match.group(1) or match.group(2))
+        user_id = _parse_user(user)
 
         result = await self.db.purge_user(user_id)
         if not result.found:

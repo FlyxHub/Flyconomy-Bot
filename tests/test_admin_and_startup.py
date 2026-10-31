@@ -20,6 +20,7 @@ from flyconomy.cogs.admin import Admin
 from flyconomy.cogs.guide import GuideOutcome
 from flyconomy.config import Settings
 from flyconomy.database import Database
+from flyconomy.errors import InsufficientFundsError
 from flyconomy.logging_config import configure_logging
 from tests.conftest import ALICE, BOB
 from tests.test_cog_behavior import FakeContext, FakeUser
@@ -113,6 +114,45 @@ class TestAdminCommands:
         await cog.adminmine.callback(cog, ctx, -3)
 
         assert (await db.get_account(ALICE)).crypto == 2
+
+    async def test_adjust_moves_each_balance_both_ways(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.ensure_account(BOB)
+        before = await db.get_account(BOB)
+
+        await cog.adjust.callback(cog, ctx, str(BOB), "wallet", 100)
+        await cog.adjust.callback(cog, ctx, f"<@{BOB}>", "BANK", -100)
+        await cog.adjust.callback(cog, ctx, str(BOB), "flx", 7)
+
+        after = await db.get_account(BOB)
+        assert after.wallet == before.wallet + 100
+        assert after.bank == before.bank - 100
+        assert after.crypto == before.crypto + 7
+        assert "7 FLX" in ctx.last
+
+    async def test_adjust_refuses_to_overdraw(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.add_crypto(BOB, 5)
+
+        with pytest.raises(InsufficientFundsError):
+            await cog.adjust.callback(cog, ctx, str(BOB), "flx", -6)
+
+        assert (await db.get_account(BOB)).crypto == 5
+
+    async def test_adjust_does_not_found_an_account_for_an_unknown_id(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+
+        await cog.adjust.callback(cog, ctx, str(BOB), "bank", 100)
+
+        assert await db.find_account(BOB) is None
+        assert "not in the database" in ctx.last
+
+    async def test_adjust_rejects_an_unknown_balance(self, db, settings, ctx):
+        cog = Admin(FakeAdminBot(db, settings))
+        await db.ensure_account(BOB)
+
+        with pytest.raises(commands.BadArgument):
+            await cog.adjust.callback(cog, ctx, str(BOB), "miner", 5)
 
     async def test_reset_deletes_an_account(self, db, settings, ctx):
         cog = Admin(FakeAdminBot(db, settings))
