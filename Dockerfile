@@ -2,7 +2,7 @@
 
 # Build the wheel in a throwaway stage so the runtime image carries no build
 # tools and no source tree.
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /build
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -15,7 +15,7 @@ COPY src ./src
 RUN python -m build --wheel --outdir /dist
 
 
-FROM python:3.14-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 # PYTHONUNBUFFERED keeps logs flowing to `docker logs` in real time.
 ENV PYTHONUNBUFFERED=1 \
